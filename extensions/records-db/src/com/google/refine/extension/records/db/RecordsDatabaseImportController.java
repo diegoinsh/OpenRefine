@@ -7,18 +7,21 @@
 package com.google.refine.extension.records.db;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.refine.RefineServlet;
 import com.google.refine.commands.HttpUtilities;
+import com.google.refine.extension.records.db.model.SchemaProfile;
 import com.google.refine.importing.ImportingController;
 import com.google.refine.util.JSONUtilities;
 import com.google.refine.util.ParsingUtilities;
@@ -117,14 +120,38 @@ public class RecordsDatabaseImportController implements ImportingController {
             logger.debug("::doParsePreview::");
         }
 
+        java.sql.Connection conn = null;
         try {
-            ObjectNode result = ParsingUtilities.mapper.createObjectNode();
-            JSONUtilities.safePut(result, "status", "ok");
+            // Get Schema Profile from request
+            String schemaProfileJson = parameters.get("schemaProfile");
+            if (schemaProfileJson == null || schemaProfileJson.isEmpty()) {
+                HttpUtilities.respond(response, "error", "schemaProfile parameter is required");
+                return;
+            }
 
-            // Return empty data for now - will be implemented in Task 1.2
-            JSONUtilities.safePut(result, "rows", ParsingUtilities.mapper.createArrayNode());
-            JSONUtilities.safePut(result, "columns", ParsingUtilities.mapper.createArrayNode());
-            JSONUtilities.safePut(result, "rowCount", 0);
+            // Parse Schema Profile
+            SchemaProfile profile = SchemaProfileParser.parse(schemaProfileJson);
+
+            // Validate Schema Profile
+            List<String> errors = SchemaProfileValidator.validate(profile);
+            if (!errors.isEmpty()) {
+                ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+                JSONUtilities.safePut(result, "status", "error");
+                JSONUtilities.safePut(result, "message", "Schema Profile validation failed");
+                ArrayNode errorArray = ParsingUtilities.mapper.createArrayNode();
+                for (String error : errors) {
+                    errorArray.add(error);
+                }
+                result.set("errors", errorArray);
+                HttpUtilities.respond(response, result.toString());
+                return;
+            }
+
+            // Get database connection
+            conn = DatabaseConnectionManager.getConnection(profile);
+
+            // Execute query
+            ObjectNode result = QueryExecutor.executeQuery(conn, profile, null, 0, DEFAULT_PREVIEW_LIMIT);
 
             if (logger.isDebugEnabled()) {
                 logger.debug("doParsePreview:::{}", result.toString());
@@ -133,7 +160,12 @@ public class RecordsDatabaseImportController implements ImportingController {
             HttpUtilities.respond(response, result.toString());
         } catch (Exception e) {
             logger.error("Error in doParsePreview", e);
-            HttpUtilities.respond(response, "error", e.getMessage());
+            ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+            JSONUtilities.safePut(result, "status", "error");
+            JSONUtilities.safePut(result, "message", e.getMessage());
+            HttpUtilities.respond(response, result.toString());
+        } finally {
+            DatabaseConnectionManager.closeConnection(conn);
         }
     }
 
