@@ -83,7 +83,19 @@ public class RecordsAssetsController implements ImportingController {
             int limit = limitStr != null ? Integer.parseInt(limitStr) : 100;
 
             if (root == null || root.isEmpty()) {
-                HttpUtilities.respond(response, "error", "root parameter is required");
+                ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+                JSONUtilities.safePut(result, "status", "error");
+                JSONUtilities.safePut(result, "message", "root parameter is required");
+                HttpUtilities.respond(response, result.toString());
+                return;
+            }
+
+            // Validate security
+            if (!SecurityValidator.isPathSafe(root, path)) {
+                ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+                JSONUtilities.safePut(result, "status", "error");
+                JSONUtilities.safePut(result, "message", "Invalid or unsafe path");
+                HttpUtilities.respond(response, result.toString());
                 return;
             }
 
@@ -122,6 +134,15 @@ public class RecordsAssetsController implements ImportingController {
                 ObjectNode result = ParsingUtilities.mapper.createObjectNode();
                 JSONUtilities.safePut(result, "status", "error");
                 JSONUtilities.safePut(result, "message", "root and path parameters are required");
+                HttpUtilities.respond(response, result.toString());
+                return;
+            }
+
+            // Validate security
+            if (!SecurityValidator.isPathSafe(root, path)) {
+                ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+                JSONUtilities.safePut(result, "status", "error");
+                JSONUtilities.safePut(result, "message", "Invalid or unsafe path");
                 HttpUtilities.respond(response, result.toString());
                 return;
             }
