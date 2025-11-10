@@ -1,0 +1,49 @@
+{
+  "records": {
+    "db": {
+      "label": "记录数据库",
+      "description": "从数据库导入记录和文档",
+      "wizard": {
+        "title": "记录数据库导入向导",
+        "selectProfile": {
+          "title": "选择配置文件",
+          "description": "选择预设配置文件或创建自定义配置",
+          "kubao": "库宝档案系统",
+          "flatTable": "平面表",
+          "genericJson": "通用 JSON 字段"
+        },
+        "selectFields": {
+          "title": "选择字段",
+          "description": "选择要导入的字段",
+          "availableFields": "可用字段",
+          "selectedFields": "已选字段"
+        },
+        "configureFilters": {
+          "title": "配置过滤器",
+          "description": "设置数据导入过滤器",
+          "excludeExported": "排除已导出的记录"
+        },
+        "preview": {
+          "title": "预览",
+          "description": "预览要导入的数据",
+          "rowCount": "预览行数"
+        },
+        "createProject": {
+          "title": "创建项目",
+          "description": "创建 OpenRefine 项目",
+          "projectName": "项目名称",
+          "create": "创建项目"
+        }
+      },
+      "error": {
+        "connectionFailed": "数据库连接失败",
+        "invalidProfile": "无效的配置文件",
+        "noFieldsSelected": "请至少选择一个字段"
+      },
+      "success": {
+        "projectCreated": "项目创建成功"
+      }
+    }
+  }
+}
+

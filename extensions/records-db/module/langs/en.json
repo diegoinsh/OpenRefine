@@ -1,0 +1,49 @@
+{
+  "records": {
+    "db": {
+      "label": "Records Database",
+      "description": "Import records and documents from a database",
+      "wizard": {
+        "title": "Records Database Import Wizard",
+        "selectProfile": {
+          "title": "Select Profile",
+          "description": "Choose a preset profile or create a custom one",
+          "kubao": "Kubao Archive System",
+          "flatTable": "Flat Table",
+          "genericJson": "Generic JSON-in-Field"
+        },
+        "selectFields": {
+          "title": "Select Fields",
+          "description": "Choose which fields to import",
+          "availableFields": "Available Fields",
+          "selectedFields": "Selected Fields"
+        },
+        "configureFilters": {
+          "title": "Configure Filters",
+          "description": "Set up filters for data import",
+          "excludeExported": "Exclude already exported records"
+        },
+        "preview": {
+          "title": "Preview",
+          "description": "Preview the data to be imported",
+          "rowCount": "Rows to preview"
+        },
+        "createProject": {
+          "title": "Create Project",
+          "description": "Create the OpenRefine project",
+          "projectName": "Project Name",
+          "create": "Create Project"
+        }
+      },
+      "error": {
+        "connectionFailed": "Failed to connect to database",
+        "invalidProfile": "Invalid profile configuration",
+        "noFieldsSelected": "Please select at least one field"
+      },
+      "success": {
+        "projectCreated": "Project created successfully"
+      }
+    }
+  }
+}
+
