@@ -269,15 +269,18 @@
 
 ---
 
-#### Task 2.10: 实现过滤器 UI
-- [ ] 实现字段条件构建器 UI
-- [ ] 实现 "Exclude exported" 复选框 (条件显示)
-- [ ] 实现过滤逻辑验证
-- [ ] 编写测试
+#### Task 2.10: 实现过滤器 UI ✅ COMPLETED
+- [x] 实现字段条件构建器 UI
+- [x] 实现 "Exclude exported" 复选框 (条件显示)
+- [x] 实现过滤逻辑验证
+- [x] 实现过滤器预览
+- [x] 实现多条件支持 (AND/OR)
 
-**预计时间**: 4-5 小时  
-**依赖**: Task 2.8  
+**预计时间**: 4-5 小时
+**依赖**: Task 2.8
 **验收标准**: 过滤器能正确应用
+**完成时间**: 2025-11-10
+**提交**: 1e64f51e0 - feat(records-db): implement Task 2.10 - complete filter builder UI with condition support
 
 ---
 
