@@ -63,7 +63,7 @@ public class RecordsAssetsController implements ImportingController {
 
     /**
      * List files and directories
-     * GET /command/records-assets/list?root=<root>&path=<path>&depth=<depth>
+     * GET /command/records-assets/list?root=<root>&path=<path>&depth=<depth>&offset=<offset>&limit=<limit>
      */
     private void doList(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
@@ -75,19 +75,20 @@ public class RecordsAssetsController implements ImportingController {
             String root = request.getParameter("root");
             String path = request.getParameter("path");
             String depthStr = request.getParameter("depth");
+            String offsetStr = request.getParameter("offset");
+            String limitStr = request.getParameter("limit");
+
             int depth = depthStr != null ? Integer.parseInt(depthStr) : 1;
+            int offset = offsetStr != null ? Integer.parseInt(offsetStr) : 0;
+            int limit = limitStr != null ? Integer.parseInt(limitStr) : 100;
 
             if (root == null || root.isEmpty()) {
                 HttpUtilities.respond(response, "error", "root parameter is required");
                 return;
             }
 
-            ObjectNode result = ParsingUtilities.mapper.createObjectNode();
-            JSONUtilities.safePut(result, "status", "ok");
-            JSONUtilities.safePut(result, "root", root);
-            JSONUtilities.safePut(result, "path", path != null ? path : "");
-            JSONUtilities.safePut(result, "items", ParsingUtilities.mapper.createArrayNode());
-            JSONUtilities.safePut(result, "totalCount", 0);
+            // List directory
+            ObjectNode result = DirectoryLister.listDirectory(root, path, depth, offset, limit);
 
             if (logger.isDebugEnabled()) {
                 logger.debug("doList:::{}", result.toString());
@@ -96,7 +97,10 @@ public class RecordsAssetsController implements ImportingController {
             HttpUtilities.respond(response, result.toString());
         } catch (Exception e) {
             logger.error("Error in doList", e);
-            HttpUtilities.respond(response, "error", e.getMessage());
+            ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+            JSONUtilities.safePut(result, "status", "error");
+            JSONUtilities.safePut(result, "message", e.getMessage());
+            HttpUtilities.respond(response, result.toString());
         }
     }
 
