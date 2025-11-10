@@ -106,7 +106,7 @@ public class RecordsAssetsController implements ImportingController {
 
     /**
      * Preview file content
-     * GET /command/records-assets/preview?root=<root>&path=<path>&type=<type>
+     * GET /command/records-assets/preview?root=<root>&path=<path>
      */
     private void doPreview(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
@@ -117,16 +117,17 @@ public class RecordsAssetsController implements ImportingController {
         try {
             String root = request.getParameter("root");
             String path = request.getParameter("path");
-            String type = request.getParameter("type");
 
             if (root == null || root.isEmpty() || path == null || path.isEmpty()) {
-                HttpUtilities.respond(response, "error", "root and path parameters are required");
+                ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+                JSONUtilities.safePut(result, "status", "error");
+                JSONUtilities.safePut(result, "message", "root and path parameters are required");
+                HttpUtilities.respond(response, result.toString());
                 return;
             }
 
-            ObjectNode result = ParsingUtilities.mapper.createObjectNode();
-            JSONUtilities.safePut(result, "status", "error");
-            JSONUtilities.safePut(result, "message", "Preview not yet implemented");
+            // Generate preview
+            ObjectNode result = FilePreviewHandler.generatePreview(root, path);
 
             if (logger.isDebugEnabled()) {
                 logger.debug("doPreview:::{}", result.toString());
@@ -135,7 +136,10 @@ public class RecordsAssetsController implements ImportingController {
             HttpUtilities.respond(response, result.toString());
         } catch (Exception e) {
             logger.error("Error in doPreview", e);
-            HttpUtilities.respond(response, "error", e.getMessage());
+            ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+            JSONUtilities.safePut(result, "status", "error");
+            JSONUtilities.safePut(result, "message", e.getMessage());
+            HttpUtilities.respond(response, result.toString());
         }
     }
 }
