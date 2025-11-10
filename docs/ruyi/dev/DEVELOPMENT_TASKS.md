@@ -165,14 +165,16 @@
 
 ---
 
-#### Task 2.3: 完成 create-project 端点
-- [ ] 实现完整的数据导入流程
-- [ ] 实现 OpenRefine 项目创建
-- [ ] 返回项目 ID 和行数
+#### Task 2.3: 完成 create-project 端点 ✅ COMPLETED
+- [x] 实现完整的数据导入流程
+- [x] 实现 OpenRefine 项目创建
+- [x] 返回项目 ID 和行数
 
-**预计时间**: 4-5 小时  
-**依赖**: Task 2.2  
+**预计时间**: 4-5 小时
+**依赖**: Task 2.2
 **验收标准**: 能创建 OpenRefine 项目并导入数据
+**完成时间**: 2025-11-10
+**提交**: 3a20d793d - feat(records-db): implement Task 2.3 - complete create-project endpoint with ProjectCreator
 
 ---
 
