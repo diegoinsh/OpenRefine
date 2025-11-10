@@ -1,0 +1,28 @@
+{
+  "records": {
+    "assets": {
+      "preview": {
+        "title": "资产预览",
+        "selectFile": "选择文件进行预览",
+        "loading": "加载中...",
+        "error": "加载文件出错",
+        "notSupported": "不支持该文件类型的预览"
+      },
+      "list": {
+        "title": "文件浏览器",
+        "empty": "未找到文件",
+        "folder": "文件夹",
+        "file": "文件",
+        "size": "大小",
+        "modified": "修改时间"
+      },
+      "errors": {
+        "invalidPath": "无效的路径",
+        "accessDenied": "访问被拒绝",
+        "fileNotFound": "文件未找到",
+        "pathTraversal": "不允许路径遍历"
+      }
+    }
+  }
+}
+

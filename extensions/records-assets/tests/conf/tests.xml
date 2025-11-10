@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
+<suite name="Records Assets Extension Tests" verbose="2">
+    <test name="Records Assets Tests">
+        <classes>
+            <!-- Test classes will be added here -->
+        </classes>
+    </test>
+</suite>
+
