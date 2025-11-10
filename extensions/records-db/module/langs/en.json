@@ -5,6 +5,14 @@
       "description": "Import records and documents from a database",
       "wizard": {
         "title": "Records Database Import Wizard",
+        "selectMode": {
+          "title": "Select Import Mode",
+          "description": "Choose the mode for data import",
+          "catalogMode": "Catalog Mode",
+          "catalogModeDesc": "Use predefined Catalog mode for metadata import, supporting documents and associated assets",
+          "sqlMode": "SQL Mode",
+          "sqlModeDesc": "Use custom SQL queries for data import, providing more flexible data selection"
+        },
         "selectProfile": {
           "title": "Select Profile",
           "description": "Choose a preset profile or create a custom one",

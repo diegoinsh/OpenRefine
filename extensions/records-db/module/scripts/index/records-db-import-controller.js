@@ -49,7 +49,9 @@
     this._onDone = onDone;
     this._currentStep = 0;
     this._schemaProfile = {};
+    this._mode = 'catalog'; // Default mode
     this._steps = [
+      new SelectModeStep(this),
       new SelectProfileStep(this),
       new SelectFieldsStep(this),
       new FieldMappingStep(this),
@@ -153,7 +155,46 @@
   };
 
   /**
-   * Step 1: Select Profile
+   * Step 1: Select Mode (Catalog or SQL)
+   */
+  var SelectModeStep = function(wizard) {
+    this._wizard = wizard;
+  };
+
+  SelectModeStep.prototype.render = function(div) {
+    var self = this;
+    var html = '<div class="records-db-step">';
+    html += '<h3>' + i18n.t('records.db.wizard.selectMode.title') + '</h3>';
+    html += '<p>' + i18n.t('records.db.wizard.selectMode.description') + '</p>';
+
+    html += '<div class="mode-options">';
+    html += '<div class="mode-option">';
+    html += '<label><input type="radio" name="mode" value="catalog" checked> ';
+    html += '<strong>' + i18n.t('records.db.wizard.selectMode.catalogMode') + '</strong></label>';
+    html += '<p>' + i18n.t('records.db.wizard.selectMode.catalogModeDesc') + '</p>';
+    html += '</div>';
+
+    html += '<div class="mode-option">';
+    html += '<label><input type="radio" name="mode" value="sql"> ';
+    html += '<strong>' + i18n.t('records.db.wizard.selectMode.sqlMode') + '</strong></label>';
+    html += '<p>' + i18n.t('records.db.wizard.selectMode.sqlModeDesc') + '</p>';
+    html += '</div>';
+    html += '</div>';
+
+    html += '</div>';
+    div.innerHTML = html;
+
+    // Attach event handlers
+    var modeRadios = document.querySelectorAll('input[name="mode"]');
+    modeRadios.forEach(function(radio) {
+      radio.onchange = function() {
+        self._wizard._mode = this.value;
+      };
+    });
+  };
+
+  /**
+   * Step 2: Select Profile
    */
   var SelectProfileStep = function(wizard) {
     this._wizard = wizard;

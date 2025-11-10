@@ -5,6 +5,14 @@
       "description": "从数据库导入记录和文档",
       "wizard": {
         "title": "记录数据库导入向导",
+        "selectMode": {
+          "title": "选择导入模式",
+          "description": "选择数据导入的模式",
+          "catalogMode": "Catalog 模式",
+          "catalogModeDesc": "使用预定义的 Catalog 模式进行元数据导入，支持文档和关联资产的导入",
+          "sqlMode": "SQL 模式",
+          "sqlModeDesc": "使用自定义 SQL 查询进行数据导入，提供更灵活的数据选择"
+        },
         "selectProfile": {
           "title": "选择配置文件",
           "description": "选择预设配置文件或创建自定义配置",
