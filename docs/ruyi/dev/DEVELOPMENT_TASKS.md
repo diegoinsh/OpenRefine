@@ -194,27 +194,31 @@
 
 ### 后端 - Records-Assets 完整实现
 
-#### Task 2.5: 完成 /list 端点
-- [ ] 实现目录树遍历
-- [ ] 实现分页逻辑
-- [ ] 实现深度限制
-- [ ] 返回文件和目录列表
+#### Task 2.5: 完成 /list 端点 ✅ COMPLETED
+- [x] 实现目录树遍历
+- [x] 实现分页逻辑
+- [x] 实现深度限制
+- [x] 返回文件和目录列表
 
-**预计时间**: 5-6 小时  
-**依赖**: Task 1.6  
+**预计时间**: 5-6 小时
+**依赖**: Task 1.6
 **验收标准**: 能返回正确的目录结构
+**完成时间**: 2025-11-10
+**提交**: 9f62b1e6d - feat(records-assets): implement Task 2.5 - complete /list endpoint with DirectoryLister
 
 ---
 
-#### Task 2.6: 完成 /preview 端点
-- [ ] 实现图片预览
-- [ ] 实现 PDF 嵌入 (pdf.js)
-- [ ] 实现 Word 下载
-- [ ] 实现文本预览
+#### Task 2.6: 完成 /preview 端点 ✅ COMPLETED
+- [x] 实现图片预览
+- [x] 实现 PDF 嵌入 (pdf.js)
+- [x] 实现 Word 下载
+- [x] 实现文本预览
 
-**预计时间**: 8-10 小时  
-**依赖**: Task 1.6  
+**预计时间**: 8-10 小时
+**依赖**: Task 1.6
 **验收标准**: 能预览各种文件类型
+**完成时间**: 2025-11-10
+**提交**: 707b60b8f - feat(records-assets): implement Task 2.6 - complete /preview endpoint with FilePreviewHandler
 
 ---
 
