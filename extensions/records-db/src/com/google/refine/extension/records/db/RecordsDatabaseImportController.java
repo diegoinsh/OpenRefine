@@ -13,12 +13,14 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.refine.RefineServlet;
 import com.google.refine.commands.HttpUtilities;
 import com.google.refine.importing.ImportingController;
+import com.google.refine.util.JSONUtilities;
 import com.google.refine.util.ParsingUtilities;
 
 public class RecordsDatabaseImportController implements ImportingController {
@@ -66,31 +68,40 @@ public class RecordsDatabaseImportController implements ImportingController {
     }
 
     /**
-     * Initialize UI - returns available modes and presets
+     * Initialize UI - returns available modes, presets, and dialects
      */
     private void doInitializeUI(HttpServletRequest request, HttpServletResponse response,
             Map<String, String> parameters) throws ServletException, IOException {
+        if (logger.isDebugEnabled()) {
+            logger.debug("::doInitializeUI::");
+        }
+
         try {
-            response.setContentType("application/json");
-            response.setCharacterEncoding("UTF-8");
+            ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+            JSONUtilities.safePut(result, "status", "ok");
 
-            StringBuilder sb = new StringBuilder();
-            sb.append("{");
-            sb.append("\"mode\": \"catalog\",");
-            sb.append("\"presets\": [");
-            sb.append("\"kubao\",");
-            sb.append("\"flat_table\",");
-            sb.append("\"generic_json\"");
-            sb.append("],");
-            sb.append("\"dialects\": [");
-            sb.append("\"mysql\",");
-            sb.append("\"postgresql\",");
-            sb.append("\"mariadb\",");
-            sb.append("\"sqlite\"");
-            sb.append("]");
-            sb.append("}");
+            // Add available modes
+            JSONUtilities.safePut(result, "modes", PresetManager.getAvailableModes());
 
-            response.getWriter().write(sb.toString());
+            // Add available presets
+            JSONUtilities.safePut(result, "presets", PresetManager.getAvailablePresets());
+
+            // Add available database dialects
+            JSONUtilities.safePut(result, "dialects", PresetManager.getAvailableDialects());
+
+            // Add default options
+            ObjectNode options = ParsingUtilities.mapper.createObjectNode();
+            JSONUtilities.safePut(options, "mode", "catalog");
+            JSONUtilities.safePut(options, "preset", "kubao");
+            JSONUtilities.safePut(options, "dialect", "mysql");
+            JSONUtilities.safePut(options, "pageSize", DEFAULT_PREVIEW_LIMIT);
+            JSONUtilities.safePut(result, "options", options);
+
+            if (logger.isDebugEnabled()) {
+                logger.debug("doInitializeUI:::{}", result.toString());
+            }
+
+            HttpUtilities.respond(response, result.toString());
         } catch (Exception e) {
             logger.error("Error in doInitializeUI", e);
             HttpUtilities.respond(response, "error", e.getMessage());
@@ -102,19 +113,24 @@ public class RecordsDatabaseImportController implements ImportingController {
      */
     private void doParsePreview(HttpServletRequest request, HttpServletResponse response,
             Map<String, String> parameters) throws ServletException, IOException {
+        if (logger.isDebugEnabled()) {
+            logger.debug("::doParsePreview::");
+        }
+
         try {
-            response.setContentType("application/json");
-            response.setCharacterEncoding("UTF-8");
+            ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+            JSONUtilities.safePut(result, "status", "ok");
 
-            // For now, return empty preview
-            StringBuilder sb = new StringBuilder();
-            sb.append("{");
-            sb.append("\"rows\": [],");
-            sb.append("\"columns\": [],");
-            sb.append("\"rowCount\": 0");
-            sb.append("}");
+            // Return empty data for now - will be implemented in Task 1.2
+            JSONUtilities.safePut(result, "rows", ParsingUtilities.mapper.createArrayNode());
+            JSONUtilities.safePut(result, "columns", ParsingUtilities.mapper.createArrayNode());
+            JSONUtilities.safePut(result, "rowCount", 0);
 
-            response.getWriter().write(sb.toString());
+            if (logger.isDebugEnabled()) {
+                logger.debug("doParsePreview:::{}", result.toString());
+            }
+
+            HttpUtilities.respond(response, result.toString());
         } catch (Exception e) {
             logger.error("Error in doParsePreview", e);
             HttpUtilities.respond(response, "error", e.getMessage());
@@ -122,16 +138,20 @@ public class RecordsDatabaseImportController implements ImportingController {
     }
 
     /**
-     * Create project - creates an OpenRefine project from the data
+     * Create project - creates an OpenRefine project from the imported data
      */
     private void doCreateProject(HttpServletRequest request, HttpServletResponse response,
             Map<String, String> parameters) throws ServletException, IOException {
-        try {
-            response.setContentType("application/json");
-            response.setCharacterEncoding("UTF-8");
+        if (logger.isDebugEnabled()) {
+            logger.debug("::doCreateProject::");
+        }
 
-            // For now, return error
-            HttpUtilities.respond(response, "error", "Create project not yet implemented");
+        try {
+            ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+            JSONUtilities.safePut(result, "status", "error");
+            JSONUtilities.safePut(result, "message", "Create project not yet implemented");
+
+            HttpUtilities.respond(response, result.toString());
         } catch (Exception e) {
             logger.error("Error in doCreateProject", e);
             HttpUtilities.respond(response, "error", e.getMessage());
