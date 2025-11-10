@@ -178,15 +178,17 @@
 
 ---
 
-#### Task 2.4: 实现预设模板
-- [ ] 实现 KubaoPreset.java
-- [ ] 实现 FlatTablePreset.java
-- [ ] 实现 GenericJsonPreset.java
-- [ ] 编写测试
+#### Task 2.4: 实现预设模板 ✅ COMPLETED
+- [x] 实现 KubaoPreset.java
+- [x] 实现 FlatTablePreset.java
+- [x] 实现 GenericJsonPreset.java
+- [x] 编写测试
 
-**预计时间**: 6-8 小时  
-**依赖**: Task 1.3  
+**预计时间**: 6-8 小时
+**依赖**: Task 1.3
 **验收标准**: 三个预设都能正确应用
+**完成时间**: 2025-11-10
+**提交**: 751eb6284 - feat(records-db): implement Task 2.4 - preset templates (Kubao, FlatTable, GenericJson)
 
 ---
 
