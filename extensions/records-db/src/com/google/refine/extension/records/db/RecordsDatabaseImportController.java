@@ -178,15 +178,67 @@ public class RecordsDatabaseImportController implements ImportingController {
             logger.debug("::doCreateProject::");
         }
 
+        java.sql.Connection conn = null;
         try {
-            ObjectNode result = ParsingUtilities.mapper.createObjectNode();
-            JSONUtilities.safePut(result, "status", "error");
-            JSONUtilities.safePut(result, "message", "Create project not yet implemented");
+            // Get parameters
+            String schemaProfileJson = parameters.get("schemaProfile");
+            String projectName = parameters.get("projectName");
+            String maxRowsStr = parameters.get("maxRows");
+
+            if (schemaProfileJson == null || schemaProfileJson.isEmpty()) {
+                HttpUtilities.respond(response, "error", "schemaProfile parameter is required");
+                return;
+            }
+
+            if (projectName == null || projectName.isEmpty()) {
+                HttpUtilities.respond(response, "error", "projectName parameter is required");
+                return;
+            }
+
+            int maxRows = DEFAULT_PREVIEW_LIMIT * 100; // Default to 10000 rows
+            if (maxRowsStr != null && !maxRowsStr.isEmpty()) {
+                try {
+                    maxRows = Integer.parseInt(maxRowsStr);
+                } catch (NumberFormatException e) {
+                    logger.warn("Invalid maxRows value: {}", maxRowsStr);
+                }
+            }
+
+            // Parse and validate Schema Profile
+            SchemaProfile profile = SchemaProfileParser.parse(schemaProfileJson);
+            List<String> errors = SchemaProfileValidator.validate(profile);
+            if (!errors.isEmpty()) {
+                ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+                JSONUtilities.safePut(result, "status", "error");
+                JSONUtilities.safePut(result, "message", "Schema Profile validation failed");
+                ArrayNode errorArray = ParsingUtilities.mapper.createArrayNode();
+                for (String error : errors) {
+                    errorArray.add(error);
+                }
+                result.set("errors", errorArray);
+                HttpUtilities.respond(response, result.toString());
+                return;
+            }
+
+            // Get database connection
+            conn = DatabaseConnectionManager.getConnection(profile);
+
+            // Prepare project creation
+            ObjectNode result = ProjectCreator.prepareProjectCreation(projectName, conn, profile, maxRows);
+
+            if (logger.isDebugEnabled()) {
+                logger.debug("doCreateProject:::{}", result.toString());
+            }
 
             HttpUtilities.respond(response, result.toString());
         } catch (Exception e) {
             logger.error("Error in doCreateProject", e);
-            HttpUtilities.respond(response, "error", e.getMessage());
+            ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+            JSONUtilities.safePut(result, "status", "error");
+            JSONUtilities.safePut(result, "message", e.getMessage());
+            HttpUtilities.respond(response, result.toString());
+        } finally {
+            DatabaseConnectionManager.closeConnection(conn);
         }
     }
 }
