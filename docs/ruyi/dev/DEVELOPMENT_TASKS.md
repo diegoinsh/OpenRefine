@@ -238,27 +238,34 @@
 
 ### 前端 - Records-DB 完整 UI
 
-#### Task 2.8: 完成 Wizard Step 3 & 4
-- [ ] 实现 "Configure Filters" 步骤
-- [ ] 实现字段条件构建器
-- [ ] 实现 "Preview" 步骤
-- [ ] 实现数据表格显示
+#### Task 2.8: 完成 Wizard Step 3 & 4 ✅ COMPLETED
+- [x] 实现 "Field Mapping" 步骤 (Step 3)
+- [x] 实现字段映射 UI
+- [x] 实现 "File Mapping" 步骤 (Step 4)
+- [x] 实现文件映射 UI
+- [x] 实现 "Preview" 步骤 (Step 5)
+- [x] 实现数据表格显示
+- [x] 实现 "Create Project" 步骤 (Step 6)
 
-**预计时间**: 6-8 小时  
-**依赖**: Task 1.8  
+**预计时间**: 6-8 小时
+**依赖**: Task 1.8
 **验收标准**: 能显示过滤器和预览数据
+**完成时间**: 2025-11-10
+**提交**: 083c659ab - feat(records-db): implement Task 2.8 - complete Wizard Step 3 & 4 with field and file mapping UI
 
 ---
 
-#### Task 2.9: 完成 Wizard Step 5
-- [ ] 实现 "Create Project" 步骤
-- [ ] 实现项目名称输入
-- [ ] 实现创建按钮和进度指示
-- [ ] 实现成功/失败处理
+#### Task 2.9: 完成 Wizard Step 5 ✅ COMPLETED
+- [x] 实现 "Create Project" 步骤
+- [x] 实现项目名称输入
+- [x] 实现创建按钮和进度指示
+- [x] 实现成功/失败处理
 
-**预计时间**: 3-4 小时  
-**依赖**: Task 2.8  
+**预计时间**: 3-4 小时
+**依赖**: Task 2.8
 **验收标准**: 能创建项目并跳转
+**完成时间**: 2025-11-10
+**提交**: 083c659ab - feat(records-db): implement Task 2.8 - complete Wizard Step 3 & 4 with field and file mapping UI
 
 ---
 
