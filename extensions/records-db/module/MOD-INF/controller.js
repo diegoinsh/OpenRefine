@@ -64,7 +64,7 @@ function init() {
     "index/styles",
     module,
     [
-      "styles/records-db-import.css"
+      "styles/records-db-wizard.css"
     ]
   );
 }
