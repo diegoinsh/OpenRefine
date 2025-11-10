@@ -53,7 +53,19 @@
         "configureFilters": {
           "title": "配置过滤器",
           "description": "设置数据导入过滤器",
-          "excludeExported": "排除已导出的记录"
+          "excludeExported": "排除已导出的记录",
+          "exportedFieldLabel": "已导出字段名",
+          "exportedValueLabel": "已导出值",
+          "customConditions": "自定义过滤条件",
+          "addCondition": "添加条件",
+          "selectField": "选择字段",
+          "enterValue": "输入值",
+          "removeCondition": "删除",
+          "filterPreview": "过滤器预览",
+          "noFilters": "未配置过滤器",
+          "exportedFieldRequired": "请指定已导出字段名",
+          "exportedValueRequired": "请指定已导出值",
+          "incompleteCondition": "请完成所有过滤条件"
         },
         "preview": {
           "title": "预览",

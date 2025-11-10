@@ -103,6 +103,16 @@
       if (self._currentStep === self._steps.length - 1) {
         self._createProject();
       } else {
+        // Validate current step before moving to next
+        if (self._currentStep === 2) { // ConfigureFiltersStep
+          var validation = self._steps[2].validateFilters();
+          if (!validation.valid) {
+            alert(validation.message);
+            return;
+          }
+          // Store filters in wizard
+          self._filters = self._steps[2].getFilters();
+        }
         self._showStep(self._currentStep + 1);
       }
     };
@@ -371,17 +381,29 @@
    */
   var ConfigureFiltersStep = function(wizard) {
     this._wizard = wizard;
+    this._filterBuilder = new FilterConditionBuilder(wizard);
   };
 
   ConfigureFiltersStep.prototype.render = function(div) {
+    var self = this;
     var html = '<div class="records-db-step">';
     html += '<h3>' + i18n.t('records.db.wizard.configureFilters.title') + '</h3>';
     html += '<p>' + i18n.t('records.db.wizard.configureFilters.description') + '</p>';
-    html += '<div class="filters-container">';
-    html += '<label><input type="checkbox" id="exclude-exported"> ' + i18n.t('records.db.wizard.configureFilters.excludeExported') + '</label>';
-    html += '</div>';
+    html += '<div class="filters-container" id="filter-builder-container"></div>';
     html += '</div>';
     div.innerHTML = html;
+
+    // Render filter builder
+    var container = document.getElementById('filter-builder-container');
+    this._filterBuilder.render(container);
+  };
+
+  ConfigureFiltersStep.prototype.getFilters = function() {
+    return this._filterBuilder.getFilters();
+  };
+
+  ConfigureFiltersStep.prototype.validateFilters = function() {
+    return this._filterBuilder.validateFilters();
   };
 
   /**

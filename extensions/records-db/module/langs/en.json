@@ -53,7 +53,19 @@
         "configureFilters": {
           "title": "Configure Filters",
           "description": "Set up filters for data import",
-          "excludeExported": "Exclude already exported records"
+          "excludeExported": "Exclude already exported records",
+          "exportedFieldLabel": "Exported Field Name",
+          "exportedValueLabel": "Exported Value",
+          "customConditions": "Custom Filter Conditions",
+          "addCondition": "Add Condition",
+          "selectField": "Select a field",
+          "enterValue": "Enter value",
+          "removeCondition": "Remove",
+          "filterPreview": "Filter Preview",
+          "noFilters": "No filters configured",
+          "exportedFieldRequired": "Please specify the exported field name",
+          "exportedValueRequired": "Please specify the exported value",
+          "incompleteCondition": "Please complete all filter conditions"
         },
         "preview": {
           "title": "Preview",
