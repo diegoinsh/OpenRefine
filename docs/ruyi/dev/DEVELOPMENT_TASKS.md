@@ -19,16 +19,20 @@
 
 ---
 
-#### Task 1.2: 实现 RecordsDatabaseImportController
-- [ ] 创建 RecordsDatabaseImportController.java
-- [ ] 实现 ImportingController 接口
-- [ ] 实现 initialize-ui 子命令 (返回模式和预设列表)
-- [ ] 实现 parse-preview 子命令 (返回空数据)
-- [ ] 实现 create-project 子命令 (返回错误)
+#### Task 1.2: 实现 RecordsDatabaseImportController ✅ COMPLETED
+- [x] 创建 RecordsDatabaseImportController.java
+- [x] 实现 ImportingController 接口
+- [x] 实现 initialize-ui 子命令 (返回模式和预设列表)
+- [x] 实现 parse-preview 子命令 (返回空数据)
+- [x] 实现 create-project 子命令 (返回错误)
+- [x] 创建 PresetManager.java (管理预设模板)
+- [x] 创建 SchemaProfile.java (数据模型)
 
-**预计时间**: 3-4 小时  
-**依赖**: Task 1.1  
+**预计时间**: 3-4 小时
+**依赖**: Task 1.1
 **验收标准**: 三个子命令都能被调用，返回正确的 JSON 结构
+**完成时间**: 2025-11-10
+**提交**: f3c6e4ad4 - feat(records-db): implement Task 1.2 - enhanced RecordsDatabaseImportController with PresetManager and SchemaProfile model
 
 ---
 
