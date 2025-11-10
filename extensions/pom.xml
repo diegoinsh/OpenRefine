@@ -21,6 +21,7 @@
         <module>jython</module>
         <module>wikibase</module>
         <module>database</module>
+        <module>records-db</module>
         <module>pc-axis</module>
         <!-- Add new extensions here -->
   </modules>
