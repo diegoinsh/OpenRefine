@@ -4,16 +4,18 @@
 
 ### 后端 - Records-DB 扩展
 
-#### Task 1.1: 创建扩展骨架
-- [ ] 创建 `extensions/records-db/` 目录结构
-- [ ] 复制 database 扩展的 pom.xml 并修改
-- [ ] 创建 MOD-INF/controller.js
-- [ ] 创建 MOD-INF/module.properties
-- [ ] 配置 Maven 构建
+#### Task 1.1: 创建扩展骨架 ✅ COMPLETED
+- [x] 创建 `extensions/records-db/` 目录结构
+- [x] 复制 database 扩展的 pom.xml 并修改
+- [x] 创建 MOD-INF/controller.js
+- [x] 创建 MOD-INF/module.properties
+- [x] 配置 Maven 构建
 
-**预计时间**: 2-3 小时  
-**依赖**: 无  
+**预计时间**: 2-3 小时
+**依赖**: 无
 **验收标准**: 扩展可以编译，能在 OpenRefine 中加载
+**完成时间**: 2025-11-10
+**提交**: b96f03751 - feat(records-db): implement Phase 1 - extension skeleton and basic controller
 
 ---
 
