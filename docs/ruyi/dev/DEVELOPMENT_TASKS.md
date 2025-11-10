@@ -307,15 +307,16 @@
 
 ### 后端 - 性能和功能优化
 
-#### Task 3.1: 性能优化
-- [ ] 实现结果集流式处理
-- [ ] 实现字段字典缓存
-- [ ] 配置连接池
+#### Task 3.1: 性能优化 🔄 IN PROGRESS
+- [x] 实现结果集流式处理 (StreamingResultSet.java)
+- [x] 实现字段字典缓存 (FieldDictionaryCache.java)
+- [x] 配置连接池 (ConnectionPoolManager.java + HikariCP)
 - [ ] 性能测试 (1000+ 行)
 
-**预计时间**: 4-5 小时  
-**依赖**: Task 2.2  
+**预计时间**: 4-5 小时
+**依赖**: Task 2.2
 **验收标准**: 导入 1000+ 行数据 < 5 秒
+**提交**: 55b6873a6 - feat(records-db): implement Task 3.1 - performance optimization
 
 ---
 
