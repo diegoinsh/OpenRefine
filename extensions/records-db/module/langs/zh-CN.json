@@ -10,13 +10,45 @@
           "description": "选择预设配置文件或创建自定义配置",
           "kubao": "库宝档案系统",
           "flatTable": "平面表",
-          "genericJson": "通用 JSON 字段"
+          "genericJson": "通用 JSON 字段",
+          "databaseConfig": "数据库配置",
+          "dialect": "数据库方言",
+          "host": "主机",
+          "port": "端口",
+          "database": "数据库",
+          "username": "用户名",
+          "password": "密码",
+          "testConnection": "测试连接",
+          "testing": "正在测试连接",
+          "connectionSuccess": "连接成功！"
         },
         "selectFields": {
           "title": "选择字段",
           "description": "选择要导入的字段",
           "availableFields": "可用字段",
-          "selectedFields": "已选字段"
+          "selectedFields": "已选字段",
+          "selectAll": "全选",
+          "deselectAll": "取消全选"
+        },
+        "fieldMapping": {
+          "title": "字段映射",
+          "description": "配置数据库字段如何映射到 OpenRefine 列",
+          "sourceField": "源字段",
+          "targetField": "目标字段",
+          "fieldType": "字段类型",
+          "action": "操作",
+          "addField": "添加字段"
+        },
+        "fileMapping": {
+          "title": "文件映射",
+          "description": "配置文件根目录和允许的目录",
+          "fileRootColumn": "文件根目录列",
+          "fileRootRawColumn": "文件根目录原始列",
+          "allowedRoots": "允许的根目录",
+          "enableFilePreview": "启用文件预览",
+          "preview": "文件浏览器预览",
+          "selectFileRootColumn": "请选择文件根目录列",
+          "noRootConfigured": "未配置根目录"
         },
         "configureFilters": {
           "title": "配置过滤器",
@@ -26,13 +58,17 @@
         "preview": {
           "title": "预览",
           "description": "预览要导入的数据",
-          "rowCount": "预览行数"
+          "rowCount": "预览行数",
+          "loading": "正在加载预览"
         },
         "createProject": {
           "title": "创建项目",
           "description": "创建 OpenRefine 项目",
           "projectName": "项目名称",
-          "create": "创建项目"
+          "maxRows": "最大行数",
+          "create": "创建项目",
+          "creating": "正在创建项目",
+          "success": "项目创建成功！"
         }
       },
       "error": {
@@ -43,6 +79,14 @@
       "success": {
         "projectCreated": "项目创建成功"
       }
+    }
+  },
+  "common": {
+    "button": {
+      "previous": "上一步",
+      "next": "下一步",
+      "finish": "完成",
+      "cancel": "取消"
     }
   }
 }
