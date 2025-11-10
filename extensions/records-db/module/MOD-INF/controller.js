@@ -54,8 +54,7 @@ function init() {
     "index/scripts",
     module,
     [
-      "scripts/index/records-db-import-controller.js",
-      "scripts/index/records-db-source-ui.js"
+      "scripts/index/records-db-import-controller.js"
     ]
   );
   

@@ -7,12 +7,29 @@
 (function() {
   'use strict';
 
-  // Register the import controller
-  Refine.registerImportingController(new ImportingController({
-    id: 'records-db',
-    label: i18n.t('records.db.label'),
-    uiClass: RecordsDBSourceUI
-  }));
+  // Initialize i18n for this module
+  if (typeof I18NUtil !== 'undefined') {
+    I18NUtil.init("records-db");
+  }
+
+  // Register controller into Create Project UI (like the built-in database importer)
+  Refine.RecordsDBImportController = function(createProjectUI) {
+    this._createProjectUI = createProjectUI;
+    this._parsingPanel = createProjectUI.addCustomPanel();
+
+    createProjectUI.addSourceSelectionUI({
+      label: i18n && typeof i18n.t === 'function' ? i18n.t('records.db.label') : 'Records Database',
+      id: 'records-db-source',
+      ui: new RecordsDBSourceUI(this)
+    });
+  };
+
+  Refine.CreateProjectUI.controllers.push(Refine.RecordsDBImportController);
+
+  // Optional: stub to satisfy CreateProjectUI expectations; wizard handles flow
+  Refine.RecordsDBImportController.prototype.startImportingDocument = function(queryInfo) {
+    // The wizard triggers importing commands itself; this is a no-op fall-back
+  };
 
   /**
    * Records Database Source UI
