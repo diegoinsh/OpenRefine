@@ -66,27 +66,31 @@
 
 ### 后端 - Records-Assets 扩展
 
-#### Task 1.5: 创建 Records-Assets 扩展骨架
-- [ ] 创建 `extensions/records-assets/` 目录结构
-- [ ] 创建 pom.xml
-- [ ] 创建 MOD-INF/controller.js
-- [ ] 创建 MOD-INF/module.properties
+#### Task 1.5: 创建 Records-Assets 扩展骨架 ✅ COMPLETED
+- [x] 创建 `extensions/records-assets/` 目录结构
+- [x] 创建 pom.xml
+- [x] 创建 MOD-INF/controller.js
+- [x] 创建 MOD-INF/module.properties
 
-**预计时间**: 2-3 小时  
-**依赖**: 无  
+**预计时间**: 2-3 小时
+**依赖**: 无
 **验收标准**: 扩展可以编译和加载
+**完成时间**: 2025-11-10
+**提交**: 851e0991d - feat(records-assets): implement Task 1.5 & 1.6 - extension skeleton and RecordsAssetsController
 
 ---
 
-#### Task 1.6: 实现 RecordsAssetsController 基础
-- [ ] 创建 RecordsAssetsController.java
-- [ ] 实现 /command/records-assets/list 端点 (返回空列表)
-- [ ] 实现 /command/records-assets/preview 端点 (返回 404)
-- [ ] 创建 PathValidator.java (基础路径验证)
+#### Task 1.6: 实现 RecordsAssetsController 基础 ✅ COMPLETED
+- [x] 创建 RecordsAssetsController.java
+- [x] 实现 /command/records-assets/list 端点 (返回空列表)
+- [x] 实现 /command/records-assets/preview 端点 (返回 404)
+- [x] 创建 PathValidator.java (基础路径验证)
 
-**预计时间**: 3-4 小时  
-**依赖**: Task 1.5  
+**预计时间**: 3-4 小时
+**依赖**: Task 1.5
 **验收标准**: 两个端点都能被调用，返回正确的 HTTP 状态码
+**完成时间**: 2025-11-10
+**提交**: 851e0991d - feat(records-assets): implement Task 1.5 & 1.6 - extension skeleton and RecordsAssetsController
 
 ---
 
