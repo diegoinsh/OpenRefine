@@ -138,26 +138,30 @@
 
 ### 后端 - Records-DB 完整实现
 
-#### Task 2.1: 完成 initialize-ui 端点
-- [ ] 返回支持的数据库方言列表
-- [ ] 返回可用的预设列表
-- [ ] 返回 Catalog Mode 配置选项
+#### Task 2.1: 完成 initialize-ui 端点 ✅ COMPLETED
+- [x] 返回支持的数据库方言列表
+- [x] 返回可用的预设列表
+- [x] 返回 Catalog Mode 配置选项
 
-**预计时间**: 2 小时  
-**依赖**: Task 1.2  
+**预计时间**: 2 小时
+**依赖**: Task 1.2
 **验收标准**: 端点返回完整的初始化数据
+**完成时间**: 2025-11-10
+**提交**: b75009980 (已在 Task 1.2 中完成)
 
 ---
 
-#### Task 2.2: 完成 parse-preview 端点
-- [ ] 实现数据库连接
-- [ ] 实现 Schema Profile 应用
-- [ ] 实现 P0 查询执行
-- [ ] 返回前 100 行数据
+#### Task 2.2: 完成 parse-preview 端点 ✅ COMPLETED
+- [x] 实现数据库连接
+- [x] 实现 Schema Profile 应用
+- [x] 实现 P0 查询执行
+- [x] 返回前 100 行数据
 
-**预计时间**: 6-8 小时  
-**依赖**: Task 1.4  
+**预计时间**: 6-8 小时
+**依赖**: Task 1.4
 **验收标准**: 能返回正确的预览数据
+**完成时间**: 2025-11-10
+**提交**: b75009980 - feat(records-db): implement Task 2.2 - complete parse-preview endpoint with database connection and query execution
 
 ---
 
