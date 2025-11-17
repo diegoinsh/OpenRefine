@@ -6,6 +6,7 @@ package com.google.refine.extension.records.db;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -20,9 +21,9 @@ import com.google.refine.util.ParsingUtilities;
  * Parses Schema Profile from JSON configuration
  */
 public class SchemaProfileParser {
-    
+
     private static final Logger logger = LoggerFactory.getLogger("SchemaProfileParser");
-    
+
     /**
      * Parse Schema Profile from JSON string
      */
@@ -30,7 +31,7 @@ public class SchemaProfileParser {
         ObjectNode jsonNode = ParsingUtilities.evaluateJsonStringToObjectNode(jsonString);
         return parse(jsonNode);
     }
-    
+
     /**
      * Parse Schema Profile from JSON node
      */
@@ -38,9 +39,9 @@ public class SchemaProfileParser {
         if (jsonNode == null) {
             throw new IllegalArgumentException("Schema Profile JSON cannot be null");
         }
-        
+
         SchemaProfile profile = new SchemaProfile();
-        
+
         // Basic configuration
         if (jsonNode.has("name")) {
             profile.setName(jsonNode.get("name").asText());
@@ -56,7 +57,7 @@ public class SchemaProfileParser {
         if (jsonNode.has("preset")) {
             profile.setPreset(jsonNode.get("preset").asText());
         }
-        
+
         // Database connection
         if (jsonNode.has("dialect")) {
             profile.setDialect(jsonNode.get("dialect").asText());
@@ -76,7 +77,7 @@ public class SchemaProfileParser {
         if (jsonNode.has("password")) {
             profile.setPassword(jsonNode.get("password").asText());
         }
-        
+
         // Table mapping
         if (jsonNode.has("mainTable")) {
             profile.setMainTable(jsonNode.get("mainTable").asText());
@@ -87,7 +88,7 @@ public class SchemaProfileParser {
         if (jsonNode.has("recordTypeColumn")) {
             profile.setRecordTypeColumn(jsonNode.get("recordTypeColumn").asText());
         }
-        
+
         // Field mappings
         if (jsonNode.has("fieldMappings") && jsonNode.get("fieldMappings").isArray()) {
             List<FieldMapping> fieldMappings = new ArrayList<>();
@@ -97,8 +98,18 @@ public class SchemaProfileParser {
             }
             profile.setFieldMappings(fieldMappings);
         }
-        
-        // File/Asset mapping
+
+        // File/Asset mapping (new structure)
+        if (jsonNode.has("fileMapping")) {
+            try {
+                Map<String, Object> fileMapping = ParsingUtilities.mapper.convertValue(jsonNode.get("fileMapping"), Map.class);
+                profile.setFileMapping(fileMapping);
+            } catch (Exception ignore) {
+                // ignore malformed fileMapping
+            }
+        }
+
+        // File/Asset mapping (deprecated - for backward compatibility)
         if (jsonNode.has("fileRootColumn")) {
             profile.setFileRootColumn(jsonNode.get("fileRootColumn").asText());
         }
@@ -112,7 +123,17 @@ public class SchemaProfileParser {
             }
             profile.setAllowedRoots(allowedRoots);
         }
-        
+
+        // Filters
+        if (jsonNode.has("filters")) {
+            try {
+                Map<String, Object> filters = ParsingUtilities.mapper.convertValue(jsonNode.get("filters"), Map.class);
+                profile.setFilters(filters);
+            } catch (Exception ignore) {
+                // ignore malformed filters; treat as none
+            }
+        }
+
         // Pagination
         if (jsonNode.has("pageSize")) {
             profile.setPageSize(jsonNode.get("pageSize").asInt());
@@ -120,20 +141,20 @@ public class SchemaProfileParser {
         if (jsonNode.has("maxRows")) {
             profile.setMaxRows(jsonNode.get("maxRows").asInt());
         }
-        
+
         if (logger.isDebugEnabled()) {
             logger.debug("Parsed Schema Profile: {}", profile.getName());
         }
-        
+
         return profile;
     }
-    
+
     /**
      * Parse a single field mapping
      */
     private static FieldMapping parseFieldMapping(JsonNode fieldNode) {
         FieldMapping mapping = new FieldMapping();
-        
+
         if (fieldNode.has("columnName")) {
             mapping.setColumnName(fieldNode.get("columnName").asText());
         }
@@ -152,7 +173,7 @@ public class SchemaProfileParser {
         if (fieldNode.has("isExportFlag")) {
             mapping.setExportFlag(fieldNode.get("isExportFlag").asBoolean());
         }
-        
+
         return mapping;
     }
 }

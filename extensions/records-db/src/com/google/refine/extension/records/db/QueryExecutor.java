@@ -54,12 +54,17 @@ public class QueryExecutor {
             ResultSetMetaData metadata = rs.getMetaData();
             int columnCount = metadata.getColumnCount();
             
-            // Build column list
+            // Build column list (prefer column label/alias)
             ArrayNode columns = ParsingUtilities.mapper.createArrayNode();
             for (int i = 1; i <= columnCount; i++) {
                 ObjectNode col = ParsingUtilities.mapper.createObjectNode();
-                JSONUtilities.safePut(col, "name", metadata.getColumnName(i));
-                JSONUtilities.safePut(col, "type", metadata.getColumnTypeName(i));
+                String label = null;
+                try { label = metadata.getColumnLabel(i); } catch (Exception ignore) {}
+                if (label == null || label.isEmpty()) {
+                    try { label = metadata.getColumnName(i); } catch (Exception ignore) {}
+                }
+                JSONUtilities.safePut(col, "name", label);
+                try { JSONUtilities.safePut(col, "type", metadata.getColumnTypeName(i)); } catch (Exception ignore) {}
                 columns.add(col);
             }
             
@@ -67,46 +72,50 @@ public class QueryExecutor {
             ArrayNode rows = ParsingUtilities.mapper.createArrayNode();
             while (rs.next()) {
                 ObjectNode row = ParsingUtilities.mapper.createObjectNode();
-                
+
                 for (int i = 1; i <= columnCount; i++) {
-                    String columnName = metadata.getColumnName(i);
+                    String columnLabel = null;
+                    try { columnLabel = metadata.getColumnLabel(i); } catch (Exception ignore) {}
+                    if (columnLabel == null || columnLabel.isEmpty()) {
+                        try { columnLabel = metadata.getColumnName(i); } catch (Exception ignore) {}
+                    }
                     Object value = rs.getObject(i);
 
-                    // Handle JSON fields
-                    if (isJsonField(profile, columnName)) {
+                    // Handle JSON fields (only when columns represent raw JSON columns)
+                    if (isJsonField(profile, columnLabel)) {
                         if (value != null) {
                             String jsonStr = value.toString();
                             try {
                                 Object jsonValue = ParsingUtilities.mapper.readValue(jsonStr, Object.class);
-                                row.set(columnName, ParsingUtilities.mapper.valueToTree(jsonValue));
+                                row.set(columnLabel, ParsingUtilities.mapper.valueToTree(jsonValue));
                             } catch (Exception e) {
-                                JSONUtilities.safePut(row, columnName, jsonStr);
+                                JSONUtilities.safePut(row, columnLabel, jsonStr);
                             }
                         } else {
-                            JSONUtilities.safePut(row, columnName, (String) null);
+                            JSONUtilities.safePut(row, columnLabel, (String) null);
                         }
                     } else {
                         // Convert value to appropriate type
                         if (value == null) {
-                            JSONUtilities.safePut(row, columnName, (String) null);
+                            JSONUtilities.safePut(row, columnLabel, (String) null);
                         } else if (value instanceof String) {
-                            JSONUtilities.safePut(row, columnName, (String) value);
+                            JSONUtilities.safePut(row, columnLabel, (String) value);
                         } else if (value instanceof Integer) {
-                            JSONUtilities.safePut(row, columnName, ((Integer) value).longValue());
+                            JSONUtilities.safePut(row, columnLabel, ((Integer) value).longValue());
                         } else if (value instanceof Long) {
-                            JSONUtilities.safePut(row, columnName, (Long) value);
+                            JSONUtilities.safePut(row, columnLabel, (Long) value);
                         } else if (value instanceof Double) {
-                            JSONUtilities.safePut(row, columnName, (Double) value);
+                            JSONUtilities.safePut(row, columnLabel, (Double) value);
                         } else if (value instanceof Float) {
-                            JSONUtilities.safePut(row, columnName, ((Float) value).doubleValue());
+                            JSONUtilities.safePut(row, columnLabel, ((Float) value).doubleValue());
                         } else if (value instanceof Boolean) {
-                            JSONUtilities.safePut(row, columnName, (Boolean) value);
+                            JSONUtilities.safePut(row, columnLabel, (Boolean) value);
                         } else {
-                            JSONUtilities.safePut(row, columnName, value.toString());
+                            JSONUtilities.safePut(row, columnLabel, value.toString());
                         }
                     }
                 }
-                
+
                 rows.add(row);
             }
             

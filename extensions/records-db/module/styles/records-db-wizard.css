@@ -5,6 +5,9 @@
   max-width: 1000px;
   margin: 0 auto;
   padding: 20px;
+  display: flex;
+  flex-direction: column;
+  min-height: 500px;
 }
 
 .records-db-wizard #records-db-steps {
@@ -23,6 +26,9 @@
   padding: 20px;
   min-height: 400px;
   margin-bottom: 20px;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  max-height: 60vh;
 }
 
 .records-db-step {
@@ -114,6 +120,12 @@
   background-color: #f0f7ff;
   box-shadow: 0 2px 8px rgba(0, 123, 255, 0.1);
 }
+
+/* Conditions UI fixes: prevent dropdown overflow and ensure layout stability */
+.conditions-list { position: relative; overflow: visible; }
+.conditions-list .condition-item { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.conditions-list .condition-row { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+.conditions-list select, .conditions-list input { max-width: 100%; box-sizing: border-box; }
 
 .mode-option label {
   display: flex;
@@ -268,6 +280,14 @@
   font-size: 13px;
 }
 
+/* Ensure dropdowns render correctly within mapping table cells */
+.field-mapping-table td { overflow: visible; position: relative; }
+.field-mapping-table select { max-width: 100%; box-sizing: border-box; white-space: nowrap; }
+
+/* Safety for dictionary config selects */
+.dict-config .form-group select { max-width: 100%; }
+
+
 /* File Mapping */
 .file-mapping-form {
   background-color: #f9f9f9;
@@ -337,10 +357,16 @@
 
 /* Buttons */
 #records-db-buttons {
+  position: sticky;
+  bottom: 0;
   display: flex;
   gap: 10px;
   justify-content: flex-end;
   margin-top: 20px;
+  background: #fff;
+  padding-top: 10px;
+  border-top: 1px solid #eee;
+  z-index: 5;
 }
 
 .button {

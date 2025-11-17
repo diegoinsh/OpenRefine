@@ -34,11 +34,17 @@ public class SchemaProfile {
     // Field mapping
     private List<FieldMapping> fieldMappings;
     
-    // File/Asset mapping
+    // File/Asset mapping (new structure)
+    private Map<String, Object> fileMapping;
+
+    // File/Asset mapping (deprecated - for backward compatibility)
+    @Deprecated
     private String fileRootColumn;
+    @Deprecated
     private String fileRootRawColumn;
+    @Deprecated
     private List<String> allowedRoots;
-    
+
     // Filtering
     private Map<String, Object> filters;
     
@@ -164,26 +170,40 @@ public class SchemaProfile {
         this.fieldMappings = fieldMappings;
     }
     
+    public Map<String, Object> getFileMapping() {
+        return fileMapping;
+    }
+
+    public void setFileMapping(Map<String, Object> fileMapping) {
+        this.fileMapping = fileMapping;
+    }
+
+    @Deprecated
     public String getFileRootColumn() {
         return fileRootColumn;
     }
-    
+
+    @Deprecated
     public void setFileRootColumn(String fileRootColumn) {
         this.fileRootColumn = fileRootColumn;
     }
-    
+
+    @Deprecated
     public String getFileRootRawColumn() {
         return fileRootRawColumn;
     }
-    
+
+    @Deprecated
     public void setFileRootRawColumn(String fileRootRawColumn) {
         this.fileRootRawColumn = fileRootRawColumn;
     }
-    
+
+    @Deprecated
     public List<String> getAllowedRoots() {
         return allowedRoots;
     }
-    
+
+    @Deprecated
     public void setAllowedRoots(List<String> allowedRoots) {
         this.allowedRoots = allowedRoots;
     }

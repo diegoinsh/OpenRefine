@@ -87,7 +87,16 @@ $(function() {
         "command/core/get-version",
         null,
         function(data) {
-          var OpenRefineVersion = data;
+          OpenRefineVersion = data || {
+            version: "0.0.0",
+            full_version: "unknown",
+            module_names: [],
+            java_runtime_name: "",
+            java_runtime_version: "",
+            java_vm_name: "",
+            java_vm_version: "",
+            display_new_version_notice: "false"
+          };
 
           $("#openrefine-version").prepend($.i18n('core-index/refine-version', OpenRefineVersion.full_version));
           $("#openrefine-extensions").text($.i18n('core-index/refine-extensions', OpenRefineVersion.module_names.join(", ")));

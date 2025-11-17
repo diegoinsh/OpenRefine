@@ -3,7 +3,7 @@
 <suite name="Records-DB Extension Tests" verbose="2">
     <test name="Records-DB Tests">
         <classes>
-            <!-- Test classes will be added here -->
+            <class name="com.google.refine.extension.records.db.PerformanceTest" />
         </classes>
     </test>
 </suite>

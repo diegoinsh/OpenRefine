@@ -11,8 +11,9 @@ I18NUtil.init = function (module) {
      * Note that the browser language is only used to show a warning if the server
      * replies with another. The language is instead picked form the `userLang` preference.
      */
-    var lang = (navigator.language).split("-")[0];
-    var dictionary = "";
+    var browserLang = (navigator.language || navigator.userLanguage || 'en');
+    var lang = browserLang.split("-")[0];
+    var dictionary = {}; // ensure object to avoid spurious network fetches
 
     $.ajax({
         url: "command/core/load-language?",
@@ -22,26 +23,32 @@ I18NUtil.init = function (module) {
             module: module
         },
         success: function (data) {
-            dictionary = data['dictionary'];
+            if (data && data['dictionary']) { dictionary = data['dictionary']; }
             var langFromServer = data['lang'];
             if (lang !== langFromServer) {
                 console.warn('Language \'' + lang + '\' missing translation. Defaulting to \''+langFromServer+'\'.');
-                lang = langFromServer;
+                if (typeof langFromServer === 'string' && langFromServer.length) { lang = langFromServer; }
             }
         }
     }).fail(function( jqXhr, textStatus, errorThrown ) {
-        var errorMessage = $.i18n('core-index/prefs-loading-failed');
-        if(errorMessage != "" && errorMessage != 'core-index/prefs-loading-failed') {
+        var errorMessage = $.i18n ? $.i18n('core-index/prefs-loading-failed') : '';
+        if (errorMessage && errorMessage != 'core-index/prefs-loading-failed') {
             alert(errorMessage);
         } else {
-            alert( textStatus + ':' + errorThrown );
+            // Non-blocking: log and continue with fallback
+            console.warn("Failed to load language for module '" + module + "': " + textStatus + ':' + errorThrown);
         }
     });
-    $.i18n().load(dictionary, lang);
-    $('html').attr('lang', lang.replace('_', '-'));
+    try {
+        $.i18n().load(dictionary || {}, lang || 'en');
+    } catch (e) {
+        console.warn("i18n load failed, falling back to 'en':", e);
+        try { $.i18n().load(dictionary || {}, 'en'); } catch (e2) {}
+    }
+    $('html').attr('lang', (lang || 'en').replace('_', '-'));
     if (module === 'core') {
-      $.i18n({locale: lang});
+      $.i18n({ locale: (lang || 'en') });
       // TODO: This should be globally accessible, but this is OK for our current needs
-      Refine.userLang = lang;
+      Refine.userLang = (lang || 'en');
     }
 }

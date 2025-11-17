@@ -80,13 +80,143 @@ WHERE field_data::json->>'code' = 'value'
 - `data_key`: Entry number/code
 - `project_id`: Project ID
 - `bind_table_id`: Table ID
-- `file_root`: Current path (from file_book.current_path)
-- `file_root_raw`: Scan path (from file_book.scan_path)
-- `exported`: Export flag (optional, only if configured)
 
 **Dictionary Fields**:
 - Mapped from project_bind_field.code → project_bind_field.name
 - Used as column headers in OpenRefine
+
+## File Path Mapping (Simplified)
+
+**Configuration Structure** (`fileMapping`):
+
+```json
+{
+  "fileMapping": {
+    "rootPath": "/home/kubao/scanFiles",
+    "source": "main",
+    "field": "current_path",
+    "columnLabel": "file_path"
+  }
+}
+```
+
+**Configuration Fields**:
+
+1. **`rootPath`** (optional, string):
+   - Fixed root directory prefix on the file system
+   - Can be empty - if empty, the field value is treated as absolute path
+   - Example: `/home/kubao/scanFiles` or `D:\scanFiles`
+
+2. **`source`** (required, string):
+   - Where the path field comes from
+   - Values: `"main"` | `"exportedJoin"` | `"join"`
+   - `"main"`: Field from main table
+   - `"exportedJoin"`: Field from exclude-exported join table (if configured in filters)
+   - `"join"`: Field from custom join table (configured in filters.conditions)
+
+3. **`field`** (required, string):
+   - Column name in the source table
+   - Example: `"current_path"`, `"scan_path"`
+
+4. **`joinTable`**, **`mainKey`**, **`joinKey`** (required when `source="join"`):
+   - Identifies which custom join to use
+   - Must match a join already configured in `filters.conditions`
+   - Example:
+     ```json
+     {
+       "source": "join",
+       "joinTable": "file_book",
+       "mainKey": "book_id",
+       "joinKey": "id",
+       "field": "current_path"
+     }
+     ```
+
+5. **`columnLabel`** (optional, string):
+   - Custom column name in OpenRefine export
+   - Default: `"file_path"`
+
+**SQL Generation**:
+
+- If `rootPath` is configured:
+  - PostgreSQL: `rootPath || '/' || table_alias.field AS columnLabel`
+  - MySQL: `CONCAT(rootPath, '/', table_alias.field) AS columnLabel`
+- If `rootPath` is empty:
+  - `table_alias.field AS columnLabel`
+- The file path column is always appended as the **last column** in SELECT
+
+**Examples**:
+
+1. **Main table field with root path**:
+```json
+{
+  "mainTable": "file_book",
+  "fileMapping": {
+    "rootPath": "/home/kubao/scanFiles",
+    "source": "main",
+    "field": "current_path",
+    "columnLabel": "file_path"
+  }
+}
+```
+SQL: `'/home/kubao/scanFiles' || '/' || m.current_path AS file_path`
+
+2. **Exported join table field**:
+```json
+{
+  "filters": {
+    "exportedJoin": {
+      "joinTable": "file_book",
+      "mainColumn": "book_id",
+      "joinColumn": "id"
+    }
+  },
+  "fileMapping": {
+    "rootPath": "",
+    "source": "exportedJoin",
+    "field": "scan_path",
+    "columnLabel": "original_path"
+  }
+}
+```
+SQL: `je.scan_path AS original_path`
+
+3. **Custom join table field**:
+```json
+{
+  "filters": {
+    "conditions": [
+      {
+        "source": "join",
+        "joinTable": "archive_files",
+        "mainKey": "file_id",
+        "joinKey": "id",
+        "field": "status",
+        "operator": "=",
+        "value": "active"
+      }
+    ]
+  },
+  "fileMapping": {
+    "rootPath": "/mnt/archive",
+    "source": "join",
+    "joinTable": "archive_files",
+    "mainKey": "file_id",
+    "joinKey": "id",
+    "field": "archive_path",
+    "columnLabel": "archived_file"
+  }
+}
+```
+SQL: `'/mnt/archive' || '/' || j1.archive_path AS archived_file`
+
+**Backward Compatibility**:
+
+Old fields (`fileRootColumn`, `fileRootRawColumn`, `allowedRoots`) are deprecated but still supported:
+- If `fileMapping` exists, use new structure
+- If `fileMapping` is missing but old fields exist, convert internally:
+  - `fileRootColumn` → `fileMapping.source="main"`, `fileMapping.field=fileRootColumn`
+  - `allowedRoots[0]` → `fileMapping.rootPath` (use first root only)
 
 ## Export Flag Filtering
 
@@ -123,10 +253,11 @@ WHERE field_data::json->>'code' = 'value'
 
 ## Integration with Assets Extension
 
-- Records-DB exports `file_root` column
-- Assets extension uses `file_root` to load directory tree
+- Records-DB exports file path column (configured via `fileMapping`)
+- Assets extension uses the file path column to load directory tree
 - No direct coupling between extensions
 - Communication via OpenRefine project columns
+- `rootPath` in fileMapping can be used for security validation (similar to old `allowedRoots`)
 
 ## Performance Considerations
 
