@@ -786,6 +786,21 @@
 
   FileMappingStep.prototype._loadFileMapping = function() {
     var self = this;
+
+    // Ensure Step 4 (ConfigureFiltersStep) has applied its filters to the profile
+    if (this._wizard && this._wizard._steps && this._wizard._steps[3]) {
+      var filterStep = this._wizard._steps[3];
+      if (filterStep && typeof filterStep.applyToProfile === 'function') {
+        try {
+          filterStep.applyToProfile();
+        } catch (e) {
+          if (console && console.warn) {
+            console.warn('[records-db] applyToProfile from ConfigureFiltersStep in FileMappingStep error:', e);
+          }
+        }
+      }
+    }
+
     var fileMapping = this._wizard._schemaProfile?.fileMapping || {};
 
     // Populate available sources from filters
