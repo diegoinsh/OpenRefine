@@ -327,12 +327,6 @@
     html += '<h3>' + i18n.t('records.db.wizard.selectProfile.title') + '</h3>';
     html += '<p>' + i18n.t('records.db.wizard.selectProfile.description') + '</p>';
 
-    html += '<div class="profile-options">';
-    html += '<label><input type="radio" name="profile" value="kubao"> ' + i18n.t('records.db.wizard.selectProfile.kubao') + '</label>';
-    html += '<label><input type="radio" name="profile" value="flat_table"> ' + i18n.t('records.db.wizard.selectProfile.flatTable') + '</label>';
-    html += '<label><input type="radio" name="profile" value="generic_json"> ' + i18n.t('records.db.wizard.selectProfile.genericJson') + '</label>';
-    html += '</div>';
-
     html += '<div class="database-config">';
     html += '<h4>' + i18n.t('records.db.wizard.selectProfile.databaseConfig') + '</h4>';
     html += '<div class="form-group">';
@@ -374,11 +368,6 @@
     // Prefill from saved profile
     var p = this._wizard._schemaProfile || {};
     var setVal = function(id, val) { var el = document.getElementById(id); if (el && val != null && val !== '') el.value = String(val); };
-    // profile preset
-    if (p.preset) {
-      var radios = document.getElementsByName('profile');
-      if (radios && radios.length) { for (var i=0;i<radios.length;i++){ if (radios[i].value === p.preset) { radios[i].checked = true; break; } } }
-    }
     setVal('dialect', p.dialect);
     setVal('host', p.host);
     if (typeof p.port !== 'undefined') setVal('port', p.port);
@@ -468,13 +457,8 @@
     v = get('database'); if (v) profile.database = v;
     v = get('username'); if (v) profile.username = v;
     var pwdEl = document.getElementById('password'); if (pwdEl) profile.password = pwdEl.value;
-    // selected preset
-    var radios = (typeof document !== 'undefined') ? document.getElementsByName('profile') : null;
-    if (radios && radios.length) {
-      for (var i = 0; i < radios.length; i++) {
-        if (radios[i].checked) { profile.preset = radios[i].value; break; }
-      }
-    }
+    // Set default preset to kubao for catalog mode
+    profile.preset = 'kubao';
     this._wizard._schemaProfile = profile;
   };
 
