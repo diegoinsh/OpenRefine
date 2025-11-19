@@ -34,8 +34,20 @@ public class QueryBuilder {
         final String mainAlias = "m";
         final String exportedJoinAlias = "je";
 
-        StringBuilder query = new StringBuilder();
-        query.append("SELECT ");
+        // Build join alias map for reuse (needed for fileMapping)
+        java.util.Map<String, String> joinAliasMap = new java.util.HashMap<String, String>();
+
+        // First, build the FROM and JOIN clauses to populate joinAliasMap
+        StringBuilder fromClause = new StringBuilder();
+        fromClause.append(" FROM ").append(escapeTableName(profile.getMainTable(), dialect)).append(" ").append(mainAlias);
+
+        // Optional JOIN + WHERE for exclude-exported and custom conditions
+        String exWhere = buildExcludeExportedClause(profile, mainAlias, exportedJoinAlias, dialect, fromClause);
+        String condWhere = buildCustomConditionsClause(profile, mainAlias, dialect, fromClause, joinAliasMap);
+
+        // Now build the SELECT clause with all columns including file path
+        StringBuilder selectClause = new StringBuilder();
+        selectClause.append("SELECT ");
 
         // Add all field mappings (qualified with main table alias)
         List<FieldMapping> fieldMappings = profile.getFieldMappings();
@@ -47,34 +59,38 @@ public class QueryBuilder {
                 if (expr == null || expr.isEmpty()) {
                     continue;
                 }
-                if (anySelected) query.append(", ");
-                query.append(expr);
+                if (anySelected) selectClause.append(", ");
+                selectClause.append(expr);
                 anySelected = true;
             }
         }
         if (!anySelected) {
             // Fallback to select all
-            query.append(mainAlias).append(".*");
+            selectClause.append(mainAlias).append(".*");
             anySelected = true;
         }
 
         // Add file root columns if present (deprecated - for backward compatibility)
         if (profile.getFileRootColumn() != null && !profile.getFileRootColumn().isEmpty()) {
-            query.append(", ").append(mainAlias).append(".").append(escapeColumnName(profile.getFileRootColumn(), dialect));
+            selectClause.append(", ").append(mainAlias).append(".").append(escapeColumnName(profile.getFileRootColumn(), dialect));
         }
         if (profile.getFileRootRawColumn() != null && !profile.getFileRootRawColumn().isEmpty()) {
-            query.append(", ").append(mainAlias).append(".").append(escapeColumnName(profile.getFileRootRawColumn(), dialect));
+            selectClause.append(", ").append(mainAlias).append(".").append(escapeColumnName(profile.getFileRootRawColumn(), dialect));
         }
 
-        // FROM main table with alias
-        query.append(" FROM ").append(escapeTableName(profile.getMainTable(), dialect)).append(" ").append(mainAlias);
+        // Add file path column from fileMapping (new structure)
+        // Now joinAliasMap is populated, so we can safely reference join aliases
+        String filePathExpr = buildFilePathExpression(profile, mainAlias, exportedJoinAlias, joinAliasMap, dialect);
+        if (filePathExpr != null && !filePathExpr.isEmpty()) {
+            selectClause.append(", ").append(filePathExpr);
+        }
 
-        // Build join alias map for reuse
-        java.util.Map<String, String> joinAliasMap = new java.util.HashMap<String, String>();
+        // Combine SELECT and FROM clauses
+        StringBuilder query = new StringBuilder();
+        query.append(selectClause);
+        query.append(fromClause);
 
-        // Optional JOIN + WHERE for exclude-exported and custom conditions
-        String exWhere = buildExcludeExportedClause(profile, mainAlias, exportedJoinAlias, dialect, query);
-        String condWhere = buildCustomConditionsClause(profile, mainAlias, dialect, query, joinAliasMap);
+        // Add WHERE clause
         String combinedWhere = null;
         if (exWhere != null && !exWhere.isEmpty() && condWhere != null && !condWhere.isEmpty()) {
             combinedWhere = "(" + exWhere + ") AND (" + condWhere + ")";
@@ -85,12 +101,6 @@ public class QueryBuilder {
         }
         if (combinedWhere != null && !combinedWhere.isEmpty()) {
             query.append(" WHERE ").append(combinedWhere);
-        }
-
-        // Add file path column from fileMapping (new structure) - always last
-        String filePathExpr = buildFilePathExpression(profile, mainAlias, exportedJoinAlias, joinAliasMap, dialect);
-        if (filePathExpr != null && !filePathExpr.isEmpty()) {
-            query.append(", ").append(filePathExpr);
         }
 
         if (logger.isDebugEnabled()) {
