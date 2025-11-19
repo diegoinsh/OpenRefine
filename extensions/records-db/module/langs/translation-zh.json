@@ -28,6 +28,7 @@
   "records.db.wizard.selectFields.title": "选择字段",
   "records.db.wizard.selectFields.description": "从数据源中选择需要导入的字段",
   "records.db.wizard.selectFields.mainTable": "主表",
+  "records.db.wizard.selectFields.selectTable": "请选择表",
   "records.db.wizard.selectFields.recordIdColumn": "记录ID字段",
   "records.db.wizard.selectFields.loadFields": "加载字段",
   "records.db.wizard.selectFields.listTables": "列出数据表",

@@ -480,15 +480,12 @@
     html += '<div class="form-inline">';
     html += '  <div class="form-group">'
          + '    <label>' + i18n.t('records.db.wizard.selectFields.mainTable') + ':</label>'
-         + '    <input type="text" id="main-table-input" list="tables-datalist" placeholder="table_name">'
-         + '    <button id="list-tables-btn" class="button">' + i18n.t('records.db.wizard.selectFields.listTables') + '</button>'
-         + '    <datalist id="tables-datalist"></datalist>'
+         + '    <select id="main-table-select"><option value="">-- ' + i18n.t('records.db.wizard.selectFields.selectTable') + ' --</option></select>'
          + '  </div>';
     html += '  <div class="form-group">'
          + '    <label>' + i18n.t('records.db.wizard.selectFields.recordIdColumn') + ':</label>'
          + '    <select id="record-id-select"><option value="">--</option></select>'
          + '  </div>';
-    html += '  <button id="load-fields-btn" class="button">' + i18n.t('records.db.wizard.selectFields.loadFields') + '</button>';
     html += '  <div id="fields-status" class="status"></div>';
     html += '</div>';
 
@@ -509,62 +506,36 @@
     html += '</div>';
     div.innerHTML = html;
 
-    // Prefill main table if already set
-    var existingMainTable = (this._wizard._schemaProfile && this._wizard._schemaProfile.mainTable) || '';
-    if (existingMainTable) {
-      var mt = document.getElementById('main-table-input');
-      if (mt) { mt.value = existingMainTable; }
-    }
-
-    // Try loading fields if we already know the table
-    this._loadFields();
-
     // Attach event handlers
-    var loadBtn = document.getElementById('load-fields-btn');
-    if (loadBtn) {
-      loadBtn.onclick = function() { self._loadFields(); };
-    }
-    var listBtn = document.getElementById('list-tables-btn');
-    if (listBtn) {
-      listBtn.onclick = function() {
-        var status = document.getElementById('fields-status');
-        if (status) status.textContent = i18n.t('records.db.wizard.selectFields.loadingTables') + '...';
-        var profile = self._wizard._schemaProfile || {};
-        // ensure Step 2 inputs are persisted
-        if (self._wizard && self._wizard._steps && self._wizard._steps[1] && typeof self._wizard._steps[1].applyToProfile === 'function') {
-          try { self._wizard._steps[1].applyToProfile(); profile = self._wizard._schemaProfile || profile; } catch (e) {}
+    var mainTableSelect = document.getElementById('main-table-select');
+    if (mainTableSelect) {
+      // Load tables when dropdown is focused
+      mainTableSelect.onfocus = function() {
+        if (!mainTableSelect.dataset.loaded) {
+          self._loadTables();
         }
-        if (typeof Refine !== 'undefined' && typeof Refine.wrapCSRF === 'function' && typeof $ !== 'undefined') {
-          Refine.wrapCSRF(function(token) {
-            $.post(
-              "command/core/importing-controller?" + $.param({
-                "controller": "records-db/records-db-import-controller",
-                "subCommand": "list-tables",
-                "csrf_token": token
-              }),
-              {
-                "schemaProfile": JSON.stringify(profile)
-              },
-              function(data) {
-                var dl = document.getElementById('tables-datalist');
-                if (dl) { while (dl.firstChild) dl.removeChild(dl.firstChild); }
-                if (data && data.status === 'ok' && Array.isArray(data.tables)) {
-                  data.tables.forEach(function(t) {
-                    var opt = document.createElement('option');
-                    opt.value = t.name || t;
-                    if (dl) dl.appendChild(opt);
-                  });
-                  if (status) status.textContent = '';
-                } else {
-                  if (status) status.textContent = (data && data.message) ? data.message : 'list-tables error';
-                }
-              },
-              "json"
-            );
-          });
+      };
+      // Load fields when table is selected
+      mainTableSelect.onchange = function() {
+        if (mainTableSelect.value) {
+          self._loadFields();
         }
       };
     }
+
+    // Prefill main table if already set
+    var existingMainTable = (this._wizard._schemaProfile && this._wizard._schemaProfile.mainTable) || '';
+    if (existingMainTable) {
+      // Load tables first, then set the value
+      this._loadTables(function() {
+        if (mainTableSelect) {
+          mainTableSelect.value = existingMainTable;
+          // Try loading fields if we already know the table
+          self._loadFields();
+        }
+      });
+    }
+
     document.getElementById('select-all-fields').onclick = function() {
       self._selectAllFields();
     };
@@ -573,14 +544,66 @@
     };
   };
 
+  // Load tables list
+  SelectFieldsStep.prototype._loadTables = function(callback) {
+    var self = this;
+    var status = document.getElementById('fields-status');
+    var mainTableSelect = document.getElementById('main-table-select');
+
+    if (status) status.textContent = i18n.t('records.db.wizard.selectFields.loadingTables') + '...';
+
+    var profile = this._wizard._schemaProfile || {};
+    // Ensure Step 2 inputs are persisted
+    if (this._wizard && this._wizard._steps && this._wizard._steps[1] && typeof this._wizard._steps[1].applyToProfile === 'function') {
+      try { this._wizard._steps[1].applyToProfile(); profile = this._wizard._schemaProfile || profile; } catch (e) {}
+    }
+
+    if (typeof Refine !== 'undefined' && typeof Refine.wrapCSRF === 'function' && typeof $ !== 'undefined') {
+      Refine.wrapCSRF(function(token) {
+        $.post(
+          "command/core/importing-controller?" + $.param({
+            "controller": "records-db/records-db-import-controller",
+            "subCommand": "list-tables",
+            "csrf_token": token
+          }),
+          {
+            "schemaProfile": JSON.stringify(profile)
+          },
+          function(data) {
+            if (mainTableSelect) {
+              // Keep the first placeholder option
+              while (mainTableSelect.options.length > 1) {
+                mainTableSelect.remove(1);
+              }
+            }
+            if (data && data.status === 'ok' && Array.isArray(data.tables)) {
+              data.tables.forEach(function(t) {
+                var opt = document.createElement('option');
+                opt.value = t.name || t;
+                opt.textContent = t.label || t.name || t;
+                if (mainTableSelect) mainTableSelect.appendChild(opt);
+              });
+              if (mainTableSelect) mainTableSelect.dataset.loaded = 'true';
+              if (status) status.textContent = '';
+              if (callback) callback();
+            } else {
+              if (status) status.textContent = (data && data.message) ? data.message : 'list-tables error';
+            }
+          },
+          "json"
+        );
+      });
+    }
+  };
+
   SelectFieldsStep.prototype._loadFields = function() {
     var self = this;
     var status = document.getElementById('fields-status');
     var profile = this._wizard._schemaProfile || {};
 
     // Determine main table
-    var mtInput = document.getElementById('main-table-input');
-    var mainTable = mtInput ? (mtInput.value || '').trim() : (profile.mainTable || '');
+    var mtSelect = document.getElementById('main-table-select');
+    var mainTable = mtSelect ? (mtSelect.value || '').trim() : (profile.mainTable || '');
     if (!mainTable) {
       if (status) status.textContent = i18n.t('records.db.wizard.selectFields.validation.mainTableRequired');
       return;
@@ -595,10 +618,17 @@
     this._wizard._schemaProfile = profile;
     if (status) status.textContent = i18n.t('records.db.wizard.selectFields.loadingFields') + '...';
 
+    // Clear previous columns if table changed
+    if (profile.lastLoadedTable !== mainTable) {
+      profile.columns = null;
+      profile.lastLoadedTable = mainTable;
+    }
+
     // If columns already loaded for this table, just render
     if (Array.isArray(profile.columns) && profile.columns.length) {
       this._renderFields(profile.columns);
       this._populateRecordIdSelect(profile.columns);
+      if (status) status.textContent = '';
       return;
     }
 
@@ -731,8 +761,8 @@
 
   // Validate Step 3 before proceeding
   SelectFieldsStep.prototype.validateFilters = function() {
-    var mtInput = document.getElementById('main-table-input');
-    var mainTable = mtInput ? (mtInput.value || '').trim() : '';
+    var mtSelect = document.getElementById('main-table-select');
+    var mainTable = mtSelect ? (mtSelect.value || '').trim() : '';
     if (!mainTable) {
       return { valid: false, message: i18n.t('records.db.wizard.selectFields.validation.mainTableRequired') };
     }

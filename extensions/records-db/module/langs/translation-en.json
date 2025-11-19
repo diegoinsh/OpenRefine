@@ -28,6 +28,7 @@
   "records.db.wizard.selectFields.title": "Select Fields",
   "records.db.wizard.selectFields.description": "Choose which fields to import",
   "records.db.wizard.selectFields.mainTable": "Main table",
+  "records.db.wizard.selectFields.selectTable": "Select a table",
   "records.db.wizard.selectFields.recordIdColumn": "Record ID column",
   "records.db.wizard.selectFields.loadFields": "Load fields",
   "records.db.wizard.selectFields.listTables": "List tables",
