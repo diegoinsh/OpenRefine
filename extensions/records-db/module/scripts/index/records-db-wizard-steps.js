@@ -822,18 +822,21 @@
 
     // Check if custom joins are configured
     if (filters.conditions && Array.isArray(filters.conditions)) {
-      var hasJoins = false;
+      var joinTables = [];
       for (var i = 0; i < filters.conditions.length; i++) {
         var cond = filters.conditions[i];
         if (cond.source === 'join' && cond.joinTable) {
-          if (!hasJoins) {
-            var option = document.createElement('option');
-            option.value = 'join';
-            option.text = i18n.t('records.db.wizard.fileMapping.customJoinTable') || '自定义关联表';
-            sourceSelect.appendChild(option);
-            hasJoins = true;
+          if (joinTables.indexOf(cond.joinTable) === -1) {
+            joinTables.push(cond.joinTable);
           }
         }
+      }
+      if (joinTables.length > 0) {
+        var option = document.createElement('option');
+        option.value = 'join';
+        var tableNames = joinTables.join(', ');
+        option.text = (i18n.t('records.db.wizard.fileMapping.customJoinTable') || '自定义关联表') + ' (' + tableNames + ')';
+        sourceSelect.appendChild(option);
       }
     }
   };
