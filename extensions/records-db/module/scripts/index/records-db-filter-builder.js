@@ -194,7 +194,46 @@
     }
   };
 
-  // Load columns for a chosen join table
+  // Load columns for a condition's join table (independent of exported join UI)
+  FilterConditionBuilder.prototype._loadConditionJoinColumns = function(joinTable, callback) {
+    if (!joinTable) {
+      if (callback) callback([]);
+      return;
+    }
+    var profile = JSON.parse(JSON.stringify(this._wizard._schemaProfile || {}));
+    profile.mainTable = joinTable;
+
+    var fill = function(data){
+      var columns = [];
+      if (data && data.status === 'ok' && Array.isArray(data.columns)) {
+        columns = data.columns.map(function(c){ return c.name; });
+      }
+      if (callback) callback(columns);
+    };
+
+    if (typeof Refine !== 'undefined' && typeof Refine.wrapCSRF === 'function' && typeof $ !== 'undefined') {
+      Refine.wrapCSRF(function(token) {
+        $.post(
+          "command/core/importing-controller?" + $.param({
+            "controller": "records-db/records-db-import-controller",
+            "subCommand": "list-columns",
+            "csrf_token": token
+          }),
+          { "schemaProfile": JSON.stringify(profile) },
+          function(data){ fill(data); },
+          'json'
+        );
+      });
+    } else {
+      var params = new URLSearchParams();
+      params.set('schemaProfile', JSON.stringify(profile));
+      fetch('command/core/importing-controller?controller=records-db/records-db-import-controller&subCommand=list-columns', {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+      }).then(function(r){ return r.json(); }).then(fill).catch(function(){ fill(null); });
+    }
+  };
+
+  // Load columns for a chosen join table (for exported join UI)
   FilterConditionBuilder.prototype._loadJoinColumns = function(joinTable, existingEj) {
     var self = this;
     if (!joinTable) {
@@ -357,8 +396,15 @@
         if (jtGlobal.value) {
           joinTableSel.value = jtGlobal.value;
           // Preload columns for default join table and refresh fields shortly after
-          try { self._loadJoinColumns(joinTableSel.value); } catch(e){}
-          setTimeout(function(){ if (sourceSel.value === 'join') { try { condJoinColumns = (self._joinColumns||[]).slice(); populateFields(); fillJoinKeyOptions(); } catch(e){} } }, 120);
+          try {
+            self._loadConditionJoinColumns(joinTableSel.value, function(columns){
+              condJoinColumns = columns || [];
+              if (sourceSel.value === 'join') {
+                populateFields();
+                fillJoinKeyOptions();
+              }
+            });
+          } catch(e){}
         }
       }
     };
@@ -495,9 +541,17 @@
     joinTableSel.onchange = function(){
       var jt = joinTableSel.value;
       if (jt) {
-        self._loadJoinColumns(jt);
-        setTimeout(function(){ condJoinColumns = (self._joinColumns||[]).slice(); fillJoinKeyOptions(); populateFields(); loadDistinct(); self._updateFilterPreview(); }, 100);
+        // Load columns for this specific condition's join table
+        // Don't use _loadJoinColumns as it modifies the global exported join UI
+        self._loadConditionJoinColumns(jt, function(columns){
+          condJoinColumns = columns || [];
+          fillJoinKeyOptions();
+          populateFields();
+          loadDistinct();
+          self._updateFilterPreview();
+        });
       } else {
+        condJoinColumns = [];
         populateFields();
         loadDistinct();
         self._updateFilterPreview();
@@ -565,9 +619,18 @@
   };
 
   FilterConditionBuilder.prototype.getFilters = function() {
+    // Check if the DOM elements still exist (i.e., we're still on Step 4)
+    // If not, return the previously saved filters from the profile
+    var excludeCheckbox = document.getElementById('exclude-exported');
+    if (!excludeCheckbox) {
+      // DOM has been destroyed, return saved filters from profile
+      var profile = this._wizard && this._wizard._schemaProfile ? this._wizard._schemaProfile : {};
+      var savedFilters = profile.filters || { excludeExported: false, exportedJoin: null, conditions: [] };
+      return savedFilters;
+    }
+
     var filters = { excludeExported: false, exportedJoin: null, conditions: [] };
     // Exclude exported join config (used only when the checkbox is enabled)
-    var excludeCheckbox = document.getElementById('exclude-exported');
     var exportedJoinFromUI = {
       joinTable: (document.getElementById('join-table-select') || {}).value || '',
       mainColumn: (document.getElementById('main-join-column') || {}).value || '',
