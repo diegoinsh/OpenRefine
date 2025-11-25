@@ -56,7 +56,7 @@
 
 #menuListUl li {
   padding: 0.5em;
-  border-bottom: 1px solid #bcf;
+  border-bottom: 1px solid #8B7355;
 }
 
 .scrollable {
@@ -140,7 +140,7 @@
 .new-connection-legend {
   padding-left: 2px;
   margin-left: 2px;
-  border-color: #bcf;
+  border-color: #8B7355;
 }
 
 .new-connection-fieldset {
@@ -152,7 +152,7 @@
 }
 
 .database-border {
-  border: 1px solid #bcf;
+  border: 1px solid #8B7355;
   border-radius: 4px;
   max-height: calc(100% - 20px);
   overflow-y: auto;

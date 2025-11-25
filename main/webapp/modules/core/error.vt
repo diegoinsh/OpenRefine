@@ -37,13 +37,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>Error - OpenRefine</title>
-    <link rel="icon" type="image/png" href="/images/favicon.png">
+    <link rel="icon" type="image/ico" href="images/ruyi-refine.ico">
     <link rel="stylesheet" href="/styles/common.css" />
   </head>
   <body>
     <div id="header">
       <a id="app-home-button" href="./" title="Navigate to the home screen">
-        <img aria-hidden="true" src="images/logo-gem-126.svg" width="30" />
+        <img aria-hidden="true" src="images/ruyi-icon-metallic.png" width="30" />
         <h1>OpenRefine</h1>
       </a>
     </div>

@@ -102,7 +102,7 @@
 }
 
 .schema-alignment-dialog-columns-area {
-  border: 1px solid #bcf;
+  border: 1px solid #8B7355;
   border-left: 0;
   border-right: 0;
   padding: 5px 1em;
@@ -666,9 +666,9 @@ div.schema-alignment-dialog-preview {
 }
 
 .schema-validation-path-element {
-  border: 1px solid #bcf;
+  border: 1px solid #8B7355;
   border-radius: 3px;
-  background: #ebeef8;
+  background: #D4C4A9;
   padding: 2px;
   margin: 2px;
   display: inline-block;

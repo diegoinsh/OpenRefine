@@ -32,19 +32,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 :root {
-  --text-primary: black;
+  --text-primary: #8B7355;
   --text-secondary: #222;
   --text-tertiary: #777;
   --text-quarternary: #444;
-  --link-primary: #11c;
-  --link-secondary: #4272db;
-  --chrome-primary: #bcf;
-  --chrome-secondary: #e3e9ff;
+  --link-primary: #a59b8a;
+  --link-secondary: #2C2C2C;
+  --chrome-primary: #D4C4A9;
+  --chrome-secondary: #F5F1EB;
   --background-primary: #fff;
-  --fill-primary: #ebeef8;
+  --fill-primary: #f5f5f5;
   --fill-secondary: #f2f2f2;
   --fill-editable: #ffffd6;
-  --selected-primary: #68e;
+  --selected-primary: #D4C4A9;
   --green-primary: #282;
   --green-secondary: #3d3;
   --notification-primary: #fe8;

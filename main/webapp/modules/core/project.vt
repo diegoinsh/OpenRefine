@@ -36,7 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>OpenRefine</title>
-    <link rel="icon" type="image/png" href="images/favicon.png">
+    <link rel="icon" type="image/ico" href="images/ruyi-refine.ico">
     $styleInjection
     <script type="text/javascript">
       const urlParams = new URLSearchParams(window.location.search);
@@ -49,8 +49,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   <body>
     <div id="header">
       <a id="app-home-button" href="./">
-        <img aria-hidden="true" src="images/logo-gem-126.svg" width="30" />
-        <h1>OpenRefine</h1>
+        <img aria-hidden="true" src="images/ruyi-icon-metallic.png" width="30" />
+        <h1>RuyiRefine</h1>
       </a>
       <div id="project-title">
         <button id="project-name-button" class="app-path-section"></button>
@@ -59,7 +59,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
       <div id="project-controls">
         <a href="./" class="button" target="_blank"><span id="or-proj-open"></span></a>
         <a class="button" bind="exportButton" id="export-button" href="#export"><span class="button-menu" id="or-proj-export"></span></a>
-        <a href="https://openrefine.org/docs" target="_blank" class="button"><span id="or-proj-help"></span></a>
+        <a href="about.html" target="_blank" class="button"><span id="or-proj-help"></span></a>
       </div>
     </div>
     

@@ -5,6 +5,12 @@
     "core-about/contributors": "Contributors (in chronological order)",
     "core-about/history": "OpenRefine was originally developed as 'Freebase Gridworks' by <a href='$1'>$2</a>. Metaweb was acquired by <a href='$3'>$4</a> in July 2010 and they renamed the product Google Refine. In October, 2012, the product was renamed OpenRefine as it transitioned to a community supported project.",
     "core-about/thanks": "Special Thanks",
+    "ruyi-about/title": "About RuyiRefine",
+    "ruyi-about/definition": "RuyiRefine is an enterprise-oriented data governance and data cleansing platform. It is built on top of the open source project OpenRefine and enhanced for enterprise data governance scenarios, helping teams clean, standardize, integrate and export data efficiently.",
+    "ruyi-about/history": "<h2>Key features<\/h2><ul><li>Rich cleansing &amp; transformation: de-duplication, split\/merge columns, format standardization, fuzzy matching, regex replacement, and more<\/li><li>Multi-source heterogeneous integration: extract and align data from databases and documents, with unified coding<\/li><li>Data quality improvement: outlier detection, missing value handling, consistency checks<\/li><li>Flexible export &amp; integration: file export, API integration, and downstream system connectivity<\/li><\/ul><h2>Typical use cases<\/h2><ul><li>Data governance expert &amp; agent collaboration: work with enterprise AI agents to define standards, assess data quality, and drive governance actions.<\/li><li>Multi-source data integration: extract, cleanse and unify data from operational systems and documents to build a high-quality data foundation.<\/li><li>Analytics &amp; BI reporting: prepare clean and standardized data before it flows into BI or reporting platforms.<\/li><\/ul><h2>Highlights<\/h2><ul><li>Runs locally inside your environment, suitable for sensitive data<\/li><li>Extensible via plugins and scripts for custom data flows<\/li><li>Integrates with your data and AI platforms as a central data cleansing and governance hub<\/li><\/ul>",
+    "ruyi-about/based-on-openrefine": "This system is built on top of the open source project OpenRefine and is not officially affiliated with its original authors or the upstream project.",
+    "ruyi-about/copyright": "Copyright \u00a9 Ruyi Data Studio",
+
     "core-index/help": "Help",
     "core-index/about": "About",
     "core-index/version": "Version",

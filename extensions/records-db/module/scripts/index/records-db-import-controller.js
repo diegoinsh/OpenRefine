@@ -866,6 +866,7 @@
     var profile = this._wizard._schemaProfile || {};
     if (this._filterBuilder && typeof this._filterBuilder.getFilters === 'function') {
       profile.filters = this._filterBuilder.getFilters();
+      console.log('[ConfigureFiltersStep] applyToProfile - filters:', profile.filters);
     }
     this._wizard._schemaProfile = profile;
   };

@@ -5,13 +5,13 @@
   <artifactId>main</artifactId>
   <packaging>jar</packaging>
 
-  <name>OpenRefine - main</name>
-  <description>OpenRefine is a free, open source power tool for working with messy data and improving it</description>
-  <url>http://openrefine.org/</url>
+  <name>RuyiRefine - main</name>
+  <description>RuyiRefine is a power tool for working with messy data and improving it</description>
+  <url>http://refine.ruyiai.com/</url>
   <parent>
     <groupId>org.openrefine</groupId>
     <artifactId>openrefine</artifactId>
-    <version>3.10-SNAPSHOT</version>
+    <version>3.10-ruyi</version>
   </parent>
 
   <properties>

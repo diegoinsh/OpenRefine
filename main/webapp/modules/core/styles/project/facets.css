@@ -66,7 +66,7 @@ a.facet-title-remove {
   height: 12px;
   margin: 2px 0 0 0;
   text-decoration: none;
-  background-image: url(../../images/close-map.png);
+  background-image: url(../../images/close-map-ry.png);
   background-repeat: no-repeat;
   background-position: 0px 0px;
 }
@@ -86,7 +86,7 @@ a.facet-title-minimize {
   height: 12px;
   margin: 2px 0 0 0;
   text-decoration: none;
-  background-image: url(../../images/minimize-map.png);
+  background-image: url(../../images/minimize-map-ry.png);
   background-repeat: no-repeat;
   background-position: -0px 0px;
 }

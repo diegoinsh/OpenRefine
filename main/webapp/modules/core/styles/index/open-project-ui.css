@@ -167,7 +167,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   margin: 5px;
   font-size: 130%;
   border-radius: 5px;
-  background: #bcf;
+  background: #dbd5ce;
   min-height: 18px;
   height: auto;
   overflow: auto;
@@ -201,7 +201,7 @@ ul#tagsUl li a {
 }
 
 #projectTags .current {
-  background-color: #DEE6FF;
+  background-color: #F5F1EB;
   border-radius: 10px;
 }
 

@@ -1,7 +1,7 @@
 
-$("#about-openrefine").text($.i18n('core-index/about') + " OpenRefine");
-$("#contributors").text($.i18n('core-about/contributors'));
-$("#definition").text($.i18n('core-about/definition'));
-$("#history-openrefine").html($.i18n('core-about/history' ,'http://www.metaweb.com/' ,'Metaweb Technologies,Inc.', 'http://www.google.com/','Google' ));
-$("#thanks").text($.i18n('core-about/thanks'));
+$("#about-openrefine").text($.i18n('ruyi-about/title'));
+$("#definition").text($.i18n('ruyi-about/definition'));
+$("#history-openrefine").html($.i18n('ruyi-about/history'));
+$("#ruyi-about-based-on-openrefine").text($.i18n('ruyi-about/based-on-openrefine'));
+$("#ruyi-about-copyright").text($.i18n('ruyi-about/copyright'));
 $('#app-home-button').attr('title', $.i18n('core-index/navigate-home'));

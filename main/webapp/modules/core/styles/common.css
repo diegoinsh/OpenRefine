@@ -131,7 +131,7 @@ a img {
   overflow: visible;
   font-size: 1em;
   line-height: 1.4;
-  color: var(--text-primary);
+  color: var(--text-secondary);
   text-decoration: none;
   padding: 1px 6px;
   border: 1px solid #bbb;
@@ -139,7 +139,7 @@ a img {
   white-space: nowrap;
   font-family: Arial, Helvetica, sans-serif;
   border-radius: 3px;
-  background: linear-gradient(#f9f9f9, #e3e3e3);
+  background: linear-gradient(#D4C4A9, #8B7355);
 }
 
 
@@ -224,7 +224,7 @@ a img {
   background: #f2f2f2;
 }
 
-.list-table-itemname {
+-itemname {
   font-size: 1.2em;
 }
 

@@ -11,7 +11,7 @@
 
   "records.db.wizard.selectProfile.title": "选择配置",
   "records.db.wizard.selectProfile.description": "选择导入配置并填写数据库连接信息",
-  "records.db.wizard.selectProfile.kubao": "库宝（文档目录）",
+  "records.db.wizard.selectProfile.kubao": "文档目录",
   "records.db.wizard.selectProfile.flatTable": "扁平表",
   "records.db.wizard.selectProfile.genericJson": "通用 JSON",
   "records.db.wizard.selectProfile.databaseConfig": "数据库配置",
@@ -76,7 +76,7 @@
   "records.db.wizard.fieldMapping.addField": "新增映射",
   "records.db.wizard.fieldMapping.remove": "移除",
 
-  "records.db.wizard.fieldMapping.dictTitle": "字典表配置（Plan B）",
+  "records.db.wizard.fieldMapping.dictTitle": "字典表配置",
   "records.db.wizard.fieldMapping.dictTable": "字典表",
   "records.db.wizard.fieldMapping.dictCode": "字典代码列",
   "records.db.wizard.fieldMapping.dictName": "字典名称列",

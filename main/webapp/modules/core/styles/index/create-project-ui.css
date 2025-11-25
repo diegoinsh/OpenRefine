@@ -39,7 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #create-project-ui-source-selection-message {
   padding: var(--padding-loose);
   border-bottom: 1px solid var(--chrome-primary);
-  background: var(--background-primary);
+  background: var(--fill-primary);
 }
 
 #create-project-ui-source-selection-message>h3 {
@@ -61,6 +61,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   background: var(--background-primary);
   border-top-left-radius: 5px;
   border-bottom-left-radius: 5px;
+  border-left: 1px solid var(--border-color, #D8D0C8);
 }
 
 #create-project-ui-source-selection-tabs {
@@ -68,6 +69,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   background: var(--fill-primary);
   padding-left: var(--padding-looser);
   padding-bottom: var(--padding-looser);
+  border-right: 1px solid var(--border-color, #D8D0C8);
 }
 
 #create-project-ui-source-selection-tabs>a,
@@ -89,8 +91,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 .create-project-ui-source-selection-tab.selected {
   cursor: default;
-  color: var(--text-primary);
-  background: var(--background-primary);
+  color: var(--button-accent-text, #fff);
+  background: var(--selected-primary);
   font-weight: bold;
   border-top-left-radius: 5px;
   border-bottom-left-radius: 5px;
