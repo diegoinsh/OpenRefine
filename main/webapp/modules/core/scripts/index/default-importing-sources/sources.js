@@ -75,12 +75,6 @@ ThisComputerImportingSourceUI.prototype.focus = function() {
 function UrlImportingSourceUI(controller) {
   this._controller = controller;
 }
-Refine.DefaultImportingController.sources.push({
-  "label": $.i18n('core-index-import/web-address'),
-  "id": "download",
-  "uiClass": UrlImportingSourceUI
-});
-
 UrlImportingSourceUI.prototype.attachUI = function(bodyDiv) {
   var self = this;
 
@@ -157,4 +151,16 @@ ClipboardImportingSourceUI.prototype.attachUI = function(bodyDiv) {
 ClipboardImportingSourceUI.prototype.focus = function() {
   this._elmts.textInput.trigger('focus');
 };
+
+// RUYI: move the built-in "Web Addresses (URL)" source to the end of the
+// source list so that the order becomes:
+//   1) This Computer
+//   2) Records Database (custom extension, position = 1)
+//   3) Clipboard
+//   4) URLs
+Refine.DefaultImportingController.sources.push({
+  "label": $.i18n('core-index-import/web-address'),
+  "id": "download",
+  "uiClass": UrlImportingSourceUI
+});
 
