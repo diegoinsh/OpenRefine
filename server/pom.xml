@@ -5,13 +5,13 @@
   <artifactId>server</artifactId>
   <packaging>jar</packaging>
 
-  <name>OpenRefine - server</name>
-  <description>OpenRefine is a free, open source power tool for working with messy data and improving it</description>
+  <name>RuyiRefine - server</name>
+  <description>RuyiRefine is a power tool for working with messy data and improving it</description>
   <url>http://openrefine.org/</url>
   <parent>
     <groupId>org.openrefine</groupId>
     <artifactId>openrefine</artifactId>
-    <version>3.10-SNAPSHOT</version>
+	    <version>3.10.1.01</version>
   </parent>
 
   <properties>
@@ -31,6 +31,9 @@
     <resources>
       <resource>
         <directory>src</directory>
+        <excludes>
+          <exclude>**/*.java</exclude>
+        </excludes>
       </resource>
     </resources>
     <sourceDirectory>src</sourceDirectory>
@@ -71,6 +74,15 @@
 	<version>${maven-resources-plugin.version}</version>
         <configuration>
           <encoding>UTF-8</encoding>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <configuration>
+          <excludes>
+            <exclude>**/*.java</exclude>
+          </excludes>
         </configuration>
       </plugin>
       <plugin>

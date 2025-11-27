@@ -95,7 +95,7 @@ Refine.OpenProjectUI.refreshTagsListPanel = function() {
 
     // Add 'all' menu item
     var li = $('<li/>').appendTo(ul);
-    var a = $('<a/>').attr('href', '?tag=#open-project').text('All').appendTo(li);
+    var a = $('<a/>').attr('href', '?tag=#open-project').text($.i18n("core-views/all")).appendTo(li);
     a.on('click', function(e) {
       e.preventDefault();
       Refine.OpenProjectUI._filterTags('');

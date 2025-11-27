@@ -64,12 +64,12 @@ import com.google.refine.io.FileProjectManager;
 
 public class RefineServlet extends Butterfly {
 
-    static private String ASSIGNED_VERSION = "3.10-SNAPSHOT";
+    static private String ASSIGNED_VERSION = "3.10.1.01";
 
     static public String VERSION = "";
     static public String REVISION = "";
     static public String FULL_VERSION = "";
-    static public String FULLNAME = "OpenRefine ";
+    static public String FULLNAME = "RuyiRefine ";
 
     static final long serialVersionUID = 2386057901503517403L;
 
@@ -114,6 +114,7 @@ public class RefineServlet extends Butterfly {
                 InputStream gitStats = classLoader.getResourceAsStream("git.properties");
                 ObjectMapper mapper = new ObjectMapper();
                 ObjectNode parsedGit = mapper.readValue(gitStats, ObjectNode.class);
+                // Use the abbreviated Git commit id as the revision, as in upstream OpenRefine.
                 REVISION = parsedGit.get("git.commit.id.abbrev").asText("TRUNK");
             } catch (IOException e) {
                 REVISION = "TRUNK";

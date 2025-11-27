@@ -98,7 +98,17 @@ $(function() {
             display_new_version_notice: "false"
           };
 
-          $("#openrefine-version").prepend($.i18n('core-index/refine-version', OpenRefineVersion.full_version));
+          // Display short version in the main index sidebar, and full version (with
+          // revision) on the About page. We distinguish the two by the type of
+          // element that holds the version: on the index it is a <div>, on the
+          // About page it is an <h2>.
+          var $versionEl = $("#openrefine-version");
+          if ($versionEl.length) {
+            var isAboutPage = $versionEl.is("h2");
+            var valueForDisplay = isAboutPage ? OpenRefineVersion.full_version : OpenRefineVersion.version;
+            $versionEl.prepend($.i18n('core-index/refine-version', valueForDisplay));
+          }
+
           $("#openrefine-extensions").text($.i18n('core-index/refine-extensions', OpenRefineVersion.module_names.join(", ")));
           $("#java-runtime-version").text(OpenRefineVersion.java_runtime_name + " " + OpenRefineVersion.java_runtime_version);
           if (OpenRefineVersion.display_new_version_notice === "true") {

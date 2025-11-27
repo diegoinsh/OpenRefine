@@ -44,7 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     <div id="header">
       <a id="app-home-button" href="./" title="Navigate to the home screen">
         <img aria-hidden="true" src="images/ruyi-icon-metallic.png" width="30" />
-        <h1>OpenRefine</h1>
+        <h1>RuyiRefine</h1>
       </a>
     </div>
     <div id="body-info">
