@@ -375,7 +375,7 @@ class RefineServer extends Server {
                 parentDir = new File(".");
             }
 
-            dataDir = new File(parentDir, "OpenRefine");
+            dataDir = new File(parentDir, "RuyiRefine");
             extensionsDir = new File(dataDir, "extensions");
             grefineDir = new File(new File(parentDir, "Google"), "Refine");
             gridworksDir = new File(parentDir, "Gridworks");
@@ -383,7 +383,7 @@ class RefineServer extends Server {
             // on macosx, use "~/Library/Application Support"
             String home = System.getProperty("user.home");
 
-            String data_home = (home != null) ? home + "/Library/Application Support/OpenRefine" : ".openrefine";
+            String data_home = (home != null) ? home + "/Library/Application Support/RuyiRefine" : ".ruyirefine";
             dataDir = new File(data_home);
 
             String grefine_home = (home != null) ? home + "/Library/Application Support/Google/Refine" : ".google-refine";
@@ -392,8 +392,8 @@ class RefineServer extends Server {
             String gridworks_home = (home != null) ? home + "/Library/Application Support/Gridworks" : ".gridworks";
             gridworksDir = new File(gridworks_home);
 
-            String extensions_home = (home != null) ? home + "/Library/Application Support/OpenRefine/extensions"
-                    : ".openrefine/extensions";
+            String extensions_home = (home != null) ? home + "/Library/Application Support/RuyiRefine/extensions"
+                    : ".ruyirefine/extensions";
             extensionsDir = new File(extensions_home);
         } else { // most likely a UNIX flavor
             // start with the XDG environment
@@ -407,8 +407,8 @@ class RefineServer extends Server {
                 data_home = home + "/.local/share";
             }
 
-            dataDir = new File(data_home + "/openrefine");
-            extensionsDir = new File(data_home + "/openrefine/extensions");
+            dataDir = new File(data_home + "/ruyirefine");
+            extensionsDir = new File(data_home + "/ruyirefine/extensions");
             grefineDir = new File(data_home + "/google/refine");
             gridworksDir = new File(data_home + "/gridworks");
         }
