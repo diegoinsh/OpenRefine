@@ -423,7 +423,7 @@ DataTableColumnHeaderUI.extendMenu(function(column, columnHeaderUI, menu) {
                 {
                   "name" : $.i18n("core-views/judgment", column.name),
                   "columnName" : column.name, 
-                  "expression" : 'forNonBlank(cell.recon.judgment, v, v, if(isNonBlank(value), "(unreconciled)", "(blank)"))'
+                  "expression" : 'forNonBlank(cell.recon.judgment, v, v, if(isNonBlank(value), "(' + $.i18n('core-facets/unreconciled') + ')", "(' + $.i18n('core-facets/blank') + ')"))'
                 },
                 {
                   "scroll" : true

@@ -74,25 +74,15 @@
   word-break: break-all;
 }
 
-.export-bound-assets-code {
+textarea.export-bound-assets-code {
   width: 100%;
-  height: 350px;
-  font-family: monospace;
-  font-size: 12px;
-  padding: 10px;
-  border: 1px solid #ccc;
-  border-radius: 3px;
-  resize: vertical;
+  border: 1px solid var(--chrome-primary);
+  height: 25em;
 }
 
-/* Tab styling */
-#export-bound-assets-tabs .ui-tabs-nav {
-  padding: 0;
-  margin-bottom: 15px;
-}
-
+/* Tab styling - match custom-tabular-exporter-dialog */
 #export-bound-assets-tabs .ui-tabs-panel {
-  padding: 10px 0;
+  padding: var(--padding-looser);
 }
 
 /* Button styling */

@@ -179,7 +179,7 @@
   "records-db-export/ignore-facets": "导出所有行（忽略筛选）",
   "records-db-export/preview": "预览",
   "records-db-export/start-export": "开始导出",
-  "records-db-export/json-code": "选项代码 (JSON)",
+  "records-db-export/json-code": "在其他选项卡中所设置的配置项会被编码为下面的JSON文本，可以复制出来存储以备将来将其粘贴重用这些配置项。",
   "records-db-export/apply-code": "应用",
   "records-db-export/no-fields-selected": "未选择任何字段",
   "records-db-export/error-loading-config": "加载配置失败",

@@ -411,6 +411,7 @@
     "core-facets/time": "Time",
     "core-facets/non-time": "Non-Time",
     "core-facets/blank": "Blank",
+    "core-facets/unreconciled": "Unreconciled",
     "core-facets/error": "Error",
     "core-facets/unknown-error": "Unknown error",
     "core-facets/linear-plot": "Linear plot",

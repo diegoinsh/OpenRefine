@@ -68,9 +68,17 @@ ExportBoundAssetsDialog.prototype._init = function() {
   this._elmts.applyOptionCodeButton.text($.i18n("records-db-export/apply-code"));
   this._elmts.cancelButton.text($.i18n("core-buttons/cancel"));
   
-  // Initialize tabs
-  this._dialog.find("#export-bound-assets-tabs").tabs();
-  
+  // Initialize tabs with activate event
+  var self = this;
+  this._dialog.find("#export-bound-assets-tabs").tabs({
+    activate: function(event, ui) {
+      // When switching to the code tab, update the JSON
+      if (ui.newPanel.attr("id") === "export-bound-assets-tabs-code") {
+        self._updateOptionCode();
+      }
+    }
+  });
+
   // Load columns and config
   this._loadConfig();
   
@@ -399,6 +407,12 @@ ExportBoundAssetsDialog.prototype._executeExport = function() {
   );
 };
 
+ExportBoundAssetsDialog.prototype._updateOptionCode = function() {
+  var options = this._getOptions();
+  var formattedJson = JSON.stringify(options, null, 2);
+  this._elmts.optionCodeInput.val(formattedJson);
+};
+
 ExportBoundAssetsDialog.prototype._applyOptionCode = function() {
   try {
     var code = this._elmts.optionCodeInput.val();
@@ -418,14 +432,34 @@ ExportBoundAssetsDialog.prototype._applyOptionCode = function() {
     if (options.targetPath) {
       this._elmts.targetPathInput.val(options.targetPath);
     }
+    if (options.pathMode) {
+      this._dialog.find("input[name='export-bound-assets-path-mode'][value='" + options.pathMode + "']")
+        .prop("checked", true);
+    }
+    if (options.mode) {
+      this._dialog.find("input[name='export-bound-assets-mode'][value='" + options.mode + "']")
+        .prop("checked", true);
+    }
     if (options.separator) {
       this._elmts.separatorInput.val(options.separator);
     }
+    if (options.template) {
+      this._elmts.templateInput.val(options.template);
+    }
+    if (typeof options.preserveStructure !== 'undefined') {
+      this._elmts.preserveStructureCheckbox.prop("checked", options.preserveStructure);
+    }
+    if (typeof options.skipExisting !== 'undefined') {
+      this._elmts.skipExistingCheckbox.prop("checked", options.skipExisting);
+    }
+    if (typeof options.exportAllRows !== 'undefined') {
+      this._elmts.exportAllRowsCheckbox.prop("checked", options.exportAllRows);
+    }
 
     this._updatePathPreview();
-    alert($.i18n("records-db-export/code-applied"));
+    alert($.i18n("records-db-export/code-applied") || "配置已应用");
   } catch (e) {
-    alert($.i18n("records-db-export/invalid-json"));
+    alert(($.i18n("records-db-export/invalid-json") || "无效的JSON格式") + ": " + e.message);
   }
 };
 

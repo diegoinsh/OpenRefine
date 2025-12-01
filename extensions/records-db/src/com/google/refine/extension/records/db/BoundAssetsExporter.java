@@ -126,8 +126,13 @@ public class BoundAssetsExporter {
                     }
 
                     // Create parent directories
-                    if (!targetFile.getParentFile().exists()) {
-                        targetFile.getParentFile().mkdirs();
+                    File parentDir = targetFile.getParentFile();
+                    if (!parentDir.exists()) {
+                        if (!parentDir.mkdirs()) {
+                            failed++;
+                            addError(errors, rowIndex, "Failed to create directory: " + parentDir.getAbsolutePath());
+                            continue;
+                        }
                     }
 
                     // Copy or move
@@ -237,7 +242,10 @@ public class BoundAssetsExporter {
 
         // Create target directory if it doesn't exist
         if (!targetDir.exists()) {
-            targetDir.mkdirs();
+            if (!targetDir.mkdirs()) {
+                logger.warn("Failed to create directory: {}", targetDir.getAbsolutePath());
+                return new int[]{0, 1, 0};
+            }
         }
 
         File[] files = sourceDir.listFiles();
@@ -319,9 +327,9 @@ public class BoundAssetsExporter {
 
         ObjectNode result = ParsingUtilities.mapper.createObjectNode();
         ArrayNode files = result.putArray("files");
-        int count = 0;
-        int existing = 0;
-        int missing = 0;
+        int previewCount = 0;
+        int totalExisting = 0;
+        int totalMissing = 0;
 
         // Parse path fields
         List<Integer> pathColumnIndices = new ArrayList<>();
@@ -335,38 +343,47 @@ public class BoundAssetsExporter {
             }
         }
 
-        int maxRows = Math.min(limit > 0 ? limit : 10, project.rows.size());
+        int maxPreviewRows = Math.min(limit > 0 ? limit : 10, project.rows.size());
+        int totalRows = project.rows.size();
 
-        for (int rowIndex = 0; rowIndex < maxRows; rowIndex++) {
+        // Iterate through ALL rows for complete statistics
+        for (int rowIndex = 0; rowIndex < totalRows; rowIndex++) {
             Row row = project.rows.get(rowIndex);
             String sourcePath = buildPath(row, pathColumnIndices, sourceRootPath, separator);
 
             if (sourcePath != null && !sourcePath.isEmpty()) {
-                ObjectNode fileInfo = ParsingUtilities.mapper.createObjectNode();
-                fileInfo.put("row", rowIndex);
-                fileInfo.put("path", sourcePath);
-
                 File file = new File(sourcePath);
                 boolean exists = file.exists();
-                fileInfo.put("exists", exists);
 
+                // Count for all rows
                 if (exists) {
-                    fileInfo.put("size", file.length());
-                    existing++;
+                    totalExisting++;
                 } else {
-                    missing++;
+                    totalMissing++;
                 }
 
-                files.add(fileInfo);
-                count++;
+                // Only add to preview files array for first N rows
+                if (rowIndex < maxPreviewRows) {
+                    ObjectNode fileInfo = ParsingUtilities.mapper.createObjectNode();
+                    fileInfo.put("row", rowIndex);
+                    fileInfo.put("path", sourcePath);
+                    fileInfo.put("exists", exists);
+
+                    if (exists) {
+                        fileInfo.put("size", file.length());
+                    }
+
+                    files.add(fileInfo);
+                    previewCount++;
+                }
             }
         }
 
         result.put("status", "ok");
-        result.put("totalRows", project.rows.size());
-        result.put("previewCount", count);
-        result.put("existing", existing);
-        result.put("missing", missing);
+        result.put("totalRows", totalRows);
+        result.put("previewCount", previewCount);
+        result.put("existing", totalExisting);
+        result.put("missing", totalMissing);
 
         return result;
     }

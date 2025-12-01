@@ -116,11 +116,11 @@ HistoryPanel.prototype._render = function() {
   if (this._data.past.length > 0 || this._data.future.length > 0) {
     if (!this._data.past.length) {
       renderEntry(elmts.nowDiv, 0, {
-        description: "Create project"
+        description: $.i18n('core-index-create/create-proj')
       }, 0, true);
     } else {
       renderEntry(elmts.pastDiv, 0, {
-        description: "Create project"
+        description: $.i18n('core-index-create/create-proj')
       }, 0, true);
 
       for (var i = 0; i < this._data.past.length - 1; i++) {
