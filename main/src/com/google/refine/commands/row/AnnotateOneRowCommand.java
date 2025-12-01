@@ -41,6 +41,7 @@ import javax.servlet.http.HttpServletResponse;
 
 import com.google.refine.commands.Command;
 import com.google.refine.history.HistoryEntry;
+import com.google.refine.messages.OpenRefineMessage;
 import com.google.refine.model.Project;
 import com.google.refine.model.changes.RowFlagChange;
 import com.google.refine.model.changes.RowStarChange;
@@ -67,7 +68,9 @@ public class AnnotateOneRowCommand extends Command {
             String starredString = request.getParameter("starred");
             if (starredString != null) {
                 boolean starred = "true".endsWith(starredString);
-                String description = (starred ? "Star row " : "Unstar row ") + (rowIndex + 1);
+                String description = starred
+                        ? OpenRefineMessage.row_star(rowIndex + 1)
+                        : OpenRefineMessage.row_unstar(rowIndex + 1);
 
                 StarOneRowProcess process = new StarOneRowProcess(
                         project,
@@ -82,7 +85,9 @@ public class AnnotateOneRowCommand extends Command {
             String flaggedString = request.getParameter("flagged");
             if (flaggedString != null) {
                 boolean flagged = "true".endsWith(flaggedString);
-                String description = (flagged ? "Flag row " : "Unflag row ") + (rowIndex + 1);
+                String description = flagged
+                        ? OpenRefineMessage.row_flag(rowIndex + 1)
+                        : OpenRefineMessage.row_unflag(rowIndex + 1);
 
                 FlagOneRowProcess process = new FlagOneRowProcess(
                         project,
@@ -94,7 +99,8 @@ public class AnnotateOneRowCommand extends Command {
                 return;
             }
 
-            respond(response, "{ \"code\" : \"error\", \"message\" : \"invalid command parameters\" }");
+            respond(response, "{ \"code\" : \"error\", \"message\" : \"" +
+                    OpenRefineMessage.error_invalid_command_parameters() + "\" }");
 
         } catch (Exception e) {
             respondException(response, e);
@@ -119,10 +125,13 @@ public class AnnotateOneRowCommand extends Command {
 
         @Override
         protected HistoryEntry createHistoryEntry(long historyEntryID) throws Exception {
+            String description = starred
+                    ? OpenRefineMessage.row_star(rowIndex + 1)
+                    : OpenRefineMessage.row_unstar(rowIndex + 1);
             return new HistoryEntry(
                     historyEntryID,
                     _project,
-                    (starred ? "Star row " : "Unstar row ") + (rowIndex + 1),
+                    description,
                     null,
                     new RowStarChange(rowIndex, starred));
         }
@@ -146,10 +155,13 @@ public class AnnotateOneRowCommand extends Command {
 
         @Override
         protected HistoryEntry createHistoryEntry(long historyEntryID) throws Exception {
+            String description = flagged
+                    ? OpenRefineMessage.row_flag(rowIndex + 1)
+                    : OpenRefineMessage.row_unflag(rowIndex + 1);
             return new HistoryEntry(
                     historyEntryID,
                     _project,
-                    (flagged ? "Flag row " : "Unflag row ") + (rowIndex + 1),
+                    description,
                     null,
                     new RowFlagChange(rowIndex, flagged));
         }

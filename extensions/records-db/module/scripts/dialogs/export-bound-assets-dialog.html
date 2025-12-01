@@ -1,0 +1,145 @@
+<div class="dialog-frame" style="width: 800px;">
+  <div class="dialog-header" bind="dialogHeader"></div>
+  <div class="dialog-body" bind="dialogBody">
+    <div id="export-bound-assets-tabs" class="refine-tabs">
+      <ul>
+        <li><a href="#export-bound-assets-tabs-path" bind="tab_pathConfig"></a></li>
+        <li><a href="#export-bound-assets-tabs-export" bind="tab_exportSettings"></a></li>
+        <li><a href="#export-bound-assets-tabs-code" bind="tab_optionCode"></a></li>
+      </ul>
+      
+      <!-- Tab1: Path Configuration -->
+      <div id="export-bound-assets-tabs-path">
+        <div class="grid-layout grid-layout-for-ui layout-normal layout-full"><table role="presentation">
+          <tr>
+            <td bind="label_selectFields"></td>
+            <td><span bind="label_pathOptions"></span></td>
+          </tr>
+          <tr>
+            <td width="40%">
+              <div bind="fieldList" class="export-bound-assets-fields"></div>
+            </td>
+            <td>
+              <div bind="pathOptionPane" class="export-bound-assets-options">
+                <div class="grid-layout layout-normal"><table role="presentation">
+                  <tr><td colspan="2" bind="label_pathJoinMethod"></td></tr>
+                  <tr><td><div class="grid-layout layout-tightest"><table role="presentation">
+                    <tr>
+                      <td width="1%"><input type="radio" name="export-bound-assets-path-mode" value="separator" checked id="$export-path-separator" /></td>
+                      <td><label for="$export-path-separator" bind="label_useSeparator"></label>
+                        <input type="text" class="lightweight" size="5" bind="separatorInput" value="/" /></td>
+                    </tr>
+                    <tr>
+                      <td width="1%"><input type="radio" name="export-bound-assets-path-mode" value="template" id="$export-path-template" /></td>
+                      <td><label for="$export-path-template" bind="label_useTemplate"></label>
+                        <input type="text" class="lightweight" size="30" bind="templateInput" placeholder="{0}/{1}/{2}" /></td>
+                    </tr>
+                  </table></div></td></tr>
+                  
+                  <tr><td colspan="2" style="padding-top: 15px;" bind="label_sourceRootPath"></td></tr>
+                  <tr><td><div class="grid-layout layout-tightest"><table role="presentation">
+                    <tr>
+                      <td width="100%"><input type="text" class="lightweight" style="width: 100%;" bind="sourceRootInput" /></td>
+                      <td width="1%"><button class="button" bind="browseSourceButton"></button></td>
+                    </tr>
+                  </table></div></td></tr>
+                  
+                  <tr><td colspan="2" style="padding-top: 15px;" bind="label_pathPreview"></td></tr>
+                  <tr><td><div bind="pathPreviewPane" class="export-bound-assets-preview"></div></td></tr>
+                </table></div>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2">
+              <button class="button" bind="selectAllButton"></button>
+              <button class="button" bind="deselectAllButton"></button>
+            </td>
+          </tr>
+        </table></div>
+      </div>
+      
+      <!-- Tab2: Export Settings -->
+      <div id="export-bound-assets-tabs-export" style="display: none;">
+        <div class="grid-layout grid-layout-for-ui layout-loose layout-full"><table role="presentation">
+          <tr>
+            <th bind="label_targetPath"></th>
+          </tr>
+          <tr>
+            <td><div class="grid-layout layout-tightest"><table role="presentation">
+              <tr>
+                <td width="100%"><input type="text" class="lightweight" style="width: 100%;" bind="targetPathInput" /></td>
+                <td width="1%"><button class="button" bind="browseTargetButton"></button></td>
+              </tr>
+            </table></div></td>
+          </tr>
+          
+          <tr>
+            <th style="padding-top: 15px;" bind="label_operationMode"></th>
+          </tr>
+          <tr>
+            <td><div class="grid-layout layout-tightest"><table role="presentation">
+              <tr>
+                <td width="1%"><input type="radio" name="export-bound-assets-mode" value="copy" checked id="$export-mode-copy" /></td>
+                <td><label for="$export-mode-copy" bind="label_modeCopy"></label></td>
+              </tr>
+              <tr>
+                <td width="1%"><input type="radio" name="export-bound-assets-mode" value="move" id="$export-mode-move" /></td>
+                <td><label for="$export-mode-move" bind="label_modeMove"></label></td>
+              </tr>
+              <tr>
+                <td width="1%"><input type="radio" name="export-bound-assets-mode" value="rename" disabled id="$export-mode-rename" /></td>
+                <td><label for="$export-mode-rename" class="disabled" bind="label_modeRename"></label></td>
+              </tr>
+            </table></div></td>
+          </tr>
+          
+          <tr>
+            <th style="padding-top: 15px;" bind="label_advancedOptions"></th>
+          </tr>
+          <tr>
+            <td><div class="grid-layout layout-tightest"><table role="presentation">
+              <tr>
+                <td width="1%"><input type="checkbox" bind="preserveStructureCheckbox" checked id="$export-preserve-structure" /></td>
+                <td><label for="$export-preserve-structure" bind="label_preserveStructure"></label></td>
+              </tr>
+              <tr>
+                <td width="1%"><input type="checkbox" bind="skipExistingCheckbox" checked id="$export-skip-existing" /></td>
+                <td><label for="$export-skip-existing" bind="label_skipExisting"></label></td>
+              </tr>
+              <tr>
+                <td width="1%"><input type="checkbox" bind="exportAllRowsCheckbox" id="$export-all-rows" /></td>
+                <td><label for="$export-all-rows" bind="label_ignoreFacets"></label></td>
+              </tr>
+            </table></div></td>
+          </tr>
+          
+          <tr>
+            <td style="padding-top: 20px;"><div class="grid-layout layout-tightest layout-full"><table role="presentation"><tr>
+              <td width="100%"><span bind="statusMessage"></span></td>
+              <td width="1%"><button class="button" bind="previewButton"></button></td>
+            </tr></table></div></td>
+          </tr>
+        </table></div>
+      </div>
+
+      <!-- Tab3: Option Code -->
+      <div id="export-bound-assets-tabs-code" style="display: none;">
+        <div class="grid-layout grid-layout-for-ui layout-loose layout-full"><table role="presentation">
+          <tr>
+            <td bind="label_jsonCode"></td>
+            <td width="30%" style="text-align: right;"><button class="button" bind="applyOptionCodeButton"></button></td>
+          </tr>
+          <tr>
+            <td colspan="2"><textarea class="export-bound-assets-code" bind="optionCodeInput"></textarea></td>
+          </tr>
+        </table></div>
+      </div>
+    </div>
+  </div>
+  <div class="dialog-footer" bind="dialogFooter">
+    <button class="button" bind="cancelButton"></button>
+    <button class="button button-primary" bind="exportButton"></button>
+  </div>
+</div>
+

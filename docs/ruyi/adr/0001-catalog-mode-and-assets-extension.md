@@ -72,7 +72,7 @@ The two-extension approach provides:
    - MariaDB: Full support (JSON_EXTRACT)
    - SQLite: P0 only (server-side parsing)
 
-4. **Generic Naming**: No "kubao" references in code/UI
+4. **Generic Naming**: No specific references in code/UI
    - Rationale: Solution must be adaptable to other systems
    - Kubao is just one preset template
 

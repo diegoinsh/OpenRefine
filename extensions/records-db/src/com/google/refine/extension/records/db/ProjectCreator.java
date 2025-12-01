@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import com.google.refine.ProjectManager;
 import com.google.refine.ProjectMetadata;
+import com.google.refine.extension.records.db.model.RecordsDBOverlayModel;
 import com.google.refine.extension.records.db.model.SchemaProfile;
 import com.google.refine.importers.TabularImportingParserBase;
 import com.google.refine.importing.ImportingJob;
@@ -90,6 +91,16 @@ public class ProjectCreator {
 
             if (!job.canceled && exceptions.isEmpty()) {
                 project.update();
+
+                // Store the schema profile in the project's overlay models
+                // This allows the export feature to access the original file mapping configuration
+                RecordsDBOverlayModel overlayModel = RecordsDBOverlayModel.fromSchemaProfile(profile);
+                project.overlayModels.put(RecordsDBOverlayModel.OVERLAY_MODEL_KEY, overlayModel);
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Stored RecordsDBOverlayModel in project with fileMapping: {}",
+                            profile.getFileMapping());
+                }
+
                 ProjectManager.singleton.registerProject(project, metadata);
                 job.setState("created-project");
                 job.setProjectID(project.id);

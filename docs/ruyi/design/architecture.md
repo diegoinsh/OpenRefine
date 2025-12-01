@@ -3,7 +3,7 @@
 ## Core Design Principles
 
 - **Default Catalog Mode**: Document + metadata processing; SQL mode as fallback
-- **Generic Naming**: No "kubao" references; use Records-DB, Records-Assets
+- **Generic Naming**: No "specific" references; use Records-DB, Records-Assets
 - **Schema Profile**: Configuration-driven, preset templates + custom mapping
 - **i18n First**: All UI text uses OpenRefine i18n keys, no hardcoded strings
 - **Security First**: allowedRoots whitelist (default []), canonical path validation

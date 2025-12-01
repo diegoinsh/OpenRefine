@@ -16,7 +16,7 @@
         "selectProfile": {
           "title": "Select Profile",
           "description": "Choose a preset profile or create a custom one",
-          "kubao": "Kubao Archive System",
+          "kubao": "Archive System",
           "flatTable": "Flat Table",
           "genericJson": "Generic JSON-in-Field",
           "databaseConfig": "Database Configuration",

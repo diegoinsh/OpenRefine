@@ -26,7 +26,11 @@
     html += '<thead>';
     html += '<tr>';
     html += '<th>' + i18n.t('records.db.wizard.fieldMapping.sourceField') + '</th>';
-    html += '<th>' + i18n.t('records.db.wizard.fieldMapping.targetField') + '</th>';
+    html += '<th class="target-field-header">';
+    html += '<button id="target-field-menu-btn" style="display:inline-block;margin:0 4px 0 0;padding:2px 6px;cursor:pointer;border:1px solid #ccc;border-radius:3px;background:#f8f8f8;font-size:10px;vertical-align:middle;">▼</button>';
+    html += i18n.t('records.db.wizard.fieldMapping.targetField');
+    html += '<span id="dict-translated-header-mark" style="display:none;color:#4caf50;font-weight:bold;margin-left:5px;" title="' + (i18n.t('records.db.wizard.fieldMapping.dictTranslate.translated') || '已翻译') + '">✓</span>';
+    html += '</th>';
     html += '<th>' + i18n.t('records.db.wizard.fieldMapping.fieldType') + '</th>';
     html += '<th>' + i18n.t('records.db.wizard.fieldMapping.action') + '</th>';
     html += '</tr>';
@@ -37,9 +41,37 @@
     html += '</div>';
 
     html += '<div class="field-mapping-actions">';
-    html += '<button id="add-field-mapping" class="button">' + i18n.t('records.db.wizard.fieldMapping.addField') + '</button>';
-    html += '<button id="auto-json-flatten" class="button">' + (i18n.t('records.db.wizard.fieldMapping.autoJsonFlatten') || '自动扁平化 JSON 键') + '</button>';
+    html += '<button id="add-field-mapping">' + i18n.t('records.db.wizard.fieldMapping.addField') + '</button>';
+    html += '<button id="auto-json-flatten">' + (i18n.t('records.db.wizard.fieldMapping.autoJsonFlatten') || '自动扁平化 JSON 键') + '</button>';
     html += '<span id="json-status" class="status"></span>';
+    html += '</div>';
+
+    // Dictionary translation dialog (hidden by default)
+    html += '<div id="dict-translate-dialog" class="dict-translate-dialog" style="display:none;">';
+    html += '<div class="dict-translate-content">';
+    html += '<h4>' + (i18n.t('records.db.wizard.fieldMapping.dictTranslate.title') || '选择源字段字典') + '</h4>';
+    html += '<div class="form-group">';
+    html += '<label>' + (i18n.t('records.db.wizard.fieldMapping.dictTranslate.dictTable') || '字典表') + ':</label>';
+    html += '<select id="dict-translate-table"></select>';
+    html += '</div>';
+    html += '<div class="form-group">';
+    html += '<label>' + (i18n.t('records.db.wizard.fieldMapping.dictTranslate.dictMatchKey') || '字典匹配键') + ':</label>';
+    html += '<select id="dict-translate-match-key"></select>';
+    html += '</div>';
+    html += '<div class="form-group">';
+    html += '<label>' + (i18n.t('records.db.wizard.fieldMapping.dictTranslate.dictNameField') || '字典名称字段') + ':</label>';
+    html += '<select id="dict-translate-name-field"></select>';
+    html += '</div>';
+    html += '<div class="dict-filter-section">';
+    html += '<label>' + (i18n.t('records.db.wizard.fieldMapping.dictTranslate.filterConditions') || '筛选条件') + ':</label>';
+    html += '<div id="dict-filter-conditions"></div>';
+    html += '<button id="dict-add-filter" class="button button-small" style="margin-top:5px;">' + (i18n.t('records.db.wizard.fieldMapping.dictTranslate.addFilter') || '+ 添加条件') + '</button>';
+    html += '</div>';
+    html += '<div class="dict-translate-buttons">';
+    html += '<button id="dict-translate-ok" class="button">' + (i18n.t('core-buttons/ok') || '确定') + '</button>';
+    html += '<button id="dict-translate-cancel" class="button">' + (i18n.t('core-buttons/cancel') || '取消') + '</button>';
+    html += '</div>';
+    html += '</div>';
     html += '</div>';
 
     html += '</div>';
@@ -61,6 +93,445 @@
         self._autoJsonFlatten();
       };
     }
+
+    // Target field menu button
+    var menuBtn = document.getElementById('target-field-menu-btn');
+    if (menuBtn) {
+      menuBtn.onclick = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        self._showTargetFieldMenu(menuBtn);
+      };
+    }
+
+    // Dictionary translate dialog buttons
+    var okBtn = document.getElementById('dict-translate-ok');
+    var cancelBtn = document.getElementById('dict-translate-cancel');
+    var addFilterBtn = document.getElementById('dict-add-filter');
+    if (okBtn) {
+      okBtn.onclick = function() { self._applyDictTranslate(); };
+    }
+    if (cancelBtn) {
+      cancelBtn.onclick = function() { self._hideDictTranslateDialog(); };
+    }
+    if (addFilterBtn) {
+      addFilterBtn.onclick = function() { self._addDictFilterCondition(); };
+    }
+  };
+
+  // Show target field dropdown menu
+  FieldMappingStep.prototype._showTargetFieldMenu = function(elmt) {
+    var self = this;
+    var menu = document.createElement('div');
+    menu.className = 'menu-container target-field-menu';
+    menu.innerHTML = '<div class="menu-item" id="menu-dict-translate">' +
+      '<span style="margin-right:8px;">📖</span>' +
+      '<span>' + (i18n.t('records.db.wizard.fieldMapping.dictTranslate.menuItem') || '选择源字段字典') + '</span>' +
+      '</div>';
+
+    // Position menu below button
+    var rect = elmt.getBoundingClientRect();
+    menu.style.position = 'absolute';
+    menu.style.left = rect.left + 'px';
+    menu.style.top = rect.bottom + 'px';
+    menu.style.zIndex = '1000';
+    document.body.appendChild(menu);
+
+    // Click handler
+    var menuItem = menu.querySelector('#menu-dict-translate');
+    menuItem.onclick = function() {
+      document.body.removeChild(menu);
+      self._showDictTranslateDialog();
+    };
+
+    // Close menu when clicking outside
+    var closeMenu = function(e) {
+      if (!menu.contains(e.target) && e.target !== elmt) {
+        if (menu.parentNode) {
+          document.body.removeChild(menu);
+        }
+        document.removeEventListener('click', closeMenu);
+      }
+    };
+    setTimeout(function() {
+      document.addEventListener('click', closeMenu);
+    }, 0);
+  };
+
+  // Show dictionary translate dialog
+  FieldMappingStep.prototype._showDictTranslateDialog = function() {
+    var self = this;
+    var dialog = document.getElementById('dict-translate-dialog');
+    if (!dialog) return;
+    dialog.style.display = 'flex';
+
+    // Clear existing filter conditions
+    var condContainer = document.getElementById('dict-filter-conditions');
+    if (condContainer) {
+      condContainer.innerHTML = '';
+    }
+    this._dictFilterCount = 0;
+
+    // Get saved config
+    var profile = this._wizard._schemaProfile || {};
+    var savedConfig = profile.dictTranslateConfig;
+
+    // Load dictionary tables, then restore saved config if exists
+    this._loadDictTables(function() {
+      if (savedConfig && savedConfig.dictTable) {
+        var tableSel = document.getElementById('dict-translate-table');
+        if (tableSel) {
+          tableSel.value = savedConfig.dictTable;
+          // Load columns for the saved table
+          self._loadDictColumns(savedConfig.dictTable, function() {
+            // Restore match key and name field
+            var matchKeySel = document.getElementById('dict-translate-match-key');
+            var nameSel = document.getElementById('dict-translate-name-field');
+            if (matchKeySel && savedConfig.matchKey) matchKeySel.value = savedConfig.matchKey;
+            if (nameSel && savedConfig.nameField) nameSel.value = savedConfig.nameField;
+
+            // Restore filter conditions
+            if (savedConfig.filterConditions && savedConfig.filterConditions.length > 0) {
+              savedConfig.filterConditions.forEach(function(fc, idx) {
+                self._addDictFilterCondition();
+                var rows = condContainer.querySelectorAll('.dict-filter-row');
+                var row = rows[idx];
+                if (row) {
+                  var mainSel = row.querySelector('.dict-filter-main-col');
+                  var dictSel = row.querySelector('.dict-filter-dict-col');
+                  if (mainSel) mainSel.value = fc.mainCol || '';
+                  if (dictSel) dictSel.value = fc.dictCol || '';
+                }
+              });
+            } else {
+              self._addDictFilterCondition();
+            }
+          });
+        }
+      } else {
+        // No saved config, add one default filter row
+        self._addDictFilterCondition();
+      }
+    });
+  };
+
+  // Hide dictionary translate dialog
+  FieldMappingStep.prototype._hideDictTranslateDialog = function() {
+    var dialog = document.getElementById('dict-translate-dialog');
+    if (dialog) {
+      dialog.style.display = 'none';
+    }
+  };
+
+  // Add a filter condition row
+  FieldMappingStep.prototype._addDictFilterCondition = function() {
+    var self = this;
+    var container = document.getElementById('dict-filter-conditions');
+    if (!container) return;
+
+    var idx = this._dictFilterCount || 0;
+    this._dictFilterCount = idx + 1;
+
+    var row = document.createElement('div');
+    row.className = 'dict-filter-row';
+    row.id = 'dict-filter-row-' + idx;
+    row.style.cssText = 'display:flex;gap:8px;margin-bottom:5px;align-items:center;';
+
+    var cols = (this._wizard._schemaProfile && this._wizard._schemaProfile.columns) || [];
+    var mainColOptions = '<option value="">' + (i18n.t('records.db.wizard.configureFilters.selectField') || '选择字段') + '</option>';
+    cols.forEach(function(c) {
+      mainColOptions += '<option value="' + c.name + '">' + c.name + '</option>';
+    });
+
+    // Get current dict columns from cache
+    var dictColOptions = '<option value="">' + (i18n.t('records.db.wizard.configureFilters.selectField') || '选择字段') + '</option>';
+    if (this._dictColumns && this._dictColumns.length > 0) {
+      this._dictColumns.forEach(function(c) {
+        dictColOptions += '<option value="' + c + '">' + c + '</option>';
+      });
+    }
+
+    row.innerHTML =
+      '<select class="dict-filter-main-col" style="flex:1;padding:6px;">' + mainColOptions + '</select>' +
+      '<span style="padding:0 4px;">=</span>' +
+      '<select class="dict-filter-dict-col" style="flex:1;padding:6px;">' + dictColOptions + '</select>' +
+      '<button class="dict-filter-remove" style="padding:4px 8px;cursor:pointer;">✕</button>';
+
+    container.appendChild(row);
+
+    // Remove button handler
+    row.querySelector('.dict-filter-remove').onclick = function() {
+      if (container.children.length > 1) {
+        container.removeChild(row);
+      }
+    };
+  };
+
+  // Update dictionary column selects when table changes
+  FieldMappingStep.prototype._updateDictColumnSelects = function(columns) {
+    // Cache the columns for new filter rows
+    this._dictColumns = columns;
+
+    var placeholder = '<option value="">' + (i18n.t('records.db.wizard.configureFilters.selectField') || '选择字段') + '</option>';
+    var options = placeholder;
+    columns.forEach(function(c) {
+      options += '<option value="' + c + '">' + c + '</option>';
+    });
+
+    // Update match key field select
+    var matchKeySel = document.getElementById('dict-translate-match-key');
+    if (matchKeySel) matchKeySel.innerHTML = options;
+
+    // Update name field select
+    var nameSel = document.getElementById('dict-translate-name-field');
+    if (nameSel) nameSel.innerHTML = options;
+
+    // Update all dict column selects in filter rows
+    document.querySelectorAll('.dict-filter-dict-col').forEach(function(sel) {
+      sel.innerHTML = options;
+    });
+  };
+
+  // Load dictionary tables
+  FieldMappingStep.prototype._loadDictTables = function(callback) {
+    var self = this;
+    var profile = this._wizard._schemaProfile || {};
+    var tableSel = document.getElementById('dict-translate-table');
+    if (!tableSel) {
+      if (callback) callback();
+      return;
+    }
+
+    tableSel.innerHTML = '<option value="">' + (i18n.t('records.db.common.loading') || '加载中') + '...</option>';
+
+    var fill = function(data) {
+      tableSel.innerHTML = '<option value="">' + (i18n.t('records.db.wizard.fieldMapping.dictTranslate.selectTable') || '选择表') + '</option>';
+      if (data && data.status === 'ok' && Array.isArray(data.tables)) {
+        data.tables.forEach(function(t) {
+          var name = t.name || t;
+          var label = t.label || name;
+          var opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = label;
+          tableSel.appendChild(opt);
+        });
+      }
+      if (callback) callback();
+    };
+
+    if (typeof Refine !== 'undefined' && typeof Refine.wrapCSRF === 'function' && typeof $ !== 'undefined') {
+      Refine.wrapCSRF(function(token) {
+        $.post('command/core/importing-controller?' + $.param({
+          controller: 'records-db/records-db-import-controller',
+          subCommand: 'list-tables',
+          csrf_token: token
+        }), { schemaProfile: JSON.stringify(profile) }, fill, 'json').fail(function() { fill(null); });
+      });
+    } else {
+      var params = new URLSearchParams();
+      params.set('schemaProfile', JSON.stringify(profile));
+      fetch('command/core/importing-controller?controller=records-db/records-db-import-controller&subCommand=list-tables', {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+      }).then(function(r) { return r.json(); }).then(fill).catch(function() { fill(null); });
+    }
+
+    // On table change, load columns
+    tableSel.onchange = function() {
+      if (tableSel.value) {
+        self._loadDictColumns(tableSel.value);
+      }
+    };
+  };
+
+  // Load dictionary table columns
+  FieldMappingStep.prototype._loadDictColumns = function(tableName, callback) {
+    var self = this;
+    var profile = JSON.parse(JSON.stringify(this._wizard._schemaProfile || {}));
+    profile.mainTable = tableName;
+
+    var nameSel = document.getElementById('dict-translate-name-field');
+    var matchKeySel = document.getElementById('dict-translate-match-key');
+    if (!nameSel) {
+      if (callback) callback();
+      return;
+    }
+
+    var placeholder = '<option value="">' + (i18n.t('records.db.common.loading') || '加载中') + '...</option>';
+    nameSel.innerHTML = placeholder;
+    if (matchKeySel) matchKeySel.innerHTML = placeholder;
+    document.querySelectorAll('.dict-filter-dict-col').forEach(function(sel) {
+      sel.innerHTML = placeholder;
+    });
+
+    var fill = function(data) {
+      var columns = [];
+      if (data && data.status === 'ok' && Array.isArray(data.columns)) {
+        columns = data.columns.map(function(c) { return c.name; });
+      }
+      self._updateDictColumnSelects(columns);
+      if (callback) callback();
+    };
+
+    if (typeof Refine !== 'undefined' && typeof Refine.wrapCSRF === 'function' && typeof $ !== 'undefined') {
+      Refine.wrapCSRF(function(token) {
+        $.post('command/core/importing-controller?' + $.param({
+          controller: 'records-db/records-db-import-controller',
+          subCommand: 'list-columns',
+          csrf_token: token
+        }), { schemaProfile: JSON.stringify(profile) }, fill, 'json').fail(function() { fill(null); });
+      });
+    } else {
+      var params = new URLSearchParams();
+      params.set('schemaProfile', JSON.stringify(profile));
+      fetch('command/core/importing-controller?controller=records-db/records-db-import-controller&subCommand=list-columns', {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+      }).then(function(r) { return r.json(); }).then(fill).catch(function() { fill(null); });
+    }
+  };
+
+  // Apply dictionary translation
+  FieldMappingStep.prototype._applyDictTranslate = function() {
+    var self = this;
+    var dictTable = document.getElementById('dict-translate-table').value;
+    var matchKey = document.getElementById('dict-translate-match-key').value;
+    var nameField = document.getElementById('dict-translate-name-field').value;
+
+    // Collect filter conditions
+    var filterConditions = [];
+    document.querySelectorAll('.dict-filter-row').forEach(function(row) {
+      var mainCol = row.querySelector('.dict-filter-main-col').value;
+      var dictCol = row.querySelector('.dict-filter-dict-col').value;
+      if (mainCol && dictCol) {
+        filterConditions.push({ mainCol: mainCol, dictCol: dictCol });
+      }
+    });
+
+    if (!dictTable || !matchKey || !nameField) {
+      alert(i18n.t('records.db.wizard.fieldMapping.dictTranslate.selectAll') || '请选择字典表、匹配键和名称字段');
+      return;
+    }
+
+    // Hide dialog
+    this._hideDictTranslateDialog();
+
+    // Load dictionary data
+    var status = document.getElementById('json-status');
+    if (status) {
+      status.textContent = (i18n.t('records.db.common.loading') || '加载中') + '...';
+    }
+
+    // Collect all dict columns needed
+    var dictColumns = [{ name: matchKey }, { name: nameField }];
+    var dictFieldMappings = [
+      { columnName: matchKey, columnLabel: matchKey, dataType: 'string' },
+      { columnName: nameField, columnLabel: nameField, dataType: 'string' }
+    ];
+    filterConditions.forEach(function(fc) {
+      // Avoid duplicates
+      if (fc.dictCol !== matchKey && fc.dictCol !== nameField) {
+        dictColumns.push({ name: fc.dictCol });
+        dictFieldMappings.push({ columnName: fc.dictCol, columnLabel: fc.dictCol, dataType: 'string' });
+      }
+    });
+
+    // Create a clean profile with only connection info and dictionary table
+    var origProfile = this._wizard._schemaProfile || {};
+    var dictProfile = {
+      dialect: origProfile.dialect,
+      host: origProfile.host,
+      port: origProfile.port,
+      database: origProfile.database,
+      username: origProfile.username,
+      password: origProfile.password,
+      mainTable: dictTable,
+      recordIdColumn: filterConditions[0].dictCol,
+      columns: dictColumns,
+      fieldMappings: dictFieldMappings,
+      filters: [],
+      exportJoin: null
+    };
+
+    var queryDict = function(callback) {
+      if (typeof Refine !== 'undefined' && typeof Refine.wrapCSRF === 'function' && typeof $ !== 'undefined') {
+        Refine.wrapCSRF(function(token) {
+          $.post('command/core/importing-controller?' + $.param({
+            controller: 'records-db/records-db-import-controller',
+            subCommand: 'parse-preview',
+            csrf_token: token
+          }), { schemaProfile: JSON.stringify(dictProfile), offset: 0, limit: 10000 }, callback, 'json').fail(function() { callback(null); });
+        });
+      } else {
+        var params = new URLSearchParams();
+        params.set('schemaProfile', JSON.stringify(dictProfile));
+        params.set('offset', '0');
+        params.set('limit', '10000');
+        fetch('command/core/importing-controller?controller=records-db/records-db-import-controller&subCommand=parse-preview', {
+          method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+        }).then(function(r) { return r.json(); }).then(callback).catch(function() { callback(null); });
+      }
+    };
+
+    queryDict(function(data) {
+      if (!data || data.status !== 'ok' || !Array.isArray(data.rows)) {
+        if (status) status.textContent = (i18n.t('records.db.wizard.fieldMapping.dictTranslate.loadFailed') || '加载字典失败');
+        return;
+      }
+
+      // Build dictionary: matchKey -> name
+      var suffixMap = {};
+      data.rows.forEach(function(row) {
+        var suffix = String(row[matchKey] || '');
+        var name = row[nameField];
+        if (suffix && name !== undefined && name !== null) {
+          suffixMap[suffix] = String(name);
+        }
+      });
+
+      // Apply translation to target fields using suffix matching
+      var tbody = document.getElementById('field-mapping-body');
+      if (!tbody) {
+        if (status) status.textContent = '';
+        return;
+      }
+
+      var translatedCount = 0;
+      tbody.querySelectorAll('tr').forEach(function(row) {
+        var sourceCell = row.querySelector('td:first-child');
+        var targetInput = row.querySelector('.target-field');
+        if (!sourceCell || !targetInput) return;
+
+        var sourceField = sourceCell.textContent.trim();
+        // Suffix matching: check if source field ends with any dictionary code
+        for (var code in suffixMap) {
+          if (sourceField.endsWith(code) || sourceField === code) {
+            targetInput.value = suffixMap[code];
+            translatedCount++;
+            break;
+          }
+        }
+      });
+
+      // Show checkmark in header
+      var headerMark = document.getElementById('dict-translated-header-mark');
+      if (headerMark) {
+        headerMark.style.display = 'inline';
+      }
+
+      // Save dictionary config to profile (with translated flag)
+      var profile = self._wizard._schemaProfile || {};
+      profile.dictTranslateConfig = {
+        dictTable: dictTable,
+        matchKey: matchKey,
+        nameField: nameField,
+        filterConditions: filterConditions,
+        translated: true
+      };
+      self._wizard._schemaProfile = profile;
+
+      if (status) {
+        status.textContent = (i18n.t('records.db.wizard.fieldMapping.dictTranslate.success') || '翻译完成') + ': ' + translatedCount + ' ' + (i18n.t('records.db.wizard.fieldMapping.dictTranslate.fields') || '个字段');
+      }
+    });
   };
 
   FieldMappingStep.prototype._loadFieldMappings = function() {
@@ -77,6 +548,16 @@
     var profile = this._wizard._schemaProfile || {};
     var mappings = Array.isArray(profile.fieldMappings) ? profile.fieldMappings : [];
 
+    // Show header checkmark if dictionary was applied
+    var headerMark = document.getElementById('dict-translated-header-mark');
+    if (headerMark) {
+      if (profile.dictTranslateConfig && profile.dictTranslateConfig.translated) {
+        headerMark.style.display = 'inline';
+      } else {
+        headerMark.style.display = 'none';
+      }
+    }
+
     // Render field mappings based on profile.fieldMappings (only selected fields)
     mappings.forEach(function(mapping) {
       if (!mapping || !mapping.columnName) {
@@ -88,7 +569,11 @@
       }
 
       var tdSource = document.createElement('td');
-      tdSource.textContent = mapping.columnName;
+      // For JSON sub-fields, show columnName.jsonPath; otherwise just columnName
+      var sourceDisplay = mapping.jsonPath
+        ? (mapping.columnName + '.' + mapping.jsonPath)
+        : mapping.columnName;
+      tdSource.textContent = sourceDisplay;
       tr.appendChild(tdSource);
 
       var tdTarget = document.createElement('td');
@@ -139,16 +624,17 @@
     var tbody = document.getElementById('field-mapping-body');
     var row = document.createElement('tr');
 
-    row.innerHTML = '<td><input type="text" class="source-field" placeholder="Field name"></td>';
-    row.innerHTML += '<td><input type="text" class="target-field" placeholder="Target name"></td>';
-    row.innerHTML += '<td><select class="field-type">';
-    row.innerHTML += '<option value="string">' + i18n.t('records.db.common.type.string') + '</option>';
-    row.innerHTML += '<option value="number">' + i18n.t('records.db.common.type.number') + '</option>';
-    row.innerHTML += '<option value="boolean">' + i18n.t('records.db.common.type.boolean') + '</option>';
-    row.innerHTML += '<option value="date">' + i18n.t('records.db.common.type.date') + '</option>';
-    row.innerHTML += '<option value="json">' + i18n.t('records.db.common.type.json') + '</option>';
-    row.innerHTML += '</select></td>';
-    row.innerHTML += '<td><button class="remove-field">' + i18n.t('records.db.wizard.fieldMapping.remove') + '</button></td>';
+    var html = '<td><input type="text" class="source-field" placeholder="Field name"></td>';
+    html += '<td><input type="text" class="target-field" placeholder="Target name"></td>';
+    html += '<td><select class="field-type">';
+    html += '<option value="string">' + i18n.t('records.db.common.type.string') + '</option>';
+    html += '<option value="number">' + i18n.t('records.db.common.type.number') + '</option>';
+    html += '<option value="boolean">' + i18n.t('records.db.common.type.boolean') + '</option>';
+    html += '<option value="date">' + i18n.t('records.db.common.type.date') + '</option>';
+    html += '<option value="json">' + i18n.t('records.db.common.type.json') + '</option>';
+    html += '</select></td>';
+    html += '<td><button class="remove-field">' + i18n.t('records.db.wizard.fieldMapping.remove') + '</button></td>';
+    row.innerHTML = html;
 
     tbody.appendChild(row);
 
@@ -206,13 +692,22 @@
           return;
         }
 
+        var jsonPath = row.getAttribute('data-json-path');
+
+        // For JSON sub-fields, sourceField is displayed as "columnName.jsonPath"
+        // We need to extract just the columnName part
+        var actualColumnName = sourceField;
+        if (jsonPath && sourceField.indexOf('.') >= 0) {
+          // Extract the part before the first dot as columnName
+          actualColumnName = sourceField.split('.')[0];
+        }
+
         var mapping = {
-          columnName: sourceField,
+          columnName: actualColumnName,
           columnLabel: targetField,
           dataType: fieldType
         };
 
-        var jsonPath = row.getAttribute('data-json-path');
         if (jsonPath) {
           mapping.jsonPath = jsonPath;
           mapping.isJsonField = true;
@@ -715,13 +1210,6 @@
 
     html += '<div class="file-mapping-form">';
 
-    // Root path (optional)
-    html += '<div class="form-group">';
-    html += '<label>' + (i18n.t('records.db.wizard.fileMapping.rootPath') || '根路径 (可选)') + ':</label>';
-    html += '<input type="text" id="file-root-path" placeholder="/home/kubao/scanFiles or D:\\scanFiles">';
-    html += '<small>' + (i18n.t('records.db.wizard.fileMapping.rootPathHint') || '留空表示数据库字段包含完整路径') + '</small>';
-    html += '</div>';
-
     // Source selector (main / exportedJoin / join)
     html += '<div class="form-group">';
     html += '<label>' + (i18n.t('records.db.wizard.fileMapping.source') || '路径字段来源') + ' *:</label>';
@@ -751,6 +1239,13 @@
     html += '<div class="form-group">';
     html += '<label>' + (i18n.t('records.db.wizard.fileMapping.columnLabel') || '列名') + ':</label>';
     html += '<input type="text" id="file-path-column-label" placeholder="file_path" value="file_path">';
+    html += '</div>';
+
+    // Root path (optional)
+    html += '<div class="form-group">';
+    html += '<label>' + (i18n.t('records.db.wizard.fileMapping.rootPath') || '根路径 (可选)') + ':</label>';
+    html += '<input type="text" id="file-root-path" placeholder="/home/specific/scanFiles or D:\\scanFiles">';
+    html += '<small>' + (i18n.t('records.db.wizard.fileMapping.rootPathHint') || '留空表示数据库字段包含完整路径') + '</small>';
     html += '</div>';
 
     html += '</div>';

@@ -16,7 +16,7 @@
         "selectProfile": {
           "title": "选择配置文件",
           "description": "选择预设配置文件或创建自定义配置",
-          "kubao": "库宝档案系统",
+          "kubao": "档案格式",
           "flatTable": "平面表",
           "genericJson": "通用 JSON 字段",
           "databaseConfig": "数据库配置",

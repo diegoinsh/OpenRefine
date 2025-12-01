@@ -19,7 +19,11 @@ refineServlet = Packages.com.google.refine.RefineServlet;
  */
 function registerCommands() {
   logger.trace("Registering Records-DB Extension Commands......");
-  // Commands will be added here as needed
+
+  var RS = Packages.com.google.refine.RefineServlet;
+  RS.registerCommand(module, "export-bound-assets",
+      new Packages.com.google.refine.extension.records.db.cmd.ExportBoundAssetsCommand());
+
   logger.trace("Records-DB Extension Command Registration done!!");
 }
 
@@ -54,13 +58,32 @@ function init() {
       "scripts/index/records-db-import-controller.js"
     ]
   );
-  
+
   // Style files to inject into /index page
   ClientSideResourceManager.addPaths(
     "index/styles",
     module,
     [
       "styles/records-db-wizard.css"
+    ]
+  );
+
+  // Script files to inject into /project page (for export dialog)
+  ClientSideResourceManager.addPaths(
+    "project/scripts",
+    module,
+    [
+      "scripts/dialogs/export-bound-assets-dialog.js",
+      "scripts/project/menu-extensions.js"
+    ]
+  );
+
+  // Style files to inject into /project page
+  ClientSideResourceManager.addPaths(
+    "project/styles",
+    module,
+    [
+      "styles/dialogs/export-bound-assets-dialog.css"
     ]
   );
 

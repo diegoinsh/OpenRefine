@@ -56,6 +56,7 @@ import com.google.refine.expr.ExpressionUtils;
 import com.google.refine.history.Change;
 import com.google.refine.history.HistoryEntry;
 import com.google.refine.importers.ImporterUtilities;
+import com.google.refine.messages.OpenRefineMessage;
 import com.google.refine.model.Column;
 import com.google.refine.model.ColumnsDiff;
 import com.google.refine.model.Project;
@@ -245,7 +246,7 @@ public class ColumnSplitOperation extends EngineDependentOperation {
 
         Column column = project.columnModel.getColumnByName(_columnName);
         if (column == null) {
-            throw new Exception("No column named " + _columnName);
+            throw new Exception(OpenRefineMessage.error_no_column_named(_columnName));
         }
 
         List<String> columnNames = new ArrayList<String>();
@@ -304,10 +305,9 @@ public class ColumnSplitOperation extends EngineDependentOperation {
 
         filteredRows.accept(project, rowVisitor);
 
-        String description = "Split " + rowIndices.size() +
-                " cell(s) in column " + _columnName +
-                " into several columns" +
-                ("separator".equals(_mode) ? " by separator" : " by field lengths");
+        String description = "separator".equals(_mode)
+                ? OpenRefineMessage.column_split_description_separator(rowIndices.size(), _columnName)
+                : OpenRefineMessage.column_split_description_lengths(rowIndices.size(), _columnName);
 
         Change change = new ColumnSplitChange(
                 _columnName,

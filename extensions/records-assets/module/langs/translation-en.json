@@ -1,5 +1,44 @@
 {
   "name": "English",
-  "records.assets.label": "Records Assets"
-}
+  "records.assets.label": "Records Assets",
 
+  "records.assets.preview.title": "Assets Preview",
+  "records.assets.preview.selectFile": "Select a file to preview",
+  "records.assets.preview.loading": "Loading...",
+  "records.assets.preview.error": "Error loading file",
+  "records.assets.preview.notSupported": "File type not supported for preview",
+  "records.assets.preview.noPreview": "Cannot preview this file",
+  "records.assets.preview.download": "Download file",
+  "records.assets.preview.openInNew": "Open in new window",
+
+  "records.assets.list.title": "File Browser",
+  "records.assets.list.empty": "No files found",
+  "records.assets.list.folder": "Folder",
+  "records.assets.list.file": "File",
+  "records.assets.list.size": "Size",
+  "records.assets.list.modified": "Modified",
+  "records.assets.list.name": "Name",
+  "records.assets.list.type": "Type",
+  "records.assets.list.path": "Path",
+  "records.assets.list.parent": "Parent directory",
+  "records.assets.list.refresh": "Refresh",
+  "records.assets.list.search": "Search files",
+
+  "records.assets.errors.invalidPath": "Invalid path",
+  "records.assets.errors.accessDenied": "Access denied",
+  "records.assets.errors.fileNotFound": "File not found",
+  "records.assets.errors.pathTraversal": "Path traversal not allowed",
+  "records.assets.errors.rootNotAllowed": "Access to this root directory is not allowed",
+  "records.assets.errors.connectionError": "Connection error",
+  "records.assets.errors.timeout": "Request timeout",
+
+  "records.assets.filetype.image": "Image",
+  "records.assets.filetype.pdf": "PDF Document",
+  "records.assets.filetype.word": "Word Document",
+  "records.assets.filetype.excel": "Excel Spreadsheet",
+  "records.assets.filetype.text": "Text File",
+  "records.assets.filetype.video": "Video",
+  "records.assets.filetype.audio": "Audio",
+  "records.assets.filetype.archive": "Archive",
+  "records.assets.filetype.unknown": "Unknown type"
+}

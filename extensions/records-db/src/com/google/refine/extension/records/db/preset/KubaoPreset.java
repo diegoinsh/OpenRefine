@@ -27,7 +27,7 @@ public class KubaoPreset {
         ObjectNode preset = ParsingUtilities.mapper.createObjectNode();
         
         // Basic info
-        preset.put("name", "kubao");
+        preset.put("name", "specific");
         preset.put("label", "Kubao Archival System");
         preset.put("description", "Configuration for Kubao document/archival management system");
         
@@ -36,7 +36,7 @@ public class KubaoPreset {
         dbConfig.put("dialect", "mysql");
         dbConfig.put("host", "localhost");
         dbConfig.put("port", 3306);
-        dbConfig.put("database", "kubao");
+        dbConfig.put("database", "specific");
         dbConfig.put("username", "");
         dbConfig.put("password", "");
         

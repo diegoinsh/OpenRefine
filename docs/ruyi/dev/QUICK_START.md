@@ -108,7 +108,7 @@ public class RecordsDatabaseImportController implements ImportingController {
         // 返回初始化数据
         JSONObject result = new JSONObject();
         result.put("mode", "catalog");
-        result.put("presets", new JSONArray(Arrays.asList("kubao", "flat_table", "generic_json")));
+        result.put("presets", new JSONArray(Arrays.asList("specific", "flat_table", "generic_json")));
         
         response.setContentType("application/json");
         response.getWriter().write(result.toString());
@@ -200,11 +200,11 @@ public class SchemaProfileParserTest {
     
     @Test
     public void testParseValidProfile() {
-        String json = "{\"mode\":\"catalog\",\"preset\":\"kubao\"}";
+        String json = "{\"mode\":\"catalog\",\"preset\":\"specific\"}";
         SchemaProfile profile = SchemaProfileParser.parse(json);
         
         assertEquals("catalog", profile.getMode());
-        assertEquals("kubao", profile.getPreset());
+        assertEquals("specific", profile.getPreset());
     }
 }
 ```

@@ -47,6 +47,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.refine.commands.Command;
 import com.google.refine.history.Change;
 import com.google.refine.history.HistoryEntry;
+import com.google.refine.messages.OpenRefineMessage;
 import com.google.refine.model.Cell;
 import com.google.refine.model.Column;
 import com.google.refine.model.Project;
@@ -120,7 +121,7 @@ public class EditOneCellCommand extends Command {
 
             EditOneCellProcess process = new EditOneCellProcess(
                     project,
-                    "Edit single cell",
+                    OpenRefineMessage.edit_single_cell_brief(),
                     rowIndex,
                     cellIndex,
                     value);
@@ -169,15 +170,15 @@ public class EditOneCellCommand extends Command {
             Cell cell = _project.rows.get(rowIndex).getCell(cellIndex);
             Column column = _project.columnModel.getColumnByCellIndex(cellIndex);
             if (column == null) {
-                throw new Exception("No such column");
+                throw new Exception(OpenRefineMessage.error_no_such_column());
             }
 
             newCell = new Cell(
                     value,
                     cell != null ? cell.recon : null);
 
-            String description = "Edit single cell on row " + (rowIndex + 1) +
-                    ", column " + column.getName();
+            String description = OpenRefineMessage.edit_single_cell_description(
+                    rowIndex + 1, column.getName());
 
             Change change = new CellChange(rowIndex, cellIndex, cell, newCell);
 

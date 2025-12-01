@@ -98,15 +98,10 @@ $(function() {
             display_new_version_notice: "false"
           };
 
-          // Display short version in the main index sidebar, and full version (with
-          // revision) on the About page. We distinguish the two by the type of
-          // element that holds the version: on the index it is a <div>, on the
-          // About page it is an <h2>.
-          var $versionEl = $("#openrefine-version");
+          // Display version in the main index sidebar
+          var $versionEl = $("#ruyirefine-version");
           if ($versionEl.length) {
-            var isAboutPage = $versionEl.is("h2");
-            var valueForDisplay = isAboutPage ? OpenRefineVersion.full_version : OpenRefineVersion.version;
-            $versionEl.prepend($.i18n('core-index/refine-version', valueForDisplay));
+            $versionEl.prepend($.i18n('core-index/refine-version', OpenRefineVersion.version));
           }
 
           $("#openrefine-extensions").text($.i18n('core-index/refine-extensions', OpenRefineVersion.module_names.join(", ")));
@@ -232,7 +227,7 @@ ${versionData.java_vm_name} ${versionData.java_vm_version}
 Modules: ${versionData.module_names.join(", ")}
 Client user-agent: ${navigator.userAgent}`;
 
-    $("#openrefine-version").on('click', function() {
+    $("#ruyirefine-version").on('click', function() {
       navigator.clipboard.writeText(clipboardData).then(function() {
         // show notification that the text has been copied to clipboard
         const container = $('<div id="notification-container">').appendTo(document.body);

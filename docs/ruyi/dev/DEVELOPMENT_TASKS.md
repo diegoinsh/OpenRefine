@@ -389,6 +389,91 @@
 
 ---
 
+---
+
+## Phase 4: 导出数据绑定资源功能 (2025-11-27)
+
+### Task 4.1: 创建 RecordsDBOverlayModel ✅ COMPLETED
+- [x] 实现 OverlayModel 接口
+- [x] 将 SchemaProfile 配置保存到项目中
+- [x] 在 RecordsDBModuleImpl 中注册 OverlayModel
+
+**完成时间**: 2025-11-27
+**提交**: 待提交
+
+---
+
+### Task 4.2: 修改 ProjectCreator 保存配置 ✅ COMPLETED
+- [x] 在创建项目时保存 SchemaProfile 到 overlayModels
+- [x] 确保文件映射配置可在项目中访问
+
+**完成时间**: 2025-11-27
+**提交**: 待提交
+
+---
+
+### Task 4.3: 创建 ExportBoundAssetsCommand ✅ COMPLETED
+- [x] 实现 GET 方法返回导出配置（列、文件映射）
+- [x] 实现 POST 方法执行导出操作
+- [x] 在 controller.js 中注册命令
+
+**完成时间**: 2025-11-27
+**提交**: 待提交
+
+---
+
+### Task 4.4: 实现 BoundAssetsExporter ✅ COMPLETED
+- [x] 实现文件复制/移动核心逻辑
+- [x] 实现路径构建（支持多字段拼接）
+- [x] 实现预览功能
+- [x] 实现错误处理和统计
+
+**完成时间**: 2025-11-27
+**提交**: 待提交
+
+---
+
+### Task 4.5: 创建前端对话框 HTML 模板 ✅ COMPLETED
+- [x] 创建 export-bound-assets-dialog.html
+- [x] 实现 3 个 Tab 页结构（路径配置、导出设置、选项代码）
+- [x] 参照 CustomTabularExporterDialog 设计
+
+**完成时间**: 2025-11-27
+**提交**: 待提交
+
+---
+
+### Task 4.6: 创建前端对话框 JS 逻辑 ✅ COMPLETED
+- [x] 创建 export-bound-assets-dialog.js
+- [x] 实现字段选择和拖拽排序
+- [x] 实现路径预览
+- [x] 实现导出执行和进度显示
+
+**完成时间**: 2025-11-27
+**提交**: 待提交
+
+---
+
+### Task 4.7: 创建 CSS 样式和 i18n ✅ COMPLETED
+- [x] 创建 export-bound-assets-dialog.css
+- [x] 添加英文翻译 (translation-en.json)
+- [x] 添加中文翻译 (translation-zh.json)
+
+**完成时间**: 2025-11-27
+**提交**: 待提交
+
+---
+
+### Task 4.8: 注册导出菜单项 ✅ COMPLETED
+- [x] 创建 menu-extensions.js
+- [x] 在 controller.js 中注册项目页面脚本和样式
+- [x] 在导出菜单中添加"导出数据绑定资源"选项
+
+**完成时间**: 2025-11-27
+**提交**: 待提交
+
+---
+
 ## 总工作量估算
 
 | 阶段 | 后端 | 前端 | 测试 | 总计 |
@@ -396,7 +481,8 @@
 | Phase 1 | 20-25h | 7-9h | 2-3h | 29-37h |
 | Phase 2 | 30-40h | 13-17h | 8-10h | 51-67h |
 | Phase 3 | 14-18h | 6-8h | 8-10h | 28-36h |
-| **总计** | **64-83h** | **26-34h** | **18-23h** | **108-140h** |
+| Phase 4 | 12h | 10h | 4h | 26h |
+| **总计** | **76-95h** | **36-44h** | **22-27h** | **134-166h** |
 
 **预计工期**: 4-6 周 (按每周 40 小时计算)
 

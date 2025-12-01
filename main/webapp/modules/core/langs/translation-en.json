@@ -948,5 +948,10 @@
     "core-import-formats/text/wiki": "Wikitext",
     "core-import-formats/text": "Text files",
     "core-import-formats/binary": "Binary files",
-    "core-import-formats/service": "Services"
+    "core-import-formats/service": "Services",
+    "core-suggest/start-typing": "Start typing to get suggestions...",
+    "core-suggest/searching": "Searching...",
+    "core-suggest/select-item": "Select an item from the list:",
+    "core-suggest/error": "Sorry, something went wrong. Please try again later",
+    "core-suggest/no-matches": "no matches"
 }

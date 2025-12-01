@@ -38,6 +38,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import com.google.refine.history.HistoryEntry;
+import com.google.refine.messages.OpenRefineMessage;
 import com.google.refine.model.AbstractOperation;
 import com.google.refine.model.ColumnsDiff;
 import com.google.refine.model.Project;
@@ -116,7 +117,7 @@ public class RowAdditionOperation extends AbstractOperation {
     protected HistoryEntry createHistoryEntry(Project project, long historyEntryID) throws Exception {
 
         int count = _rows.size();
-        String description = "Add " + count + " row" + ((count > 1) ? "s" : "");
+        String description = OpenRefineMessage.row_addition_description(count);
 
         return new HistoryEntry(
                 historyEntryID,

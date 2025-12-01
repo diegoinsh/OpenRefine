@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 ########################################################## 
-#               OpenRefine Control System             #
+#               RuyiRefine Control System             #
 ##########################################################
 
 # -------------- utility functions ----------------------
@@ -32,24 +32,24 @@ Options
     -d <path>                     Path to the data directory. Default: OS dependent.
     -H <host>                     Expected host header value (set to * to disable checks). Default: <interface>.
     -h                            Print this message and exit.
-    -i <interface>                The network interface OpenRefine should bind to. Default: 127.0.0.1.
+    -i <interface>                The network interface RuyiRefine should bind to. Default: 127.0.0.1.
     -m <memory>                   JVM min and max memory heap size. Default: 1400M.
-    -p <port>                     Port that OpenRefine will listen to. Default: 3333.
+    -p <port>                     Port that RuyiRefine will listen to. Default: 3333.
     -v <level>                    Verbosity level [error,warn,info,debug,trace]. Default: info.
     -w <path>                     Path to the webapp. Default: main/webapp.
-    -x <name=value>               Additional configuration parameters to pass to OpenRefine.
+    -x <name=value>               Additional configuration parameters to pass to RuyiRefine.
     --debug                       Enable JVM debugging (on port 8000).
     --jmx                         Enable JMX monitoring.
 
 Actions
-    run                           Run OpenRefine [default].
-    build                         Build OpenRefine.
+    run                           Run RuyiRefine [default].
+    build                         Build RuyiRefine.
     clean                         Clean compiled classes.
     test                          Run all tests.
     extensions_test               Run the extensions tests.
     server_test                   Run the server tests.
     e2e_tests                     Run the e2e tests.
-    lint                          Reformat the source code according to OpenRefine's conventions.
+    lint                          Reformat the source code according to RuyiRefine's conventions.
     mac_dist <version>            Make MacOS binary distribution.
     windows_dist <version>        Make Windows binary distribution.
     linux_dist <version>          Make Linux binary distribution.
@@ -93,7 +93,7 @@ check_downloaders() {
 check_running() {
     check_downloaders
     URL="http://${REFINE_HOST_INTERNAL}:${REFINE_PORT}/"
-    CHECK_STR="<title>OpenRefine</title>"
+    CHECK_STR="<title>RuyiRefine</title>"
 
     if [ "$CURL" ] ; then
         curl --noproxy 127.0.0.1 -s -S -f $URL > /dev/null 2>&1
@@ -116,7 +116,7 @@ check_running() {
         fi    
         
         if [ -z "${RUNNING}" ] ; then
-            error "OpenRefine isn't running on $URL. Maybe a proxy issue?"
+            error "RuyiRefine isn't running on $URL. Maybe a proxy issue?"
         fi
     else
         RUNNING=""
@@ -182,9 +182,9 @@ load_data() {
     CURL="`command -v curl 2> /dev/null`"
     
     if [ -z "$CURL" ] ; then
-        error "We need 'curl' present in PATH to upload data to OpenRefine."
+        error "We need 'curl' present in PATH to upload data to RuyiRefine."
     else
-        curl -s -F "project-file=@$FILE" -F "project-name=$NAME" $URL > /dev/null || error "Error while uploading $FILE to OpenRefine"
+        curl -s -F "project-file=@$FILE" -F "project-name=$NAME" $URL > /dev/null || error "Error while uploading $FILE to RuyiRefine"
         echo "Loaded $FILE as $NAME"
     fi
 }
@@ -208,7 +208,7 @@ build_prepare() {
     fi
     NPM_VERSION=`npm -v`
     if [ $? -ne 0 ] ; then
-        error "NPM not found. We need it in the PATH to download frontend dependencies. See https://openrefine.org/docs/technical-reference/build-test-run#nodejs"
+        error "NPM not found. We need it in the PATH to download frontend dependencies. See https://ruyiai.com/refine/docs/technical-reference/build-test-run#nodejs"
     else
         echo "Using NPM version $NPM_VERSION"
     fi
@@ -306,10 +306,10 @@ mac_dist() {
     fi
 
 # Sign the bundle with a self-signed cert so OS X doesn't frustrate users by making app invisible
-    codesign --deep -s "OpenRefine Code Signing" "$REFINE_BUILD_DIR/mac/OpenRefine.app"
-    spctl --assess --type execute --verbose=4 "$REFINE_BUILD_DIR/mac/OpenRefine.app"
+    codesign --deep -s "RuyiRefine Code Signing" "$REFINE_BUILD_DIR/mac/RuyiRefine.app"
+    spctl --assess --type execute --verbose=4 "$REFINE_BUILD_DIR/mac/RuyiRefine.app"
 
-    TITLE="OpenRefine $VERSION"
+    TITLE="RuyiRefine $VERSION"
     echo "Building MacOSX DMG for $TITLE"
     hdiutil create -srcfolder "$REFINE_BUILD_DIR/mac" -volname "$TITLE" -fs HFS+ -fsargs "-c c=64,a=16,e=16" -format UDRW -size ${SIZE}m "$REFINE_BUILD_DIR/temp_refine.dmg" || error "can't create empty DMG"
     DEVICE=`hdiutil attach -readwrite -noverify -noautoopen "$REFINE_BUILD_DIR/temp_refine.dmg" | grep -E '^/dev/' | sed -e "s/^\/dev\///g" -e 1q  | awk '{print $1}'`
@@ -329,7 +329,7 @@ mac_dist() {
             set icon size of theViewOptions to 100
             set background picture of theViewOptions to file ".background:dmg_background.png"
             make new alias file at container window to POSIX file "/Applications" with properties {name:"Applications"}
-            set position of item "OpenRefine" of container window to {170, 175}
+            set position of item "RuyiRefine" of container window to {170, 175}
             set position of item "Applications" of container window to {380, 175}
             close
             open
@@ -345,12 +345,12 @@ mac_dist() {
     sleep 3
     hdiutil detach $DEVICE
 
-    if [ -f "$REFINE_DIST_DIR/openrefine-mac-$VERSION.dmg" ] ; then
-        rm "$REFINE_DIST_DIR/openrefine-mac-$VERSION.dmg"
+    if [ -f "$REFINE_DIST_DIR/ruyirefine-mac-$VERSION.dmg" ] ; then
+        rm "$REFINE_DIST_DIR/ruyirefine-mac-$VERSION.dmg"
     fi
 
-    hdiutil convert "$REFINE_BUILD_DIR/temp_refine.dmg" -format UDZO -imagekey zlib-level=9 -o "$REFINE_DIST_DIR/openrefine-mac-$VERSION.dmg" || error "Error compressing DMG"
-    hdiutil internet-enable -yes "$REFINE_DIST_DIR/openrefine-mac-$VERSION.dmg" || error "Error internet-enabling DMG"
+    hdiutil convert "$REFINE_BUILD_DIR/temp_refine.dmg" -format UDZO -imagekey zlib-level=9 -o "$REFINE_DIST_DIR/ruyirefine-mac-$VERSION.dmg" || error "Error compressing DMG"
+    hdiutil internet-enable -yes "$REFINE_DIST_DIR/ruyirefine-mac-$VERSION.dmg" || error "Error internet-enabling DMG"
 
     rm -f "$REFINE_BUILD_DIR/temp_refine.dmg"
 }
@@ -381,7 +381,7 @@ e2e_tests() {
         echo "Found a Cypress project id but no record key - disabling recording in the Cypress Dashboard"
     fi
 
-    REFINE_DATA_DIR="${TMPDIR:=/tmp}/openrefine-tests"
+    REFINE_DATA_DIR="${TMPDIR:=/tmp}/RuyiRefine-tests"
 
     add_option "-Drefine.headless=true"
     add_option "-Drefine.autoreload=false"
@@ -390,15 +390,15 @@ e2e_tests() {
     check_running
 
     if [ "$RUNNING" ] ; then
-        echo "An OpenRefine server is already running. Please shut it down so that we can start a test server."
+        echo "An RuyiRefine server is already running. Please shut it down so that we can start a test server."
         exit
     fi
 
-    echo "Starting OpenRefine server"
+    echo "Starting RuyiRefine server"
 
     run fork > /dev/null
 
-    echo "Waiting for OpenRefine to load..."
+    echo "Waiting for RuyiRefine to load..."
     sleep 5
     check_running
     if [ -z "$RUNNING" ] ; then
@@ -411,7 +411,7 @@ e2e_tests() {
     # Cypress needs a unique group id
     # We're hashing the list of files to generate such Group Id
     CYPRESS_GROUP=$(echo $CYPRESS_BROWSER$CYPRESS_SPECS | shasum)
-    CYPRESS_RUN_CMD="yarn --cwd ./main/tests/cypress run cypress run --spec "$CYPRESS_SPECS" --browser $CYPRESS_BROWSER  --headless --quiet --reporter list --env DISABLE_PROJECT_CLEANUP=1,OPENREFINE_URL=http://$REFINE_HOST_INTERNAL:$REFINE_PORT"
+    CYPRESS_RUN_CMD="yarn --cwd ./main/tests/cypress run cypress run --spec "$CYPRESS_SPECS" --browser $CYPRESS_BROWSER  --headless --quiet --reporter list --env DISABLE_PROJECT_CLEANUP=1,RuyiRefine_URL=http://$REFINE_HOST_INTERNAL:$REFINE_PORT"
     if [ "$CYPRESS_RECORD" = "1" ] ; then
         # if tests are recorded, project id is added to env vars, and --record flag is added to the cmd-line
         export CYPRESS_PROJECT_ID=$CYPRESS_PROJECT_ID
@@ -432,7 +432,7 @@ e2e_tests() {
     fi
 
     echo ""
-    echo "Killing OpenRefine"
+    echo "Killing RuyiRefine"
     /bin/kill -9 $REFINE_PID
     echo "Cleaning up"
     rm -rf "$REFINE_DATA_DIR"
@@ -459,11 +459,11 @@ run() {
     check_running
 
     if [ "$RUNNING" ] ; then
-        warn "OpenRefine is already running."
+        warn "RuyiRefine is already running."
     fi
 
     if [ ! -d $REFINE_CLASSES_DIR ] ; then
-        IS_JAR=`ls $REFINE_LIB_DIR | grep openrefine`
+        IS_JAR=`ls $REFINE_LIB_DIR | grep ruyirefine`
         if [ -z "$IS_JAR" ] ; then
             mvn_prepare
             build_prepare
@@ -483,8 +483,8 @@ run() {
     echo "-------------------------------------------------------------------------------------------------"
     echo You have "$freeRam"M of free memory.
     echo Your current configuration is set to use $REFINE_MEMORY of memory.
-    echo OpenRefine can run better when given more memory. Read our FAQ on how to allocate more memory here:
-    echo https://openrefine.org/docs/manual/installing\#increasing-memory-allocation
+    echo RuyiRefine can run better when given more memory. Read our FAQ on how to allocate more memory here:
+    echo https://ruyiai.com/refine/docs/manual/installing\#increasing-memory-allocation
     echo "-------------------------------------------------------------------------------------------------"
 
     if [ -d $REFINE_CLASSES_DIR ] ; then
@@ -492,7 +492,7 @@ run() {
     fi
 
     if [ "$OS" = "macosx" ] ; then
-        add_option '-Xdock:icon=graphics/icon/openrefine.icns'
+        add_option '-Xdock:icon=graphics/icon/ruyirefine.icns'
     fi
 
     if [ "$REFINE_DATA_DIR" ] ; then
@@ -543,10 +543,10 @@ checkJavaMajorVersion() {
     major=`echo ${java_ver} | sed -E 's/([0-9]+)(-ea|(\.[0-9]+)*)/\1/g'`
   fi
   if (( ${major} < 11 )); then
-    error "OpenRefine requires Java version 11 or later. If you have multiple versions of Java installed, please set the environment variable JAVA_HOME to the correct version."
+    error "RuyiRefine requires Java version 11 or later. If you have multiple versions of Java installed, please set the environment variable JAVA_HOME to the correct version."
   fi
   if (( ${major} > 21 )); then
-    echo "WARNING: OpenRefine is not tested and not recommended for use with Java versions greater than 21."
+    echo "WARNING: RuyiRefine is not tested and not recommended for use with Java versions greater than 21."
   fi
 }
 

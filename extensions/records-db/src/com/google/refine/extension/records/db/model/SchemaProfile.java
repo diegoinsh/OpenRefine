@@ -16,7 +16,7 @@ public class SchemaProfile {
     private String name;
     private String description;
     private String mode; // "catalog" or "sql"
-    private String preset; // "kubao", "flat_table", "generic_json", etc.
+    private String preset; // "specific", "flat_table", "generic_json", etc.
     
     // Database connection info
     private String dialect; // "mysql", "postgresql", "mariadb", "sqlite"

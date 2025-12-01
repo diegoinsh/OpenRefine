@@ -64,7 +64,7 @@ import com.google.refine.io.FileProjectManager;
 
 public class RefineServlet extends Butterfly {
 
-    static private String ASSIGNED_VERSION = "3.10.1.01";
+    static private String ASSIGNED_VERSION = "3.10.2.01";
 
     static public String VERSION = "";
     static public String REVISION = "";
@@ -105,10 +105,10 @@ public class RefineServlet extends Butterfly {
         VERSION = getInitParameter("refine.version");
         REVISION = getInitParameter("refine.revision");
 
-        if (VERSION.equals("$VERSION")) {
+        if (VERSION == null || VERSION.equals("$VERSION")) {
             VERSION = ASSIGNED_VERSION;
         }
-        if (REVISION.equals("$REVISION")) {
+        if (REVISION == null || REVISION.equals("$REVISION")) {
             ClassLoader classLoader = getClass().getClassLoader();
             try {
                 InputStream gitStats = classLoader.getResourceAsStream("git.properties");

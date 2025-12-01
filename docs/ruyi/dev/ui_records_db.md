@@ -98,7 +98,7 @@ Key naming convention:
 {
   "name": "My Kubao Project",
   "mode": "catalog",
-  "preset": "kubao",
+  "preset": "specific",
   "selectedFields": ["code", "name", "date"],
   "filters": {
     "excludeExported": true,

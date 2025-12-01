@@ -10,7 +10,9 @@ import edu.mit.simile.butterfly.ButterflyModuleImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.refine.extension.records.db.model.RecordsDBOverlayModel;
 import com.google.refine.importing.ImportingManager;
+import com.google.refine.model.Project;
 
 public class RecordsDBModuleImpl extends ButterflyModuleImpl {
 
@@ -25,6 +27,11 @@ public class RecordsDBModuleImpl extends ButterflyModuleImpl {
         // Set the singleton instance
         instance = this;
 
+        // Register the overlay model for storing schema profile in projects
+        Project.registerOverlayModel(
+                RecordsDBOverlayModel.OVERLAY_MODEL_KEY,
+                RecordsDBOverlayModel.class);
+
         // Register the importing controller on the server side to avoid
         // class loading issues when Rhino initializes the module.
         ImportingManager.registerController(
@@ -32,7 +39,7 @@ public class RecordsDBModuleImpl extends ButterflyModuleImpl {
                 "records-db-import-controller",
                 new RecordsDatabaseImportController());
 
-        logger.trace("Records Database Extension module initialization completed");
+        logger.info("Records Database Extension module initialization completed");
     }
 }
 

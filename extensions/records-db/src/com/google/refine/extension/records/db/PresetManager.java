@@ -15,7 +15,7 @@ import com.google.refine.util.ParsingUtilities;
  */
 public class PresetManager {
     
-    public static final String PRESET_KUBAO = "kubao";
+    public static final String PRESET_KUBAO = "specific";
     public static final String PRESET_FLAT_TABLE = "flat_table";
     public static final String PRESET_GENERIC_JSON = "generic_json";
     

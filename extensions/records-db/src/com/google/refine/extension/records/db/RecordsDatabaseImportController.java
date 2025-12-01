@@ -105,7 +105,7 @@ public class RecordsDatabaseImportController implements ImportingController {
             // Add default options
             ObjectNode options = ParsingUtilities.mapper.createObjectNode();
             JSONUtilities.safePut(options, "mode", "catalog");
-            JSONUtilities.safePut(options, "preset", "kubao");
+            JSONUtilities.safePut(options, "preset", "specific");
             JSONUtilities.safePut(options, "dialect", "mysql");
             JSONUtilities.safePut(options, "pageSize", DEFAULT_PREVIEW_LIMIT);
             JSONUtilities.safePut(result, "options", options);
@@ -162,6 +162,14 @@ public class RecordsDatabaseImportController implements ImportingController {
 
             // Execute query
             ObjectNode result = QueryExecutor.executeQuery(conn, profile, null, 0, DEFAULT_PREVIEW_LIMIT);
+
+            // Get total row count
+            try {
+                long totalRows = QueryExecutor.getRowCount(conn, profile);
+                JSONUtilities.safePut(result, "totalRows", totalRows);
+            } catch (Exception e) {
+                logger.warn("Error getting row count: {}", e.getMessage());
+            }
 
             if (logger.isDebugEnabled()) {
                 logger.debug("doParsePreview:::{}", result.toString());
@@ -495,17 +503,12 @@ public class RecordsDatabaseImportController implements ImportingController {
 
             conn = DatabaseConnectionManager.getConnection(profile);
 
-            String sql;
-            if ("join".equalsIgnoreCase(source)) {
-                // For join-source distinct values, query directly from the join table without applying profile filters
-                String col = QueryBuilder.escapeColumnName(field, dialect);
-                String from = QueryBuilder.escapeTableName(tableName, dialect);
-                sql = "SELECT DISTINCT " + col + " AS v FROM " + from +
-                        " WHERE " + col + " IS NOT NULL ORDER BY " + col + " LIMIT " + limit;
-            } else {
-                // For main-source distinct values (including JSON flatten), honor all filters defined in the profile
-                sql = QueryBuilder.buildDistinctValuesQuery(profile, source, field, limit);
-            }
+            // For distinct values, query directly from the table without applying profile filters
+            // This ensures all possible values are shown, not just those matching current filter conditions
+            String col = QueryBuilder.escapeColumnName(field, dialect);
+            String from = QueryBuilder.escapeTableName(tableName, dialect);
+            String sql = "SELECT DISTINCT " + col + " AS v FROM " + from +
+                    " WHERE " + col + " IS NOT NULL ORDER BY " + col + " LIMIT " + limit;
 
             stmt = conn.createStatement();
             rs = stmt.executeQuery(sql);

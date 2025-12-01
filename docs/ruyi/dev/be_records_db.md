@@ -25,7 +25,7 @@ Configuration-driven mapping of database tables to import structure:
 {
   "mode": "catalog",
   "dialect": "mysql|postgres",
-  "preset": "kubao|flat_table|generic_json",
+  "preset": "specific|flat_table|generic_json",
   "tables": {
     "project": "project",
     "bind_table": "project_bind_table",
@@ -92,7 +92,7 @@ WHERE field_data::json->>'code' = 'value'
 ```json
 {
   "fileMapping": {
-    "rootPath": "/home/kubao/scanFiles",
+    "rootPath": "/home/specific/scanFiles",
     "source": "main",
     "field": "current_path",
     "columnLabel": "file_path"
@@ -105,7 +105,7 @@ WHERE field_data::json->>'code' = 'value'
 1. **`rootPath`** (optional, string):
    - Fixed root directory prefix on the file system
    - Can be empty - if empty, the field value is treated as absolute path
-   - Example: `/home/kubao/scanFiles` or `D:\scanFiles`
+   - Example: `/home/specific/scanFiles` or `D:\scanFiles`
 
 2. **`source`** (required, string):
    - Where the path field comes from
@@ -152,14 +152,14 @@ WHERE field_data::json->>'code' = 'value'
 {
   "mainTable": "file_book",
   "fileMapping": {
-    "rootPath": "/home/kubao/scanFiles",
+    "rootPath": "/home/specific/scanFiles",
     "source": "main",
     "field": "current_path",
     "columnLabel": "file_path"
   }
 }
 ```
-SQL: `'/home/kubao/scanFiles' || '/' || m.current_path AS file_path`
+SQL: `'/home/specific/scanFiles' || '/' || m.current_path AS file_path`
 
 2. **Exported join table field**:
 ```json

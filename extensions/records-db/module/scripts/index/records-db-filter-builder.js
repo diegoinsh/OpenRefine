@@ -55,7 +55,7 @@
     html += '<div class="filter-option">';
     html += '<h4>' + i18n.t('records.db.wizard.configureFilters.customConditions') + '</h4>';
     html += '<div id="conditions-list" class="conditions-list"></div>';
-    html += '<button id="add-condition" class="button button-secondary">';
+    html += '<button id="add-condition">';
     html += i18n.t('records.db.wizard.configureFilters.addCondition');
     html += '</button>';
     html += '</div>';
@@ -437,15 +437,35 @@
     ['=','!=','>','<','>=','<=','LIKE','IN'].forEach(function(v){ var o=document.createElement('option'); o.value=v; o.textContent=v; opSel.appendChild(o); });
     row.appendChild(opSel);
 
-    // Value select (distinct values)
+    // Value select (distinct values) + manual input container
+    var valContainer = document.createElement('span');
+    valContainer.style.display = 'inline-flex';
+    valContainer.style.alignItems = 'center';
+    valContainer.style.gap = '5px';
+    row.appendChild(valContainer);
+
     var valSel = document.createElement('select');
     valSel.className='condition-value'; valSel.setAttribute('data-id', String(conditionId));
     valSel.style.minWidth = '160px';
-    row.appendChild(valSel);
+    valContainer.appendChild(valSel);
+
+    // Manual input for when values exceed limit
+    var valInput = document.createElement('input');
+    valInput.type = 'text';
+    valInput.className = 'condition-value-input';
+    valInput.setAttribute('data-id', String(conditionId));
+    valInput.style.display = 'none';
+    valInput.style.minWidth = '120px';
+    valInput.placeholder = i18n.t('records.db.wizard.configureFilters.manualInputPlaceholder') || '手动输入值';
+    valContainer.appendChild(valInput);
+
+    var DISTINCT_LIMIT = 1000;
 
     var setValPlaceholder = function(text){
       valSel.innerHTML = '';
       var op = document.createElement('option'); op.value=''; op.textContent = text || (i18n.t('records.db.wizard.configureFilters.selectValue') || '选择值'); valSel.appendChild(op);
+      valInput.style.display = 'none';
+      valInput.value = '';
     };
 
     var loadDistinct = function(){
@@ -457,13 +477,23 @@
       var jt = src==='join' ? (joinTableSel.value || '') : '';
       var fill = function(data){
         valSel.innerHTML='';
+        valInput.style.display = 'none';
+        valInput.value = '';
         var ph = document.createElement('option'); ph.value=''; ph.textContent=(i18n.t('records.db.wizard.configureFilters.selectValue')||'选择值'); valSel.appendChild(ph);
         if (data && data.status==='ok' && Array.isArray(data.values)){
-          data.values.forEach(function(v){ var o=document.createElement('option'); o.value=String(v); o.textContent=String(v); valSel.appendChild(o); });
+          var values = data.values;
+          values.forEach(function(v){ var o=document.createElement('option'); o.value=String(v); o.textContent=String(v); valSel.appendChild(o); });
+          // If values reached limit, show manual input option
+          if (values.length >= DISTINCT_LIMIT) {
+            var moreOpt = document.createElement('option');
+            moreOpt.value = '__MANUAL_INPUT__';
+            moreOpt.textContent = i18n.t('records.db.wizard.configureFilters.moreValuesManualInput') || '-- 更多值请手动输入 --';
+            valSel.appendChild(moreOpt);
+          }
         }
         self._updateFilterPreview();
       };
-      var payload = { "schemaProfile": JSON.stringify(profile), "source": src, "field": field };
+      var payload = { "schemaProfile": JSON.stringify(profile), "source": src, "field": field, "limit": String(DISTINCT_LIMIT) };
       if (jt) payload.joinTable = jt;
       if (typeof Refine !== 'undefined' && typeof Refine.wrapCSRF === 'function' && typeof $ !== 'undefined') {
         Refine.wrapCSRF(function(token){
@@ -487,13 +517,26 @@
       }
     };
 
+    // Handle select change - show manual input when needed
+    valSel.onchange = function() {
+      if (valSel.value === '__MANUAL_INPUT__') {
+        valInput.style.display = 'inline-block';
+        valInput.focus();
+      } else {
+        valInput.style.display = 'none';
+        valInput.value = '';
+      }
+      self._updateFilterPreview();
+    };
+    valInput.oninput = function() { self._updateFilterPreview(); };
+
     // Logic select
     var logicSel = document.createElement('select'); logicSel.className = 'condition-logic'; logicSel.setAttribute('data-id', String(conditionId));
     ['AND','OR'].forEach(function(v){ var o=document.createElement('option'); o.value=v; o.textContent=v; logicSel.appendChild(o); });
     row.appendChild(logicSel);
 
     // Remove button
-    var rmBtn = document.createElement('button'); rmBtn.className='button button-danger remove-condition'; rmBtn.setAttribute('data-id', String(conditionId));
+    var rmBtn = document.createElement('button'); rmBtn.setAttribute('data-id', String(conditionId));
     rmBtn.textContent = i18n.t('records.db.wizard.configureFilters.removeCondition');
     row.appendChild(rmBtn);
 
@@ -655,10 +698,14 @@
       var operator = (item.querySelector('.condition-operator') || {}).value || '=';
       var value = '';
       var valueSel = item.querySelector('.condition-value');
+      var valueInput = item.querySelector('.condition-value-input');
       if (valueSel) {
         if (operator === 'IN' && valueSel.multiple) {
           var vals = []; for (var i=0;i<valueSel.options.length;i++){ var opt=valueSel.options[i]; if (opt.selected && opt.value) vals.push(opt.value); }
           value = vals.join(',');
+        } else if (valueSel.value === '__MANUAL_INPUT__' && valueInput) {
+          // Use manual input value
+          value = valueInput.value || '';
         } else {
           value = valueSel.value || '';
         }
@@ -749,11 +796,19 @@
     var conds = Array.isArray(filters.conditions) ? filters.conditions : [];
     if (!conds.length) { return; }
 
-    var restoreOne = function(cond, idx) {
+    // Restore conditions sequentially to avoid race conditions when multiple join tables are used.
+    // Each condition must wait for async column loading to complete before moving to the next.
+    var restoreQueue = conds.slice();
+    var restoreNext = function() {
+      if (restoreQueue.length === 0) {
+        self._updateFilterPreview();
+        return;
+      }
+      var cond = restoreQueue.shift();
       self._addCondition();
       setTimeout(function(){
         var items = document.querySelectorAll('.condition-item');
-        var item = items[items.length - 1]; if (!item) return;
+        var item = items[items.length - 1]; if (!item) { restoreNext(); return; }
         var sourceSel = item.querySelector('.condition-source');
         var joinTableSel = item.querySelector('.condition-join-table');
         var mainKeySel = item.querySelector('.condition-main-key');
@@ -763,52 +818,171 @@
         var valSel = item.querySelector('.condition-value');
         var logicSel = item.querySelector('.condition-logic');
 
-        if (sourceSel && cond.source) {
-          sourceSel.value = cond.source;
-          if (sourceSel.onchange) sourceSel.onchange();
-        }
-        setTimeout(function(){
-          if (cond.source === 'join' && cond.joinTable && joinTableSel) {
-            joinTableSel.value = cond.joinTable;
-            if (joinTableSel.onchange) joinTableSel.onchange();
+        // Helper to finish restoring this condition
+        var finishRestore = function() {
+          if (cond.source === 'join') {
+            if (mainKeySel && cond.mainKey) { mainKeySel.value = cond.mainKey; }
+            if (joinKeySel && cond.joinKey) { joinKeySel.value = cond.joinKey; }
           }
-          setTimeout(function(){
-            if (cond.source === 'join') {
-              if (mainKeySel && cond.mainKey) { mainKeySel.value = cond.mainKey; }
-              if (joinKeySel && cond.joinKey) { joinKeySel.value = cond.joinKey; }
+          if (fieldSel && cond.field) {
+            fieldSel.value = cond.field;
+          }
+          if (opSel && cond.operator) {
+            opSel.value = cond.operator;
+            if (opSel.value === 'IN' && valSel) { valSel.multiple = true; }
+          }
+          // Load distinct values for field, then set the value
+          var loadDistinctAndSetValue = function() {
+            var field = cond.field;
+            if (!field) {
+              if (logicSel && cond.logic) { logicSel.value = cond.logic; }
+              self._updateFilterPreview();
+              restoreNext();
+              return;
             }
-            if (fieldSel && cond.field) {
-              fieldSel.value = cond.field;
-              if (fieldSel.onchange) fieldSel.onchange();
-            }
-            if (opSel && cond.operator) {
-              opSel.value = cond.operator;
-              if (opSel.onchange) opSel.onchange();
-            }
-            setTimeout(function(){
-              if (valSel && typeof cond.value !== 'undefined' && cond.value !== null) {
-                var valueStr = String(cond.value);
-                if (opSel && opSel.value === 'IN') {
-                  valSel.multiple = true;
-                  var parts = valueStr.split(',');
-                  for (var i=0;i<valSel.options.length;i++) {
-                    var o = valSel.options[i];
-                    if (parts.indexOf(o.value) >= 0) { o.selected = true; }
+            var profile = JSON.parse(JSON.stringify(self._wizard._schemaProfile || {}));
+            var src = cond.source === 'join' ? 'join' : 'main';
+            var jt = src === 'join' ? (cond.joinTable || '') : '';
+            var DISTINCT_LIMIT = 1000;
+            var payload = { "schemaProfile": JSON.stringify(profile), "source": src, "field": field, "limit": String(DISTINCT_LIMIT) };
+            if (jt) payload.joinTable = jt;
+
+            var valInput = item.querySelector('.condition-value-input');
+
+            var fillAndContinue = function(data) {
+              if (valSel) {
+                valSel.innerHTML = '';
+                var ph = document.createElement('option'); ph.value = ''; ph.textContent = (i18n.t('records.db.wizard.configureFilters.selectValue') || '选择值'); valSel.appendChild(ph);
+                var values = [];
+                if (data && data.status === 'ok' && Array.isArray(data.values)) {
+                  values = data.values;
+                  values.forEach(function(v) { var o = document.createElement('option'); o.value = String(v); o.textContent = String(v); valSel.appendChild(o); });
+                  // Add manual input option if values reached limit
+                  if (values.length >= DISTINCT_LIMIT) {
+                    var moreOpt = document.createElement('option');
+                    moreOpt.value = '__MANUAL_INPUT__';
+                    moreOpt.textContent = i18n.t('records.db.wizard.configureFilters.moreValuesManualInput') || '-- 更多值请手动输入 --';
+                    valSel.appendChild(moreOpt);
                   }
-                } else {
-                  valSel.value = valueStr;
                 }
-                if (valSel.onchange) valSel.onchange();
+                // Now set the value
+                if (typeof cond.value !== 'undefined' && cond.value !== null) {
+                  var valueStr = String(cond.value);
+                  if (opSel && opSel.value === 'IN') {
+                    valSel.multiple = true;
+                    var parts = valueStr.split(',');
+                    for (var i = 0; i < valSel.options.length; i++) {
+                      var o = valSel.options[i];
+                      if (parts.indexOf(o.value) >= 0) { o.selected = true; }
+                    }
+                  } else {
+                    // Check if value exists in options
+                    var valueExists = false;
+                    for (var i = 0; i < valSel.options.length; i++) {
+                      if (valSel.options[i].value === valueStr) { valueExists = true; break; }
+                    }
+                    if (valueExists) {
+                      valSel.value = valueStr;
+                    } else if (valInput) {
+                      // Value not in list, use manual input
+                      valSel.value = '__MANUAL_INPUT__';
+                      valInput.style.display = 'inline-block';
+                      valInput.value = valueStr;
+                    }
+                  }
+                }
               }
               if (logicSel && cond.logic) { logicSel.value = cond.logic; }
               self._updateFilterPreview();
-            }, 180);
-          }, 180);
-        }, 150);
+              // Move to next condition
+              restoreNext();
+            };
+
+            if (typeof Refine !== 'undefined' && typeof Refine.wrapCSRF === 'function' && typeof $ !== 'undefined') {
+              Refine.wrapCSRF(function(token) {
+                $.post(
+                  "command/core/importing-controller?" + $.param({
+                    "controller": "records-db/records-db-import-controller",
+                    "subCommand": "distinct-values",
+                    "csrf_token": token
+                  }),
+                  payload,
+                  function(data) { fillAndContinue(data); },
+                  'json'
+                ).fail(function() { fillAndContinue(null); });
+              });
+            } else {
+              var params = new URLSearchParams();
+              Object.keys(payload).forEach(function(k) { params.set(k, payload[k]); });
+              fetch('command/core/importing-controller?controller=records-db/records-db-import-controller&subCommand=distinct-values', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
+              }).then(function(r) { return r.json(); }).then(fillAndContinue).catch(function() { fillAndContinue(null); });
+            }
+          };
+
+          loadDistinctAndSetValue();
+        };
+
+        if (sourceSel && cond.source) {
+          sourceSel.value = cond.source;
+          // Manually trigger source change logic without calling onchange (which triggers async ops)
+          if (cond.source === 'join') {
+            // Initialize join table options
+            var jtGlobal = document.getElementById('join-table-select');
+            if (!jtGlobal || !jtGlobal.options.length) { self._initExportedConfig(); jtGlobal = document.getElementById('join-table-select'); }
+            joinTableSel.innerHTML = '';
+            var ph = document.createElement('option'); ph.value = ''; ph.textContent = (i18n.t('records.db.wizard.configureFilters.selectJoinTable') || '选择关联表'); joinTableSel.appendChild(ph);
+            if (jtGlobal) {
+              for (var i = 0; i < jtGlobal.options.length; i++) {
+                var srcOp = jtGlobal.options[i];
+                var op = document.createElement('option'); op.value = srcOp.value; op.textContent = srcOp.textContent; joinTableSel.appendChild(op);
+              }
+            }
+            joinTableSel.style.display = '';
+            mainKeySel.style.display = '';
+            joinKeySel.style.display = '';
+            // Fill main key options
+            mainKeySel.innerHTML = '';
+            var phMain = document.createElement('option'); phMain.value = ''; phMain.textContent = (i18n.t('records.db.wizard.configureFilters.exportMainKey') || '主表关联字段'); mainKeySel.appendChild(phMain);
+            var mainCols = (self._wizard._schemaProfile && self._wizard._schemaProfile.columns) || [];
+            mainCols.forEach(function(col) { var o = document.createElement('option'); o.value = col.name; o.textContent = col.name; mainKeySel.appendChild(o); });
+
+            // Set join table and load its columns
+            if (cond.joinTable && joinTableSel) {
+              joinTableSel.value = cond.joinTable;
+              // Load columns for this join table, then continue
+              self._loadConditionJoinColumns(cond.joinTable, function(columns) {
+                // Populate join key selector and field selector
+                joinKeySel.innerHTML = '';
+                var phJoin = document.createElement('option'); phJoin.value = ''; phJoin.textContent = (i18n.t('records.db.wizard.configureFilters.exportJoinKey') || '关联表关联字段'); joinKeySel.appendChild(phJoin);
+                (columns || []).forEach(function(n) { var o = document.createElement('option'); o.value = n; o.textContent = n; joinKeySel.appendChild(o); });
+                // Populate field selector for join table
+                fieldSel.innerHTML = '';
+                var phField = document.createElement('option'); phField.value = ''; phField.textContent = i18n.t('records.db.wizard.configureFilters.selectField'); fieldSel.appendChild(phField);
+                (columns || []).forEach(function(n) { var o = document.createElement('option'); o.value = n; o.textContent = n; fieldSel.appendChild(o); });
+                finishRestore();
+              });
+            } else {
+              finishRestore();
+            }
+          } else {
+            // main source: populate fields from main table columns
+            joinTableSel.style.display = 'none';
+            mainKeySel.style.display = 'none';
+            joinKeySel.style.display = 'none';
+            fieldSel.innerHTML = '';
+            var phField = document.createElement('option'); phField.value = ''; phField.textContent = i18n.t('records.db.wizard.configureFilters.selectField'); fieldSel.appendChild(phField);
+            var mainCols = (self._wizard._schemaProfile && self._wizard._schemaProfile.columns) || [];
+            mainCols.forEach(function(col) { var o = document.createElement('option'); o.value = col.name; o.textContent = col.name + (col.type ? (' (' + col.type + ')') : ''); fieldSel.appendChild(o); });
+            finishRestore();
+          }
+        } else {
+          finishRestore();
+        }
       }, 80);
     };
 
-    for (var i=0;i<conds.length;i++) { restoreOne(conds[i], i); }
+    restoreNext();
   };
 
 })();

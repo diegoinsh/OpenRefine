@@ -45,6 +45,7 @@ import com.google.refine.commands.Command;
 import com.google.refine.expr.ExpressionUtils;
 import com.google.refine.history.Change;
 import com.google.refine.history.HistoryEntry;
+import com.google.refine.messages.OpenRefineMessage;
 import com.google.refine.model.Cell;
 import com.google.refine.model.Column;
 import com.google.refine.model.Project;
@@ -91,7 +92,7 @@ public class ReconClearOneCellCommand extends Command {
 
             ClearOneCellProcess process = new ClearOneCellProcess(
                     project,
-                    "Clear one cell's recon data",
+                    OpenRefineMessage.recon_clear_one_cell_brief(),
                     rowIndex,
                     cellIndex);
 
@@ -137,12 +138,12 @@ public class ReconClearOneCellCommand extends Command {
         protected HistoryEntry createHistoryEntry(long historyEntryID) throws Exception {
             Cell cell = _project.rows.get(rowIndex).getCell(cellIndex);
             if (cell == null || !ExpressionUtils.isNonBlankData(cell.value)) {
-                throw new Exception("Cell is blank or error");
+                throw new Exception(OpenRefineMessage.error_cell_blank_or_error());
             }
 
             Column column = _project.columnModel.getColumnByCellIndex(cellIndex);
             if (column == null) {
-                throw new Exception("No such column");
+                throw new Exception(OpenRefineMessage.error_no_such_column());
             }
 
             Judgment oldJudgment = cell.recon == null ? Judgment.None : cell.recon.judgment;
@@ -173,9 +174,8 @@ public class ReconClearOneCellCommand extends Command {
                         stats.errorTopics + errorChange);
             }
 
-            String description = "Clear recon data for single cell on row " + (rowIndex + 1) +
-                    ", column " + column.getName() +
-                    ", containing \"" + cell.value + "\"";
+            String description = OpenRefineMessage.recon_clear_one_cell_description(
+                    rowIndex + 1, column.getName(), cell.value);
 
             Change change = new ReconChange(
                     new CellChange(rowIndex, cellIndex, cell, newCell),

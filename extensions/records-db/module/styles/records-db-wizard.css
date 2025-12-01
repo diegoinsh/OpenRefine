@@ -358,11 +358,19 @@
   border-color: #007bff;
 }
 
+/* Preview Table Wrapper */
+.preview-table-wrapper {
+  max-height: 400px;
+  overflow-y: auto;
+  position: relative;
+  border: 1px solid #ddd;
+  margin: 15px 0;
+}
+
 /* Preview Table */
 .preview-table {
   width: 100%;
   border-collapse: collapse;
-  margin: 15px 0;
   font-size: 13px;
 }
 
@@ -379,14 +387,30 @@
   color: #333;
   position: sticky;
   top: 0;
+  z-index: 2;
 }
 
 .preview-table tr:nth-child(even) {
   background-color: #f9f9f9;
 }
 
-.preview-table tr:hover {
+.preview-table tbody tr:hover {
   background-color: #e8f4f8;
+}
+
+/* Fixed footer for total row count */
+.preview-table tfoot {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+}
+
+.preview-table-footer td {
+  background-color: #f5f5f5;
+  font-weight: 500;
+  color: #333;
+  text-align: left;
+  border-top: 1px solid #ddd;
 }
 
 /* Buttons */
@@ -632,5 +656,155 @@
   .condition-logic {
     width: 100%;
   }
+}
+
+/* Column header menu button */
+.field-mapping-table .column-header-menu {
+  display: inline-block;
+  margin: 0 4px 0 0;
+  width: 17px;
+  height: 19px;
+  min-width: 17px;
+  min-height: 19px;
+  background-image: url(/modules/core/images/menu-dropdown-ry.png);
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  cursor: pointer;
+  border: none !important;
+  padding: 0 !important;
+  background-color: transparent !important;
+  vertical-align: middle;
+  outline: none;
+}
+
+.field-mapping-table .column-header-menu:hover {
+  background-position: -17px 0px;
+}
+
+/* Target field header */
+.target-field-header {
+  white-space: nowrap;
+}
+
+/* Target field dropdown menu */
+.target-field-menu {
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  min-width: 180px;
+}
+
+.target-field-menu .menu-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.target-field-menu .menu-item:hover {
+  background-color: #f0f0f0;
+}
+
+.target-field-menu .menu-icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* Dictionary translate dialog */
+.dict-translate-dialog {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.dict-translate-content {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  min-width: 400px;
+  max-width: 500px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+
+.dict-translate-content h4 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #ddd;
+}
+
+.dict-translate-content .form-group {
+  margin-bottom: 15px;
+}
+
+.dict-translate-content .form-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 500;
+}
+
+.dict-translate-content .form-group select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.dict-filter-section {
+  margin-top: 15px;
+  padding-top: 10px;
+  border-top: 1px solid #eee;
+}
+
+.dict-filter-section > label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+#dict-filter-conditions {
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.dict-filter-row select {
+  padding: 6px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.dict-filter-row .dict-filter-remove {
+  background: #f5f5f5;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  color: #666;
+}
+
+.dict-filter-row .dict-filter-remove:hover {
+  background: #ffebee;
+  color: #c00;
+}
+
+.button-small {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.dict-translate-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid #ddd;
 }
 

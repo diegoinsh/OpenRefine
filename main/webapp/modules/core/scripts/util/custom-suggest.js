@@ -33,6 +33,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 var CustomSuggest = {};
 
+// Override suggest defaults with i18n strings
+(function() {
+  // Wait for i18n to be ready
+  var initSuggestI18n = function() {
+    if (typeof $.i18n === 'function') {
+      // Override default status messages
+      $.suggest.defaults.status = [
+        $.i18n('core-suggest/start-typing') || 'Start typing to get suggestions...',
+        $.i18n('core-suggest/searching') || 'Searching...',
+        $.i18n('core-suggest/select-item') || 'Select an item from the list:',
+        $.i18n('core-suggest/error') || 'Sorry, something went wrong. Please try again later'
+      ];
+      $.suggest.defaults.nomatch = $.i18n('core-suggest/no-matches') || 'no matches';
+    }
+  };
+
+  // Try to initialize immediately if i18n is ready
+  if (typeof $.i18n === 'function') {
+    initSuggestI18n();
+  }
+
+  // Also initialize when document is ready (in case i18n loads later)
+  $(document).ready(function() {
+    initSuggestI18n();
+  });
+})();
+
 function sanitizeSuggestOptions(options) {
   return {
     query_param_name: options.query_param_name,

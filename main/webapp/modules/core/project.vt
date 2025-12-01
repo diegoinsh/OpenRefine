@@ -35,8 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>OpenRefine</title>
-    <link rel="icon" type="image/ico" href="images/ruyi-refine.ico">
+    <title>RuyiRefine</title>
+    <link rel="icon" type="image/x-icon" href="images/ruyi-refine.ico">
     $styleInjection
     <script type="text/javascript">
       const urlParams = new URLSearchParams(window.location.search);

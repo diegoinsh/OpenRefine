@@ -27,7 +27,7 @@
 {
   "status": "ok",
   "mode": "catalog",
-  "presets": ["kubao", "flat_table", "generic_json"],
+  "presets": ["specific", "flat_table", "generic_json"],
   "supportedDialects": ["mysql", "postgres", "mariadb", "sqlite"]
 }
 ```
@@ -45,7 +45,7 @@
 {
   "profile": {
     "mode": "catalog",
-    "preset": "kubao",
+    "preset": "specific",
     "selectedFields": ["code", "name"],
     "filters": {
       "excludeExported": true,
@@ -86,7 +86,7 @@
   "projectName": "My Import",
   "profile": {
     "mode": "catalog",
-    "preset": "kubao",
+    "preset": "specific",
     "selectedFields": ["code", "name"],
     "filters": {
       "excludeExported": true

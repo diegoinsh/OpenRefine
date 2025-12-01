@@ -44,6 +44,84 @@
     };
   }
 
+  // ========== History Configuration Management ==========
+  var HISTORY_STORAGE_KEY = 'records-db-history-configs';
+
+  /**
+   * Get all saved history configurations
+   * @returns {Array} Array of saved configurations
+   */
+  function getHistoryConfigs() {
+    try {
+      var stored = localStorage.getItem(HISTORY_STORAGE_KEY);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (e) {
+      console && console.warn && console.warn('[records-db] Failed to load history configs:', e);
+    }
+    return [];
+  }
+
+  /**
+   * Save a configuration to history
+   * @param {string} name - Project name as the key
+   * @param {object} profile - Schema profile to save
+   * @param {string} mode - Wizard mode (catalog/sql)
+   */
+  function saveHistoryConfig(name, profile, mode) {
+    if (!name || !name.trim()) return;
+    try {
+      var configs = getHistoryConfigs();
+      // Remove existing config with same name
+      configs = configs.filter(function(c) { return c.name !== name; });
+      // Add new config at the beginning
+      configs.unshift({
+        name: name,
+        mode: mode || 'catalog',
+        profile: profile,
+        savedAt: new Date().toISOString()
+      });
+      // Keep only last 20 configurations
+      if (configs.length > 20) {
+        configs = configs.slice(0, 20);
+      }
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(configs));
+    } catch (e) {
+      console && console.warn && console.warn('[records-db] Failed to save history config:', e);
+    }
+  }
+
+  /**
+   * Remove a configuration from history by name
+   * @param {string} name - Project name to remove
+   */
+  function removeHistoryConfig(name) {
+    if (!name) return;
+    try {
+      var configs = getHistoryConfigs();
+      configs = configs.filter(function(c) { return c.name !== name; });
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(configs));
+    } catch (e) {
+      console && console.warn && console.warn('[records-db] Failed to remove history config:', e);
+    }
+  }
+
+  /**
+   * Get a specific configuration by name
+   * @param {string} name - Project name
+   * @returns {object|null} Configuration object or null
+   */
+  function getHistoryConfigByName(name) {
+    var configs = getHistoryConfigs();
+    for (var i = 0; i < configs.length; i++) {
+      if (configs[i].name === name) {
+        return configs[i];
+      }
+    }
+    return null;
+  }
+
 
   // Register controller into Create Project UI (like the built-in database importer)
   Refine.RecordsDBImportController = function(createProjectUI) {
@@ -109,6 +187,11 @@
     this._wizard.init(containerEl || bodyDiv);
   };
 
+  // Required by OpenRefine's CreateProjectUI - called when this source is selected
+  RecordsDBSourceUI.prototype.focus = function() {
+    // No-op: wizard handles its own focus
+  };
+
   /**
    * Records Database Wizard
    */
@@ -170,7 +253,7 @@
 
     var nextText = tr('core-buttons/next', 'Next');
     var finishText = tr('core-buttons/create-project', 'Finish');
-    nextBtn.textContent = (stepIndex === this._steps.length - 1) ? finishText : nextText;
+    nextBtn.innerHTML = (stepIndex === this._steps.length - 1) ? finishText : nextText;
 
     // Attach event handlers
     var self = this;
@@ -213,6 +296,11 @@
     var shouldRedirect = (typeof createProjectStep.shouldRedirect === 'function')
       ? createProjectStep.shouldRedirect()
       : true;
+
+    // Save configuration to history if enabled
+    if (typeof createProjectStep.saveConfigToHistory === 'function') {
+      createProjectStep.saveConfigToHistory();
+    }
 
     var statusDiv = document.getElementById('project-status');
     if (!statusDiv) {
@@ -305,6 +393,38 @@
     html += '</div>';
     html += '</div>';
 
+    // History configuration - custom dropdown with delete on hover
+    var historyConfigs = getHistoryConfigs();
+    if (historyConfigs.length > 0) {
+      html += '<style>';
+      html += '.history-dropdown { position: relative; display: inline-block; width: 50%; min-width: 280px; }';
+      html += '.history-dropdown-btn { width: 100%; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; background: #fff; text-align: left; cursor: pointer; }';
+      html += '.history-dropdown-btn:after { content: "▼"; float: right; font-size: 10px; color: #666; }';
+      html += '.history-dropdown-list { display: none; position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #ccc; border-top: none; border-radius: 0 0 4px 4px; max-height: 200px; overflow-y: auto; z-index: 100; }';
+      html += '.history-dropdown.open .history-dropdown-list { display: block; }';
+      html += '.history-dropdown-item { padding: 8px 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }';
+      html += '.history-dropdown-item:hover { background: #f0f0f0; }';
+      html += '.history-dropdown-item .delete-link { color: #c00; text-decoration: underline; display: none; font-size: 12px; }';
+      html += '.history-dropdown-item:hover .delete-link { display: inline; }';
+      html += '</style>';
+      html += '<div class="form-group history-config-group" style="margin-top: 20px; padding: 10px; background: #f5f5f5; border-radius: 4px;">';
+      html += '<label style="font-weight: bold;">' + i18n.t('records.db.wizard.selectMode.historyConfig') + '</label> ';
+      html += '<div class="history-dropdown" id="history-dropdown">';
+      html += '<button type="button" class="history-dropdown-btn" id="history-dropdown-btn">' + i18n.t('records.db.wizard.selectMode.selectHistory') + '</button>';
+      html += '<div class="history-dropdown-list" id="history-dropdown-list">';
+      historyConfigs.forEach(function(config) {
+        var savedDate = config.savedAt ? new Date(config.savedAt).toLocaleString() : '';
+        var escapedName = config.name.replace(/"/g, '&quot;');
+        html += '<div class="history-dropdown-item" data-name="' + escapedName + '">';
+        html += '<span class="item-text">' + config.name + ' (' + savedDate + ')</span>';
+        html += '<span class="delete-link" data-name="' + escapedName + '">' + i18n.t('records.db.wizard.selectMode.deleteHistory') + '</span>';
+        html += '</div>';
+      });
+      html += '</div>';
+      html += '</div>';
+      html += '</div>';
+    }
+
     html += '</div>';
     div.innerHTML = html;
 
@@ -315,6 +435,56 @@
         self._wizard._mode = this.value;
       };
     });
+
+    // Custom dropdown handlers
+    var dropdown = document.getElementById('history-dropdown');
+    var dropdownBtn = document.getElementById('history-dropdown-btn');
+    var dropdownList = document.getElementById('history-dropdown-list');
+    if (dropdown && dropdownBtn && dropdownList) {
+      // Toggle dropdown
+      dropdownBtn.onclick = function(e) {
+        e.stopPropagation();
+        dropdown.classList.toggle('open');
+      };
+      // Close dropdown when clicking outside
+      document.addEventListener('click', function(e) {
+        if (!dropdown.contains(e.target)) {
+          dropdown.classList.remove('open');
+        }
+      });
+      // Item click handler
+      var items = dropdownList.querySelectorAll('.history-dropdown-item');
+      items.forEach(function(item) {
+        item.onclick = function(e) {
+          // Check if delete link was clicked
+          if (e.target.classList.contains('delete-link')) {
+            e.stopPropagation();
+            var nameToDelete = e.target.getAttribute('data-name');
+            if (nameToDelete && confirm(i18n.t('records.db.wizard.selectMode.confirmDelete') + ' "' + nameToDelete + '"?')) {
+              removeHistoryConfig(nameToDelete);
+              self.render(div);
+            }
+            return;
+          }
+          // Select this config
+          var configName = item.getAttribute('data-name');
+          var config = getHistoryConfigByName(configName);
+          if (config) {
+            // Update button text (arrow is added by CSS :after)
+            dropdownBtn.textContent = configName;
+            dropdown.classList.remove('open');
+            // Restore mode
+            self._wizard._mode = config.mode || 'catalog';
+            var modeRadio = document.querySelector('input[name="mode"][value="' + self._wizard._mode + '"]');
+            if (modeRadio) modeRadio.checked = true;
+            // Restore profile
+            self._wizard._schemaProfile = JSON.parse(JSON.stringify(config.profile || {}));
+            // Store the loaded project name for Step 8
+            self._wizard._loadedProjectName = configName;
+          }
+        };
+      });
+    }
   };
 
   /**
@@ -361,7 +531,7 @@
     html += '<label>' + i18n.t('records.db.wizard.selectProfile.password') + ':</label>';
     html += '<input type="password" id="password" placeholder="password">';
     html += '</div>';
-    html += '<button id="test-connection" class="button">' + i18n.t('records.db.wizard.selectProfile.testConnection') + '</button>';
+    html += '<button id="test-connection">' + i18n.t('records.db.wizard.selectProfile.testConnection') + '</button>';
     html += '<div id="connection-status"></div>';
     html += '</div>';
 
@@ -460,8 +630,8 @@
     v = get('database'); if (v) profile.database = v;
     v = get('username'); if (v) profile.username = v;
     var pwdEl = document.getElementById('password'); if (pwdEl) profile.password = pwdEl.value;
-    // Set default preset to kubao for catalog mode
-    profile.preset = 'kubao';
+    // Set default preset to specific for catalog mode
+    profile.preset = 'specific';
     this._wizard._schemaProfile = profile;
   };
 
@@ -498,8 +668,8 @@
     html += '<ul id="available-fields-list"></ul>';
     html += '</div>';
     html += '<div class="fields-buttons">';
-    html += '<button id="select-all-fields" class="button">' + i18n.t('records.db.wizard.selectFields.selectAll') + '</button>';
-    html += '<button id="deselect-all-fields" class="button">' + i18n.t('records.db.wizard.selectFields.deselectAll') + '</button>';
+    html += '<button id="select-all-fields">' + i18n.t('records.db.wizard.selectFields.selectAll') + '</button>';
+    html += '<button id="deselect-all-fields">' + i18n.t('records.db.wizard.selectFields.deselectAll') + '</button>';
     html += '</div>';
     html += '<div class="selected-fields">';
     html += '<h4>' + i18n.t('records.db.wizard.selectFields.selectedFields') + '</h4>';
@@ -813,6 +983,23 @@
     // Field mappings from selected fields
     var selected = Array.isArray(this._selectedFields) ? this._selectedFields : [];
     if (selected.length) {
+      // Build a lookup map from existing fieldMappings to preserve columnLabel and other properties
+      var existingMappings = {};
+      var jsonFieldMappings = [];
+      if (Array.isArray(profile.fieldMappings)) {
+        profile.fieldMappings.forEach(function(m) {
+          if (m && m.columnName) {
+            // Separate JSON sub-fields from regular fields
+            if (m.jsonPath) {
+              // This is a JSON sub-field, preserve it completely
+              jsonFieldMappings.push(m);
+            } else {
+              // Regular field - use columnName as key
+              existingMappings[m.columnName] = m;
+            }
+          }
+        });
+      }
       var mappings = selected.map(function(col){
         var dt = (col.type || '').toLowerCase();
         var norm;
@@ -822,7 +1009,19 @@
         else if (dt.indexOf('json') >= 0) norm = 'json';
         else if (dt.indexOf('text') >= 0) norm = 'text';
         else norm = 'string';
-        return { columnName: col.name, columnLabel: col.name, dataType: norm };
+        // Preserve existing columnLabel and dataType if available
+        var existing = existingMappings[col.name];
+        var label = (existing && existing.columnLabel) ? existing.columnLabel : col.name;
+        var dataType = (existing && existing.dataType) ? existing.dataType : norm;
+        return { columnName: col.name, columnLabel: label, dataType: dataType };
+      });
+      // Also preserve JSON sub-field mappings if parent column is still selected
+      jsonFieldMappings.forEach(function(m) {
+        var parentSelected = selected.some(function(col) { return col.name === m.columnName; });
+        if (parentSelected) {
+          // Add JSON field mapping - preserve all properties including columnLabel
+          mappings.push(m);
+        }
       });
       profile.fieldMappings = mappings;
     }
@@ -869,7 +1068,6 @@
     var profile = this._wizard._schemaProfile || {};
     if (this._filterBuilder && typeof this._filterBuilder.getFilters === 'function') {
       profile.filters = this._filterBuilder.getFilters();
-      console.log('[ConfigureFiltersStep] applyToProfile - filters:', profile.filters);
     }
     this._wizard._schemaProfile = profile;
   };
@@ -915,7 +1113,12 @@
           function(data) {
             document.getElementById('preview-loading').style.display = 'none';
             if (data && data.status === 'ok') {
-              self._renderPreviewTable(data.columns, data.rows);
+              // Store total rows for CreateProjectStep (prefer totalRows, fallback to rowCount)
+              var total = (typeof data.totalRows === 'number') ? data.totalRows : data.rowCount;
+              if (typeof total === 'number') {
+                self._wizard._totalRows = total;
+              }
+              self._renderPreviewTable(data.columns, data.rows, total);
             } else {
               var msg = (data && data.message) ? data.message : 'Unknown error';
               document.getElementById('preview-table').innerHTML = '<p>Error: ' + msg + '</p>';
@@ -941,7 +1144,12 @@
       .then(function(data) {
         document.getElementById('preview-loading').style.display = 'none';
         if (data && data.status === 'ok') {
-          self._renderPreviewTable(data.columns, data.rows);
+          // Store total rows for CreateProjectStep (prefer totalRows, fallback to rowCount)
+          var total = (typeof data.totalRows === 'number') ? data.totalRows : data.rowCount;
+          if (typeof total === 'number') {
+            self._wizard._totalRows = total;
+          }
+          self._renderPreviewTable(data.columns, data.rows, total);
         } else {
           var msg = (data && data.message) ? data.message : 'Unknown error';
           document.getElementById('preview-table').innerHTML = '<p>Error: ' + msg + '</p>';
@@ -954,8 +1162,9 @@
     }
   };
 
-  PreviewStep.prototype._renderPreviewTable = function(columns, rows) {
-    var html = '<table class="preview-table">';
+  PreviewStep.prototype._renderPreviewTable = function(columns, rows, totalRows) {
+    var html = '<div class="preview-table-wrapper">';
+    html += '<table class="preview-table">';
     html += '<thead><tr>';
 
     columns.forEach(function(col) {
@@ -975,20 +1184,29 @@
     });
 
     html += '</tbody>';
+    // Fixed footer row for total count
+    html += '<tfoot><tr class="preview-table-footer">';
+    html += '<td colspan="' + columns.length + '">';
+    html += i18n.t('records.db.wizard.preview.totalRows', '总行数') + '：共 <strong>' + (typeof totalRows === 'number' ? totalRows : '-') + '</strong> 行';
+    html += '</td></tr></tfoot>';
     html += '</table>';
+    html += '</div>';
 
     document.getElementById('preview-table').innerHTML = html;
   };
 
   /**
-   * Step 6: Create Project
+   * Step 8: Create Project
    */
   var CreateProjectStep = function(wizard) {
     this._wizard = wizard;
   };
 
   CreateProjectStep.prototype.render = function(div) {
-    var self = this;
+    // Use total rows from preview, or default to 10000
+    var defaultMaxRows = (typeof this._wizard._totalRows === 'number' && this._wizard._totalRows > 0)
+      ? this._wizard._totalRows
+      : 10000;
     var html = '<div class="records-db-step">';
     html += '<h3>' + i18n.t('records.db.wizard.createProject.title') + '</h3>';
     html += '<p>' + i18n.t('records.db.wizard.createProject.description') + '</p>';
@@ -999,16 +1217,38 @@
     html += '</div>';
     html += '<div class="form-group">';
     html += '<label>' + i18n.t('records.db.wizard.createProject.maxRows') + ':</label>';
-    html += '<input type="number" id="max-rows" value="10000" min="1">';
+    html += '<input type="number" id="max-rows" value="' + defaultMaxRows + '" min="1">';
     html += '</div>';
     html += '<div class="form-group">';
     html += '<label><input type="checkbox" id="records-db-no-redirect"> ';
     html += i18n.t('records.db.wizard.createProject.noRedirect') + '</label>';
     html += '</div>';
+    html += '<div class="form-group">';
+    html += '<label><input type="checkbox" id="records-db-save-config" checked> ';
+    html += i18n.t('records.db.wizard.createProject.saveConfig') + '</label>';
+    html += '</div>';
     html += '<div id="project-status"></div>';
     html += '</div>';
     html += '</div>';
     div.innerHTML = html;
+
+    // Prefill project name if loaded from history
+    var projectNameInput = document.getElementById('project-name');
+    if (projectNameInput && this._wizard._loadedProjectName) {
+      projectNameInput.value = this._wizard._loadedProjectName;
+    }
+
+    // Handle save config checkbox change
+    var saveConfigCb = document.getElementById('records-db-save-config');
+    if (saveConfigCb) {
+      saveConfigCb.onchange = function() {
+        var projectName = projectNameInput ? projectNameInput.value.trim() : '';
+        if (!saveConfigCb.checked && projectName) {
+          // Remove from history when unchecked
+          removeHistoryConfig(projectName);
+        }
+      };
+    }
   };
 
   CreateProjectStep.prototype.getProjectName = function() {
@@ -1022,6 +1262,20 @@
 
   CreateProjectStep.prototype.getMaxRows = function() {
     return parseInt(document.getElementById('max-rows').value) || 10000;
+  };
+
+  CreateProjectStep.prototype.shouldSaveConfig = function() {
+    var cb = document.getElementById('records-db-save-config');
+    return cb && cb.checked;
+  };
+
+  CreateProjectStep.prototype.saveConfigToHistory = function() {
+    if (!this.shouldSaveConfig()) return;
+    var projectName = this.getProjectName();
+    if (!projectName || projectName === 'Imported Project') return; // Don't save default name
+    var profile = this._wizard._schemaProfile || {};
+    var mode = this._wizard._mode || 'catalog';
+    saveHistoryConfig(projectName, profile, mode);
   };
 
 })();

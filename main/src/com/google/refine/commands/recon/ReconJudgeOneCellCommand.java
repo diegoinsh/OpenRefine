@@ -43,6 +43,7 @@ import com.google.refine.commands.Command;
 import com.google.refine.expr.ExpressionUtils;
 import com.google.refine.history.Change;
 import com.google.refine.history.HistoryEntry;
+import com.google.refine.messages.OpenRefineMessage;
 import com.google.refine.model.Cell;
 import com.google.refine.model.Column;
 import com.google.refine.model.Project;
@@ -89,7 +90,7 @@ public class ReconJudgeOneCellCommand extends Command {
 
             JudgeOneCellProcess process = new JudgeOneCellProcess(
                     project,
-                    "Judge one cell's recon result",
+                    OpenRefineMessage.recon_judge_one_cell_brief(),
                     judgment,
                     rowIndex,
                     cellIndex,
@@ -152,12 +153,12 @@ public class ReconJudgeOneCellCommand extends Command {
         protected HistoryEntry createHistoryEntry(long historyEntryID) throws Exception {
             Cell cell = _project.rows.get(rowIndex).getCell(cellIndex);
             if (cell == null || !ExpressionUtils.isNonBlankData(cell.value)) {
-                throw new Exception("Cell is blank or error");
+                throw new Exception(OpenRefineMessage.error_cell_blank_or_error());
             }
 
             Column column = _project.columnModel.getColumnByCellIndex(cellIndex);
             if (column == null) {
-                throw new Exception("No such column");
+                throw new Exception(OpenRefineMessage.error_no_such_column());
             }
 
             Judgment oldJudgment = cell.recon == null ? Judgment.None : cell.recon.judgment;
@@ -179,9 +180,8 @@ public class ReconJudgeOneCellCommand extends Command {
                     cell.value,
                     newRecon);
 
-            String cellDescription = "single cell on row " + (rowIndex + 1) +
-                    ", column " + column.getName() +
-                    ", containing \"" + cell.value + "\"";
+            String cellDescription = OpenRefineMessage.recon_cell_description(
+                    rowIndex + 1, column.getName(), cell.value);
 
             String description = null;
 
@@ -196,17 +196,17 @@ public class ReconJudgeOneCellCommand extends Command {
                     newCell.recon.judgment = Recon.Judgment.Error;
                 }
                 newCell.recon.match = null;
-                description = "Discard recon judgment for " + cellDescription;
+                description = OpenRefineMessage.recon_discard_judgment(cellDescription);
 
             } else if (judgment == Judgment.Error) {
 
-                throw new IllegalArgumentException("Cannot manually set judgment to 'error'");
+                throw new IllegalArgumentException(OpenRefineMessage.recon_error_cannot_set_error());
 
             } else if (judgment == Judgment.New) {
                 newCell.recon.judgment = Recon.Judgment.New;
                 newCell.recon.match = null;
 
-                description = "Mark to create new item for " + cellDescription;
+                description = OpenRefineMessage.recon_mark_new_item(cellDescription);
             } else {
                 newCell.recon.judgment = Recon.Judgment.Matched;
                 newCell.recon.match = this.match;
@@ -219,9 +219,8 @@ public class ReconJudgeOneCellCommand extends Command {
                     }
                 }
 
-                description = "Match " + this.match.name +
-                        " (" + match.id + ") to " +
-                        cellDescription;
+                description = OpenRefineMessage.recon_match_to_cell(
+                        this.match.name, match.id, cellDescription);
             }
 
             ReconStats stats = column.getReconStats();
