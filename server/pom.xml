@@ -5,8 +5,8 @@
   <artifactId>server</artifactId>
   <packaging>jar</packaging>
 
-  <name>RuyiRefine - server</name>
-  <description>RuyiRefine is a power tool for working with messy data and improving it</description>
+  <name>JinRefine - server</name>
+  <description>JinRefine is a power tool for working with messy data and improving it</description>
   <url>http://openrefine.org/</url>
   <parent>
     <groupId>org.openrefine</groupId>

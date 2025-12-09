@@ -257,7 +257,7 @@ ExpressionPreviewDialog.Widget.prototype._renderHelpTab = function() {
 ExpressionPreviewDialog.Widget.prototype._renderHelp = function(data) {
     var elmt = this._elmts.expressionPreviewHelpTabBody.empty();
     $("<a />", {
-        href: "https://ruyiai.com/ruyirefine/docs/manual/grelfunctions",
+        href: "https://jinshuai.com/jinrefine/docs/manual/grelfunctions",
         text: $.i18n('core-dialogs/help/grelreference'),
         target: "_blank",
       }).appendTo(elmt);

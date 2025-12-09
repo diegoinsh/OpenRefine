@@ -5,8 +5,8 @@
   <artifactId>pc-axis</artifactId>
   <packaging>jar</packaging>
 
-  <name>RuyiRefine - PC-axis extension</name>
-  <description>RuyiRefine integration of PC-axis</description>
+  <name>JinRefine - PC-axis extension</name>
+  <description>JinRefine integration of PC-axis</description>
   <url>http://openrefine.org/</url>
   <parent>
     <groupId>org.openrefine</groupId>

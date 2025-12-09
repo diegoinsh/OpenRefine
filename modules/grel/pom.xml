@@ -5,7 +5,7 @@
   <artifactId>grel</artifactId>
   <packaging>jar</packaging>
 
-  <name>RuyiRefine - GREL</name>
+  <name>JinRefine - GREL</name>
   <description>General Refine Expression Language (default expression language of OpenRefine)</description>
   <url>http://openrefine.org/</url>
   <parent>

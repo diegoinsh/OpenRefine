@@ -69,11 +69,11 @@ function registerFunctions() {
  * Function invoked to initialize the extension.
  */
 function init() {
-	  // RUYI customization: disable the legacy Database extension UI in favor of
+	  // JINSHU customization: disable the legacy Database extension UI in favor of
 	  // the new Records-DB extension. We keep the code in the repository, but we
 	  // skip registering commands, importers and any client-side resources so
 	  // that no "Database" menu items or import/export entries appear in the UI.
-	  logger.info("Database extension init skipped (disabled by RuyiRefine)");
+	  logger.info("Database extension init skipped (disabled by JinRefine)");
 	  return;
 	  
 	  logger.trace("Initializing OpenRefine Database Extension...");

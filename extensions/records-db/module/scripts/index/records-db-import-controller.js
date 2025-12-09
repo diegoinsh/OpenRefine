@@ -132,7 +132,7 @@
       label: tr('records.db.label', 'Records Database'),
       id: 'records-db-source',
       ui: new RecordsDBSourceUI(this),
-      // RUYI: place Records Database right after "This Computer" in the
+      // JINSHU: place Records Database right after "This Computer" in the
       // Create Project source list (0-based index: 0 = first, 1 = second).
       position: 1
     });

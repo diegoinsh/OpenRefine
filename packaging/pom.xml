@@ -2,7 +2,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <artifactId>packaging</artifactId>
-  <name>RuyiRefine - packaging</name>
+  <name>JinRefine - packaging</name>
   <description>Creates packages for all supported operating systems</description>
   <url>http://openrefine.org/</url>
   <packaging>pom</packaging>
@@ -30,7 +30,7 @@
 
     <windows.jre.path>${project.build.directory}/windows_jre</windows.jre.path>
     <windows.jre.url>https://api.adoptium.net/v3/binary/latest/${embedded.jre.version}/ga/windows/x64/jre/hotspot/normal/eclipse?project=jdk</windows.jre.url>
-    <windows.copyright.line>Copyright (c) 2025 RuyiRefine Team.</windows.copyright.line>
+    <windows.copyright.line>Copyright (c) 2025 JinRefine Team.</windows.copyright.line>
     <windows.fullversion>0.0.0.0</windows.fullversion>
   </properties>
 
@@ -438,7 +438,7 @@
               <jar>server/target/lib/openrefine-${project.version}-server.jar</jar>
               <dontWrapJar>true</dontWrapJar>
               <saveConfig>true</saveConfig>
-              <icon>${rootdir}/main/webapp/modules/core/images/ruyi-refine.ico</icon>
+              <icon>${rootdir}/main/webapp/modules/core/images/jinshu-refine.ico</icon>
               <classPath>
                 <mainClass>com.google.refine.Refine</mainClass>
                 <jarLocation>server/target/lib/</jarLocation>

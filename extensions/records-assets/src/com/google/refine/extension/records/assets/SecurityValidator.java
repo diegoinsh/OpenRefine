@@ -38,15 +38,10 @@ public class SecurityValidator {
 
     /**
      * Validate if path is safe to access
+     * Handles cases where root is empty and path is an absolute path
      */
     public static boolean isPathSafe(String root, String path) {
         try {
-            // Validate root
-            if (root == null || root.isEmpty()) {
-                logger.warn("Root path is null or empty");
-                return false;
-            }
-
             // Validate path
             if (path == null) {
                 path = "";
@@ -58,24 +53,35 @@ public class SecurityValidator {
                 return false;
             }
 
+            // If root is empty, treat path as absolute path
+            if (root == null || root.isEmpty()) {
+                if (path.isEmpty()) {
+                    logger.warn("Both root and path are empty");
+                    return false;
+                }
+                // For absolute paths without root, just check file exists
+                File file = new File(path);
+                return file.exists() && file.getCanonicalPath().equals(file.getAbsoluteFile().getCanonicalPath());
+            }
+
             // Get canonical paths
             File rootFile = new File(root);
             String rootCanonical = rootFile.getCanonicalPath();
 
-            String fullPath = path.isEmpty() ? rootCanonical : 
+            String fullPath = path.isEmpty() ? rootCanonical :
                             new File(rootFile, path).getCanonicalPath();
 
             // Verify that fullPath is under rootCanonical
             if (!fullPath.startsWith(rootCanonical)) {
-                logger.warn("Path traversal attempt detected: root={}, path={}, fullPath={}", 
+                logger.warn("Path traversal attempt detected: root={}, path={}, fullPath={}",
                            root, path, fullPath);
                 return false;
             }
 
             // Additional check: ensure the path separator is correct
-            if (!fullPath.equals(rootCanonical) && 
+            if (!fullPath.equals(rootCanonical) &&
                 !fullPath.startsWith(rootCanonical + File.separator)) {
-                logger.warn("Path is outside root directory: root={}, fullPath={}", 
+                logger.warn("Path is outside root directory: root={}, fullPath={}",
                            rootCanonical, fullPath);
                 return false;
             }

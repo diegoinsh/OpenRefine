@@ -33,7 +33,7 @@ OpenRefine/
 │   ├── database/              # 参考实现
 │   ├── records-db/            # 新建：Records-DB 扩展
 │   └── records-assets/        # 新建：Records-Assets 扩展
-├── docs/ruyi/
+├── docs/jinshu/
 │   ├── design/
 │   │   └── architecture.md    # 架构设计
 │   ├── dev/
@@ -372,8 +372,8 @@ git push origin feat/catalog-mode-assets-docs
 
 ## 获取帮助
 
-- 查看 docs/ruyi/dev/ 中的详细设计文档
-- 查看 docs/ruyi/api/endpoints.md 中的 API 规范
-- 查看 docs/ruyi/adr/ 中的架构决策
+- 查看 docs/jinshu/dev/ 中的详细设计文档
+- 查看 docs/jinshu/api/endpoints.md 中的 API 规范
+- 查看 docs/jinshu/adr/ 中的架构决策
 - 在 GitHub Issues 中提问
 

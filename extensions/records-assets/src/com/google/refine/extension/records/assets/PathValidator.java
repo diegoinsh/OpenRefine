@@ -77,8 +77,17 @@ public class PathValidator {
 
     /**
      * Get the canonical path
+     * Handles cases where root is empty and path is an absolute path
      */
     public static String getCanonicalPath(String root, String path) throws IOException {
+        // If root is empty or null, treat path as absolute path
+        if (root == null || root.isEmpty()) {
+            if (path == null || path.isEmpty()) {
+                throw new IOException("Both root and path are empty");
+            }
+            return Paths.get(path).toRealPath().toString();
+        }
+
         Path rootPath = Paths.get(root).toRealPath();
         Path fullPath;
 

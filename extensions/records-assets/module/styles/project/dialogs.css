@@ -1,0 +1,215 @@
+/*
+ * File Preview Dialog Styles
+ * Fixed position at right edge, aligned with rightPanelDiv
+ */
+
+/* Floating dialog - right edge, full height aligned with rightPanel */
+.file-preview-dialog-float {
+  position: fixed;
+  background: #fff;
+  border-radius: 0;
+  box-shadow: -4px 0 12px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #ddd;
+}
+
+/* Header */
+.file-preview-float-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+  flex-shrink: 0;
+}
+
+.file-preview-float-title {
+  font-weight: 600;
+  color: #333;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.file-preview-float-close-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 20px;
+  color: #666;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.file-preview-float-close-btn:hover {
+  background: #e0e0e0;
+  color: #333;
+}
+
+/* Content area - fills available space */
+.file-preview-float-content {
+  flex: 1;
+  padding: 12px;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fafafa;
+}
+
+/* Image preview - fill container */
+.image-preview-container {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transition: transform 0.2s;
+  transform-origin: center center;
+}
+
+/* Zoom controls in footer */
+.zoom-controls {
+  display: flex;
+  gap: 4px;
+  margin-right: 8px;
+}
+
+.zoom-controls .button.zoom-btn {
+  padding: 4px 10px;
+  min-width: 32px;
+}
+
+/* PDF preview - fill container */
+.pdf-preview-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pdf-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+.pdf-placeholder {
+  text-align: center;
+  color: #666;
+}
+
+.pdf-placeholder .pdf-icon {
+  font-size: 64px;
+  margin-bottom: 12px;
+}
+
+/* Text preview */
+.text-preview-container {
+  width: 100%;
+  max-height: 100%;
+  overflow: auto;
+}
+
+.text-preview {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 16px;
+  background: #f8f8f8;
+  border-radius: 4px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* No preview placeholder */
+.no-preview {
+  text-align: center;
+  color: #999;
+  padding: 40px;
+}
+
+.no-preview .file-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+}
+
+/* Footer */
+.file-preview-float-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid #ddd;
+  background: #f5f5f5;
+  flex-shrink: 0;
+}
+
+.file-info {
+  color: #666;
+  font-size: 12px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.file-actions .button {
+  padding: 5px 12px;
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.file-actions .button:hover {
+  background: #e8e8e8;
+}
+
+/* Loading and error states */
+.loading {
+  text-align: center;
+  color: #666;
+  padding: 40px;
+}
+
+.error {
+  text-align: center;
+  color: #d93025;
+  padding: 40px;
+}
+
+.empty {
+  text-align: center;
+  color: #999;
+  padding: 40px;
+}
+

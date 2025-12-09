@@ -197,7 +197,7 @@ Refine.showLeftPanel = function() {
 };
 
 Refine.setTitle = function(status) {
-  var title = theProject.metadata.name + " - OpenRefine";
+  var title = theProject.metadata.name + " - JinRefine";
   if (status) {
     title = status + " - " + title;
   }

@@ -6,7 +6,7 @@
   <artifactId>records-db</artifactId>
   <packaging>jar</packaging>
 
-  <name>RuyiRefine - Records Database Import Extension</name>
+  <name>JinRefine - Records Database Import Extension</name>
   <description>Catalog Mode database import extension for records and documents</description>
   <url>http://openrefine.org/</url>
   <parent>

@@ -123,9 +123,9 @@ The two-extension approach provides:
 
 ## References
 
-- docs/ruyi/design/architecture.md
-- docs/ruyi/dev/be_records_db.md
-- docs/ruyi/dev/ui_records_db.md
-- docs/ruyi/dev/be_records_assets.md
-- docs/ruyi/api/endpoints.md
+- docs/jinshu/design/architecture.md
+- docs/jinshu/dev/be_records_db.md
+- docs/jinshu/dev/ui_records_db.md
+- docs/jinshu/dev/be_records_assets.md
+- docs/jinshu/api/endpoints.md
 

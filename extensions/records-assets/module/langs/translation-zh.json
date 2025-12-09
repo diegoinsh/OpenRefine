@@ -40,5 +40,21 @@
   "records.assets.filetype.video": "视频",
   "records.assets.filetype.audio": "音频",
   "records.assets.filetype.archive": "压缩文件",
-  "records.assets.filetype.unknown": "未知类型"
+  "records.assets.filetype.unknown": "未知类型",
+
+  "records.assets.menu.extension": "扩展",
+  "records.assets.menu.asFilePath": "作为文件路径",
+  "records.assets.menu.setRootPath": "设置根路径...",
+  "records.assets.menu.setRootPathTitle": "设置根路径",
+  "records.assets.menu.setRootPathDesc": "输入文件探索的根路径：",
+  "records.assets.menu.setRootPathHint": "单元格中的值将被视为相对于此根路径的相对路径。",
+  "records.assets.menu.filePathEnabled": "列已标记为文件路径。点击单元格可探索资源。",
+  "records.assets.menu.filePathDisabled": "已禁用此列的文件路径模式。",
+
+  "records.assets.cell.clickToExplore": "点击探索资源",
+
+  "records.assets.explorer.title": "资源浏览器",
+  "records.assets.explorer.close": "关闭",
+  "records.assets.explorer.directoryTree": "目录树",
+  "records.assets.explorer.noContent": "无内容"
 }

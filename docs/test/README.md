@@ -1,8 +1,8 @@
-# RUYI Project Test Suite
+# JINSHU Project Test Suite
 
 ## 测试概述
 
-本目录包含 RUYI 项目的所有测试代码和测试文档。
+本目录包含 JINSHU 项目的所有测试代码和测试文档。
 
 ### 测试结构
 

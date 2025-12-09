@@ -5,7 +5,7 @@
   <artifactId>wikibase</artifactId>
   <packaging>jar</packaging>
 
-  <name>RuyiRefine - Wikibase extension</name>
+  <name>JinRefine - Wikibase extension</name>
   <description>Schema alignment and data upload for Wikibase</description>
   <url>https://www.wikidata.org/wiki/Wikidata:Tools/OpenRefine</url>
   <parent>

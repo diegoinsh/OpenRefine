@@ -152,7 +152,7 @@ ClipboardImportingSourceUI.prototype.focus = function() {
   this._elmts.textInput.trigger('focus');
 };
 
-// RUYI: move the built-in "Web Addresses (URL)" source to the end of the
+// JINSHU: move the built-in "Web Addresses (URL)" source to the end of the
 // source list so that the order becomes:
 //   1) This Computer
 //   2) Records Database (custom extension, position = 1)

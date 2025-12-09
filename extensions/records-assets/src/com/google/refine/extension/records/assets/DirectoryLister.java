@@ -91,8 +91,10 @@ public class DirectoryLister {
         }
 
         JSONUtilities.safePut(result, "status", "ok");
-        JSONUtilities.safePut(result, "root", root);
+        JSONUtilities.safePut(result, "root", root != null ? root : "");
         JSONUtilities.safePut(result, "path", path != null ? path : "");
+        JSONUtilities.safePut(result, "currentPath", path != null ? path : "");
+        JSONUtilities.safePut(result, "fullPath", fullPath); // Complete absolute path
         JSONUtilities.safePut(result, "depth", depth);
         result.set("items", items);
         JSONUtilities.safePut(result, "totalCount", totalCount);
@@ -108,9 +110,10 @@ public class DirectoryLister {
      */
     private static ObjectNode createFileItem(File file, String root, String parentPath, int depth) {
         ObjectNode item = ParsingUtilities.mapper.createObjectNode();
-        
+
         JSONUtilities.safePut(item, "name", file.getName());
         JSONUtilities.safePut(item, "type", file.isDirectory() ? "directory" : "file");
+        JSONUtilities.safePut(item, "isDirectory", file.isDirectory());
         JSONUtilities.safePut(item, "size", file.length());
         JSONUtilities.safePut(item, "modified", file.lastModified());
         

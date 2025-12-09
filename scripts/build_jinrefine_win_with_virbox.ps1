@@ -1,19 +1,19 @@
 <#
-RuyiRefine Windows packaging + Virbox Java BCE protection build script.
+JinRefineWindows packaging + Virbox Java BCE protection build script.
 
 Prerequisites:
 1. Maven is installed and available in PATH.
 2. Virbox Protector is installed and virboxprotector_con.exe path is known.
-3. Before first use, add the following line to conf/ruyirefine.l4j.ini:
+3. Before first use, add the following line to conf/jinrefine.l4j.ini:
    -javaagent:server/target/lib/sjt_agent.jar
-   So that ruyirefine.exe automatically loads the Virbox Java Agent.
+   So that jinrefine.exe automatically loads the Virbox Java Agent.
 4. If you want to fix the Java protection password, pass it via -JavaPassword.
 5. A Virbox Java BCE project configuration (.ssp) has been created and saved
    by the GUI under the VirboxJavaDir directory (see parameters below).
 
 Typical usage (run in the repository root PowerShell):
 
-  scripts/build_ruyirefine_win_with_virbox.ps1 `
+  scripts/build_jinshurefine_win_with_virbox.ps1 `
     -VirboxCliPath "C:\Program Files (x86)\senseshield\sdk\Tool\VirboxProtect\bin\virboxprotector_con.exe" `
     -JavaPassword "your-pass" `
     -Platforms "windows-x64" `
@@ -28,11 +28,11 @@ param(
 	[string]$JavaPassword,
 	[string]$Platforms        = 'windows-x64',
 	# Virbox Java project directory (where jars will be copied and .ssp must exist)
-	[string]$VirboxJavaDir    = 'G:\workshop\RUYI\deploy\ruyirefine\java_source',
+	[string]$VirboxJavaDir    = 'G:\workshop\RUYI\deploy\jinrefine\java_source',
 	# Virbox output directory (protected jars and sjt_agent.jar will be written here)
-	[string]$VirboxOutputDir  = 'G:\workshop\RUYI\deploy\ruyirefine\java_bce_output',
+	[string]$VirboxOutputDir  = 'G:\workshop\RUYI\deploy\jinrefine\java_bce_output',
 	# Stable jar file name used inside Virbox project (.ssp must refer to this name)
-	[string]$StableJarName    = 'ruyirefine-server.jar',
+	[string]$StableJarName    = 'jinrefine-server.jar',
 	# Virbox license / cloud parameters (optional, but required in cloud mode)
 	[string]$VirboxCloudMode  = 'cloud',
 	[string]$VirboxCloudUser,
@@ -58,16 +58,16 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host '[2/6] Locating latest Windows zip artifact...' -ForegroundColor Cyan
-$zip = Get-ChildItem 'packaging/target' -Filter 'ruyirefine-win-with-java-*.zip' |
+$zip = Get-ChildItem 'packaging/target' -Filter 'jinrefine-win-with-java-*.zip' |
        Sort-Object LastWriteTime -Descending |
        Select-Object -First 1
 if (-not $zip) {
-    throw 'No ruyirefine-win-with-java-*.zip found under packaging/target.'
+    throw 'No jinrefine-win-with-java-*.zip found under packaging/target.'
 }
 Write-Host "  Using zip: $($zip.FullName)"
 
 Write-Host '[3/6] Extracting zip to temporary release directory...' -ForegroundColor Cyan
-$workDir = Join-Path 'packaging/target' 'ruyirefine_release'
+$workDir = Join-Path 'packaging/target' 'jinshurefine_release'
 if (Test-Path $workDir) {
     Remove-Item $workDir -Recurse -Force
 }
@@ -75,7 +75,7 @@ New-Item $workDir -ItemType Directory | Out-Null
 
 Expand-Archive -Path $zip.FullName -DestinationPath $workDir -Force
 
-# Root directory inside extracted zip (for example ruyirefine-3.10-SNAPSHOT)
+# Root directory inside extracted zip (for example jinrefine-3.10-SNAPSHOT)
 $rootDir = Get-ChildItem $workDir | Where-Object { $_.PSIsContainer } | Select-Object -First 1
 if (-not $rootDir) {
     throw 'No root directory found after extraction.'
@@ -124,19 +124,19 @@ if (-not $recordsDbJar) {
 	throw "openrefine-records-db.jar not found under $recordsDbLibDir."
 }
 
-$recordsAssetsJar = Get-ChildItem $recordsAssetsLibDir -Filter 'ruyirefine.jar' | Select-Object -First 1
+$recordsAssetsJar = Get-ChildItem $recordsAssetsLibDir -Filter 'jinrefine.jar' | Select-Object -First 1
 if (-not $recordsAssetsJar) {
-	throw "ruyirefine.jar not found under $recordsAssetsLibDir."
+	throw "jinrefine.jar not found under $recordsAssetsLibDir."
 }
 
 # Specification for all jars that will be protected by Virbox (original path + stable name)
 $jarSpecs = @(
 	[pscustomobject]@{ Key = 'server';         OriginalPath = $serverJar.FullName;         StableName = $StableJarName },
-	[pscustomobject]@{ Key = 'core';           OriginalPath = $coreJar.FullName;           StableName = 'ruyirefine-core.jar' },
-	[pscustomobject]@{ Key = 'main';           OriginalPath = $mainJar.FullName;           StableName = 'ruyirefine-main.jar' },
-	[pscustomobject]@{ Key = 'grel';           OriginalPath = $grelJar.FullName;           StableName = 'ruyirefine-grel.jar' },
-	[pscustomobject]@{ Key = 'records-db';     OriginalPath = $recordsDbJar.FullName;      StableName = 'ruyirefine-records-db.jar' },
-	[pscustomobject]@{ Key = 'records-assets'; OriginalPath = $recordsAssetsJar.FullName;  StableName = 'ruyirefine-records-assets.jar' }
+	[pscustomobject]@{ Key = 'core';           OriginalPath = $coreJar.FullName;           StableName = 'jinrefine-core.jar' },
+	[pscustomobject]@{ Key = 'main';           OriginalPath = $mainJar.FullName;           StableName = 'jinrefine-main.jar' },
+	[pscustomobject]@{ Key = 'grel';           OriginalPath = $grelJar.FullName;           StableName = 'jinrefine-grel.jar' },
+	[pscustomobject]@{ Key = 'records-db';     OriginalPath = $recordsDbJar.FullName;      StableName = 'jinrefine-records-db.jar' },
+	[pscustomobject]@{ Key = 'records-assets'; OriginalPath = $recordsAssetsJar.FullName;  StableName = 'jinrefine-records-assets.jar' }
 )
 
 Write-Host '[4/6] Preparing Virbox project/input/output directories...' -ForegroundColor Cyan
@@ -219,13 +219,13 @@ foreach ($spec in $jarSpecs) {
 	Copy-Item $spec.ProtectedPath -Destination $spec.OriginalPath -Force
 }
 
-# Copy sjt_agent.jar into server lib dir (used by -javaagent in ruyirefine.l4j.ini)
+# Copy sjt_agent.jar into server lib dir (used by -javaagent in jinrefine.l4j.ini)
 Copy-Item $sjtAgent.FullName -Destination $serverLibDir -Force
 
 Write-Host '[6/6] Re-packaging protected Windows release zip...' -ForegroundColor Cyan
 
 $timestamp    = Get-Date -Format 'yyyyMMdd_HHmmss'
-$finalZipName = "ruyirefine-win-with-java-protected-$($rootDir.Name)-$timestamp.zip"
+$finalZipName = "jinrefine-win-with-java-protected-$($rootDir.Name)-$timestamp.zip"
 $finalZip     = Join-Path 'packaging/target' $finalZipName
 
 if (Test-Path $finalZip) {

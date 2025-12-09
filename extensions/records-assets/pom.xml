@@ -6,7 +6,7 @@
 
     <artifactId>records-assets</artifactId>
     <packaging>jar</packaging>
-    <name>RuyiRefine - Records Assets Extension</name>
+    <name>JinRefine - Records Assets Extension</name>
     <description>Records Assets Extension for file and directory preview in Catalog Mode</description>
 
     <parent>

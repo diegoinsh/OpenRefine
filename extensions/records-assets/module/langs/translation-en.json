@@ -40,5 +40,21 @@
   "records.assets.filetype.video": "Video",
   "records.assets.filetype.audio": "Audio",
   "records.assets.filetype.archive": "Archive",
-  "records.assets.filetype.unknown": "Unknown type"
+  "records.assets.filetype.unknown": "Unknown type",
+
+  "records.assets.menu.extension": "Extension",
+  "records.assets.menu.asFilePath": "As File Path",
+  "records.assets.menu.setRootPath": "Set Root Path...",
+  "records.assets.menu.setRootPathTitle": "Set Root Path",
+  "records.assets.menu.setRootPathDesc": "Enter the root path for file exploration:",
+  "records.assets.menu.setRootPathHint": "Cell values will be treated as relative paths from this root.",
+  "records.assets.menu.filePathEnabled": "Column marked as file path. Click cells to explore resources.",
+  "records.assets.menu.filePathDisabled": "File path mode disabled for this column.",
+
+  "records.assets.cell.clickToExplore": "Click to explore resource",
+
+  "records.assets.explorer.title": "Resource Explorer",
+  "records.assets.explorer.close": "Close",
+  "records.assets.explorer.directoryTree": "Directory Tree",
+  "records.assets.explorer.noContent": "No content"
 }

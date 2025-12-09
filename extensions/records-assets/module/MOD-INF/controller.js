@@ -10,7 +10,17 @@ var ClientSideResourceManager = Packages.com.google.refine.ClientSideResourceMan
 var logger = Packages.org.slf4j.LoggerFactory.getLogger("records-assets-extension");
 
 function registerCommands() {
-  // no custom commands for now
+  logger.trace("Registering Records-Assets Extension Commands......");
+
+  var RS = Packages.com.google.refine.RefineServlet;
+  RS.registerCommand(module, "list",
+      new Packages.com.google.refine.extension.records.assets.ListCommand());
+  RS.registerCommand(module, "preview",
+      new Packages.com.google.refine.extension.records.assets.PreviewCommand());
+  RS.registerCommand(module, "file",
+      new Packages.com.google.refine.extension.records.assets.FileCommand());
+
+  logger.trace("Records-Assets Extension Command Registration done!!");
 }
 
 function registerOperations() {}
@@ -38,7 +48,12 @@ function init() {
     "project/scripts",
     module,
     [
-      "scripts/index/records-assets-controller.js"
+      "scripts/index/records-assets-controller.js",
+      "scripts/project/resource-explorer.js",
+      "scripts/project/menu-file-path.js",
+      "scripts/project/file-path-cell-renderer.js",
+      "scripts/project/resource-explorer-panel.js",
+      "scripts/project/file-preview-dialog.js"
     ]
   );
 
@@ -46,7 +61,10 @@ function init() {
     "project/styles",
     module,
     [
-      "styles/records-assets.css"
+      "styles/records-assets.css",
+      "styles/project/file-path-cell.css",
+      "styles/project/resource-explorer.css",
+      "styles/project/dialogs.css"
     ]
   );
 }

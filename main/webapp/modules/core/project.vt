@@ -35,8 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>RuyiRefine</title>
-    <link rel="icon" type="image/x-icon" href="images/ruyi-refine.ico">
+    <title>JinRefine</title>
+    <link rel="icon" type="image/x-icon" href="images/jinshu-refine.ico">
     $styleInjection
     <script type="text/javascript">
       const urlParams = new URLSearchParams(window.location.search);
@@ -49,8 +49,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   <body>
     <div id="header">
       <a id="app-home-button" href="./">
-        <img aria-hidden="true" src="images/ruyi-icon-metallic.png" width="30" />
-        <h1>RuyiRefine</h1>
+        <img aria-hidden="true" src="images/jinshu-icon-metallic.png" width="30" />
+        <h1>JinRefine</h1>
       </a>
       <div id="project-title">
         <button id="project-name-button" class="app-path-section"></button>

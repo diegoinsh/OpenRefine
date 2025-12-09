@@ -166,17 +166,66 @@ public class FilePreviewHandler {
     }
 
     /**
+     * Generate thumbnail for image files
+     */
+    public static ObjectNode generateThumbnail(String root, String path) throws Exception {
+
+        if (logger.isDebugEnabled()) {
+            logger.debug("Generating thumbnail for: root={}, path={}", root, path);
+        }
+
+        ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+
+        // Validate path
+        String fullPath = PathValidator.getCanonicalPath(root, path);
+        if (fullPath == null) {
+            JSONUtilities.safePut(result, "status", "error");
+            JSONUtilities.safePut(result, "message", "Invalid path");
+            return result;
+        }
+
+        File file = new File(fullPath);
+        if (!file.exists() || !file.isFile()) {
+            JSONUtilities.safePut(result, "status", "error");
+            JSONUtilities.safePut(result, "message", "File does not exist");
+            return result;
+        }
+
+        String mimeType = getMimeType(file.getName());
+
+        if (!isImageFile(mimeType)) {
+            JSONUtilities.safePut(result, "status", "ok");
+            JSONUtilities.safePut(result, "preview", "");
+            JSONUtilities.safePut(result, "previewType", "not-image");
+            return result;
+        }
+
+        // For simplicity, just return full image (frontend can resize)
+        // In production, could use ImageIO to create actual thumbnails
+        JSONUtilities.safePut(result, "status", "ok");
+        generateImagePreview(result, file, mimeType);
+
+        return result;
+    }
+
+    /**
      * Get MIME type from filename
      */
     private static String getMimeType(String filename) {
         String lower = filename.toLowerCase();
-        
+
         if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
             return "image/jpeg";
         } else if (lower.endsWith(".png")) {
             return "image/png";
         } else if (lower.endsWith(".gif")) {
             return "image/gif";
+        } else if (lower.endsWith(".bmp")) {
+            return "image/bmp";
+        } else if (lower.endsWith(".webp")) {
+            return "image/webp";
+        } else if (lower.endsWith(".svg")) {
+            return "image/svg+xml";
         } else if (lower.endsWith(".pdf")) {
             return "application/pdf";
         } else if (lower.endsWith(".txt")) {
@@ -189,6 +238,8 @@ public class FilePreviewHandler {
             return "text/csv";
         } else if (lower.endsWith(".html") || lower.endsWith(".htm")) {
             return "text/html";
+        } else if (lower.endsWith(".md")) {
+            return "text/markdown";
         } else {
             return "application/octet-stream";
         }

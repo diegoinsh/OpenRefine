@@ -1,0 +1,103 @@
+/*
+ * List Command - Handles directory listing
+ */
+
+package com.google.refine.extension.records.assets;
+
+import java.io.IOException;
+
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.refine.commands.Command;
+import com.google.refine.commands.HttpUtilities;
+import com.google.refine.util.JSONUtilities;
+import com.google.refine.util.ParsingUtilities;
+
+/**
+ * Command to list files and directories
+ * GET /command/records-assets/list
+ */
+public class ListCommand extends Command {
+
+    private static final Logger logger = LoggerFactory.getLogger("ListCommand");
+
+    @Override
+    public void doGet(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        
+        response.setCharacterEncoding("UTF-8");
+        response.setContentType("application/json");
+
+        if (logger.isDebugEnabled()) {
+            logger.debug("ListCommand::doGet");
+        }
+
+        try {
+            String root = request.getParameter("root");
+            String path = request.getParameter("path");
+            String depthStr = request.getParameter("depth");
+            String pageStr = request.getParameter("page");
+            String pageSizeStr = request.getParameter("pageSize");
+
+            int depth = depthStr != null ? Integer.parseInt(depthStr) : 1;
+            int page = pageStr != null ? Integer.parseInt(pageStr) : 1;
+            int pageSize = pageSizeStr != null ? Integer.parseInt(pageSizeStr) : 100;
+            
+            // Convert page/pageSize to offset/limit
+            int offset = (page - 1) * pageSize;
+            int limit = pageSize;
+
+            // Handle empty or null root - use path as the full path
+            if (root == null || root.isEmpty()) {
+                if (path != null && !path.isEmpty()) {
+                    root = path;
+                    path = "";
+                } else {
+                    ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+                    JSONUtilities.safePut(result, "status", "error");
+                    JSONUtilities.safePut(result, "message", "path parameter is required");
+                    HttpUtilities.respond(response, result.toString());
+                    return;
+                }
+            }
+
+            // Validate security
+            if (!SecurityValidator.isPathSafe(root, path)) {
+                ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+                JSONUtilities.safePut(result, "status", "error");
+                JSONUtilities.safePut(result, "message", "Invalid or unsafe path");
+                HttpUtilities.respond(response, result.toString());
+                return;
+            }
+
+            // List directory
+            ObjectNode result = DirectoryLister.listDirectory(root, path, depth, offset, limit);
+
+            if (logger.isDebugEnabled()) {
+                logger.debug("ListCommand result: {}", result.toString());
+            }
+
+            HttpUtilities.respond(response, result.toString());
+
+        } catch (Exception e) {
+            logger.error("Error in ListCommand", e);
+            ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+            JSONUtilities.safePut(result, "status", "error");
+            JSONUtilities.safePut(result, "message", e.getMessage());
+            HttpUtilities.respond(response, result.toString());
+        }
+    }
+
+    @Override
+    public void doPost(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        doGet(request, response);
+    }
+}
+

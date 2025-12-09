@@ -7,8 +7,8 @@
   <packaging>jar</packaging>
   <version>3.10.2.01</version>
 
-  <name>RuyiRefine - Jython extension</name>
-  <description>RuyiRefine integration of Python as an expression language</description>
+  <name>JinRefine - Jython extension</name>
+  <description>JinRefine integration of Python as an expression language</description>
   <url>http://openrefine.org/</url>
   <parent>
     <groupId>org.openrefine</groupId>

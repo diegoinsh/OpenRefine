@@ -99,7 +99,7 @@ $(function() {
           };
 
           // Display version in the main index sidebar
-          var $versionEl = $("#ruyirefine-version");
+          var $versionEl = $("#jinrefine-version");
           if ($versionEl.length) {
             $versionEl.prepend($.i18n('core-index/refine-version', OpenRefineVersion.version));
           }
@@ -227,7 +227,7 @@ ${versionData.java_vm_name} ${versionData.java_vm_version}
 Modules: ${versionData.module_names.join(", ")}
 Client user-agent: ${navigator.userAgent}`;
 
-    $("#ruyirefine-version").on('click', function() {
+    $("#jinrefine-version").on('click', function() {
       navigator.clipboard.writeText(clipboardData).then(function() {
         // show notification that the text has been copied to clipboard
         const container = $('<div id="notification-container">').appendTo(document.body);

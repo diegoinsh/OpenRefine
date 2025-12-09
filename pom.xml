@@ -136,7 +136,7 @@
     <!-- It is nice for "mvn" with no arguments to do a reasonable default. -->
     <defaultGoal>install</defaultGoal>
 
-    <finalName>ruyirefine</finalName>
+    <finalName>jinrefine</finalName>
     <resources>
     </resources>
     <plugins>

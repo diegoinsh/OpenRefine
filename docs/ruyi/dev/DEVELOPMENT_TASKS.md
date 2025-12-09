@@ -391,7 +391,7 @@
 
 ---
 
-## Phase 4: 导出数据绑定资源功能 (2025-11-27)
+## Phase 4: 导出绑定文件资源功能 (2025-11-27)
 
 ### Task 4.1: 创建 RecordsDBOverlayModel ✅ COMPLETED
 - [x] 实现 OverlayModel 接口
