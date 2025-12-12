@@ -24,6 +24,7 @@
 	    <module>records-db</module>
 	    <module>records-assets</module>
 	    <module>pc-axis</module>
+	    <module>data-quality</module>
 	    <!-- Add new extensions here -->
 	  </modules>
 
