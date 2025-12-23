@@ -44,7 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     <div id="header">
       <a id="app-home-button" href="./" title="Navigate to the home screen">
         <img aria-hidden="true" src="images/jinshu-icon-metallic.png" width="30" />
-        <h1>JinRefine</h1>
+        <h1>数据金炼</h1>
       </a>
     </div>
     <div id="body-info">

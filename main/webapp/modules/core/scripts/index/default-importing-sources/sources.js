@@ -123,6 +123,7 @@ UrlImportingSourceUI.prototype.focus = function() {
 function ClipboardImportingSourceUI(controller) {
   this._controller = controller;
 }
+
 Refine.DefaultImportingController.sources.push({
   "label": $.i18n('core-index-import/clipboard'),
   "id": "clipboard",
@@ -158,9 +159,63 @@ ClipboardImportingSourceUI.prototype.focus = function() {
 //   2) Records Database (custom extension, position = 1)
 //   3) Clipboard
 //   4) URLs
+//   5) Import Project
 Refine.DefaultImportingController.sources.push({
   "label": $.i18n('core-index-import/web-address'),
   "id": "download",
   "uiClass": UrlImportingSourceUI
 });
 
+// 导入项目作为新建项目的二级菜单
+function ImportProjectSourceUI(controller) {
+  this._controller = controller;
+}
+
+ImportProjectSourceUI.prototype.attachUI = function(bodyDiv) {
+  var self = this;
+
+  bodyDiv.html(DOM.loadHTML("core", "scripts/index/import-project-ui.html"));
+
+  this._elmts = DOM.bind(bodyDiv);
+
+  Refine.wrapCSRF(function(token) {
+    bodyDiv.find('#project-upload-form').attr('action', "command/core/import-project?" + $.param({ csrf_token: token}));
+  });
+
+  var fileInput = bodyDiv.find("#project-tar-file-input")[0];
+
+  this._elmts.projectTarDelete.on('click', function () {
+    fileInput.value = "";
+  });
+
+  this._elmts.projectButton.on('click', function (e) {
+    var urlInput = bodyDiv.find("#project-url-input")[0];
+
+    if (fileInput.value === "" && urlInput.value === "") {
+      alert($.i18n('core-index-import/warning-import-input'));
+    } else if (fileInput.value.length > 0 && urlInput.value.length > 0) {
+      alert($.i18n('core-index-import/warning-import-two-input'));
+    } else if (urlInput.value !== "" && !URLUtil.looksLikeUrl(urlInput.value)) {
+      alert($.i18n('core-index-import/warning-import-url'));
+    } else {
+      bodyDiv.find("#import-project-button")[0].type = "submit";
+    }
+  });
+
+  $('#or-import-locate').text($.i18n('core-index-import/locate'));
+  $('#or-import-file').text($.i18n('core-index-import/file'));
+  $('#project-tar-file-delete').val($.i18n('core-index-import/delete-import-file'));
+  $('#or-import-url').text($.i18n('core-index-import/or'));
+  $('#or-import-rename').text($.i18n('core-index-import/rename'));
+  $('#import-project-button').val($.i18n('core-buttons/import-proj'));
+};
+
+ImportProjectSourceUI.prototype.focus = function() {
+};
+
+// Register Import Project source (must be after ImportProjectSourceUI is defined)
+Refine.DefaultImportingController.sources.push({
+  "label": $.i18n('core-index-import/import-proj'),
+  "id": "import-project",
+  "uiClass": ImportProjectSourceUI
+});

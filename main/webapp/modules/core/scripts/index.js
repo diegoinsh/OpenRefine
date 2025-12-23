@@ -104,7 +104,7 @@ $(function() {
             $versionEl.prepend($.i18n('core-index/refine-version', OpenRefineVersion.version));
           }
 
-          $("#openrefine-extensions").text($.i18n('core-index/refine-extensions', OpenRefineVersion.module_names.join(", ")));
+          // $("#openrefine-extensions").text($.i18n('core-index/refine-extensions', OpenRefineVersion.module_names.join(", ")));
           $("#java-runtime-version").text(OpenRefineVersion.java_runtime_name + " " + OpenRefineVersion.java_runtime_version);
           if (OpenRefineVersion.display_new_version_notice === "true") {
             showNotifications();
@@ -165,7 +165,7 @@ $(function() {
             .text('(')
             .appendTo(notification);
           $('<a>')
-            .attr('href', 'https://openrefine.org/privacy')
+            .attr('href', 'https://jinshuai.com/jinrefine/privacy')
             .attr('target', '_blank')
             .text($.i18n('core-index/notification-privacy-info'))
             .appendTo(privacySpan);
@@ -173,7 +173,7 @@ $(function() {
           container
             .appendTo(document.body);
         } else if (notificationStatus == "enabled") {
-            $.getJSON("https://openrefine.org/versions.json",
+            $.getJSON("https://jinshuai.com/jinrefine/versions.json",
                 function (data) {
                   if (data.events && data.events.length > 0) {
                     var latestEvent = data.events[0];
@@ -209,7 +209,7 @@ $(function() {
                         .appendTo(container);
                     $('<a>')
                         .addClass('notification-action')
-                        .attr("href", "https://openrefine.org/download")
+                        .attr("href", "https://jinshuai.com/jinrefine.org/download")
                         .attr("target", "_blank")
                         .text($.i18n('core-index/new-version-available', latestVersion))
                         .appendTo(notification);
@@ -271,6 +271,16 @@ Client user-agent: ${navigator.userAgent}`;
     actionArea.ui = new actionArea.uiClass(actionArea.bodyElmt);
   };
 
+  // 定义菜单顺序，open-project 放第一个
+  var menuOrder = ['open-project', 'create-project', 'data-quality'];
+  Refine.actionAreas.sort(function(a, b) {
+    var indexA = menuOrder.indexOf(a.id);
+    var indexB = menuOrder.indexOf(b.id);
+    if (indexA === -1) indexA = 999;
+    if (indexB === -1) indexB = 999;
+    return indexA - indexB;
+  });
+
   for (var i = 0; i < Refine.actionAreas.length; i++) {
     renderActionArea(Refine.actionAreas[i]);
   }
@@ -286,7 +296,7 @@ Client user-agent: ${navigator.userAgent}`;
       }
     }
   } else {
-    Refine.selectActionArea('create-project');
+    Refine.selectActionArea('open-project');
   }
 
   $("#slogan").text($.i18n('core-index/slogan')+".");

@@ -31,8 +31,6 @@ function registerCommands() {
       new Packages.com.google.refine.extension.quality.commands.RunQualityCheckCommand());
   RS.registerCommand(module, "check-aimp-connection",
       new Packages.com.google.refine.extension.quality.commands.CheckAimpConnectionCommand());
-  RS.registerCommand(module, "test-aimp-connection",
-      new Packages.com.google.refine.extension.quality.commands.CheckAimpConnectionCommand());
   RS.registerCommand(module, "export-quality-report",
       new Packages.com.google.refine.extension.quality.commands.ExportQualityReportCommand());
   RS.registerCommand(module, "get-check-progress",
@@ -41,6 +39,24 @@ function registerCommands() {
       new Packages.com.google.refine.extension.quality.commands.SaveQualityResultCommand());
   RS.registerCommand(module, "get-quality-result",
       new Packages.com.google.refine.extension.quality.commands.GetQualityResultCommand());
+
+  // Task control commands (pause/resume/cancel)
+  RS.registerCommand(module, "task-control",
+      new Packages.com.google.refine.extension.quality.commands.TaskControlCommand());
+  RS.registerCommand(module, "list-tasks",
+      new Packages.com.google.refine.extension.quality.commands.ListTasksCommand());
+
+  // Config commands
+  RS.registerCommand(module, "get-config",
+      new Packages.com.google.refine.extension.quality.commands.GetConfigCommand());
+  RS.registerCommand(module, "save-config",
+      new Packages.com.google.refine.extension.quality.commands.SaveConfigCommand());
+  RS.registerCommand(module, "test-aimp-connection",
+      new Packages.com.google.refine.extension.quality.commands.TestAimpConnectionCommand());
+
+  // Global rules management commands
+  RS.registerCommand(module, "list-global-rules",
+      new Packages.com.google.refine.extension.quality.commands.ListGlobalRulesCommand());
 
   logger.trace("Data-Quality Extension Command Registration done!");
 }
@@ -94,6 +110,24 @@ function init() {
   registerCommands();
   registerOperations();
   registerFunctions();
+
+  // Script files to inject into /index page (homepage)
+  ClientSideResourceManager.addPaths(
+    "index/scripts",
+    module,
+    [
+      "scripts/index/data-quality-ui.js"
+    ]
+  );
+
+  // Style files to inject into /index page (homepage)
+  ClientSideResourceManager.addPaths(
+    "index/styles",
+    module,
+    [
+      "styles/index/data-quality-ui.css"
+    ]
+  );
 
   // Script files to inject into /project page
   ClientSideResourceManager.addPaths(

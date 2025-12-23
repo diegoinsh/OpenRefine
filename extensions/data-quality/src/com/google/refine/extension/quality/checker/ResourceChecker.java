@@ -26,19 +26,31 @@ import com.google.refine.model.Row;
 
 /**
  * Checker for file/folder resource association validation.
+ * Supports task interruption and progress tracking.
  */
 public class ResourceChecker {
 
     private static final Logger logger = LoggerFactory.getLogger(ResourceChecker.class);
+    private static final int DEFAULT_BATCH_SIZE = 100;
 
     private final Project project;
     private final QualityRulesConfig rules;
     private String systemSeparator;
+    private com.google.refine.extension.quality.task.QualityCheckTask task;
+    private int startRowIndex = 0;
 
     public ResourceChecker(Project project, QualityRulesConfig rules) {
         this.project = project;
         this.rules = rules;
         this.systemSeparator = File.separator;
+    }
+
+    public void setTask(com.google.refine.extension.quality.task.QualityCheckTask task) {
+        this.task = task;
+    }
+
+    public void setStartRowIndex(int startRowIndex) {
+        this.startRowIndex = startRowIndex;
     }
 
     public CheckResult runCheck() {
@@ -67,9 +79,32 @@ public class ResourceChecker {
 
         int passedRows = 0;
         int failedRows = 0;
+        int batchSize = DEFAULT_BATCH_SIZE;
 
-        // Check each row
-        for (int rowIndex = 0; rowIndex < totalRows; rowIndex++) {
+        // Check each row (starting from startRowIndex for resume support)
+        for (int rowIndex = startRowIndex; rowIndex < totalRows; rowIndex++) {
+            // Check for task interruption
+            if (task != null && task.shouldStop()) {
+                logger.info("Resource check interrupted at row " + rowIndex);
+                if (task != null) {
+                    task.setResourceCheckpoint(rowIndex);
+                }
+                result.setCheckedRows(rowIndex);
+                result.setPassedRows(passedRows);
+                result.setFailedRows(failedRows);
+                return result;
+            }
+
+            // Wait if paused
+            while (task != null && task.isPaused() && !task.shouldStop()) {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+
             Row row = project.rows.get(rowIndex);
             boolean rowPassed = true;
 

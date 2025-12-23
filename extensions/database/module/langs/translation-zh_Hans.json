@@ -28,7 +28,7 @@
     "database-parsing/proj-name": "项目&nbsp;名称",
     "database-source/new-connection-legend": "新的连接编辑器",
     "database-source/savedConnectionSpan": "已保存的连接",
-    "database-parsing/start-over": "&laquo; 重新开始",
+    "database-parsing/start-over": "&laquo; 返回上步",
     "database-parsing/worksheet": "工作表",
     "database-parsing/option": "选项",
     "database-parsing/discard-next": "丢弃首字母",

@@ -14,12 +14,10 @@
   color: #1a73e8;
   text-decoration: none;
   cursor: pointer;
-  display: inline-block;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 2px 4px;
   border-radius: 3px;
   transition: background-color 0.2s, color 0.2s;
 }

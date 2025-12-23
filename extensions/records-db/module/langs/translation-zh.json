@@ -1,6 +1,6 @@
 {
   "name": "简体中文",
-  "records.db.label": "记录数据库",
+  "records.db.label": "数据库",
 
   "records.db.wizard.selectMode.title": "选择模式",
   "records.db.wizard.selectMode.description": "选择数据导入模式",
@@ -28,6 +28,10 @@
   "records.db.wizard.selectProfile.testConnection": "测试连接",
   "records.db.wizard.selectProfile.testing": "正在测试连接",
   "records.db.wizard.selectProfile.connectionSuccess": "连接成功",
+  "records.db.wizard.selectProfile.dbNamePlaceholder": "输入数据库名称",
+  "records.db.wizard.selectProfile.dbUserPlaceholder": "输入数据库用户",
+  "records.db.wizard.selectProfile.dbPwPlaceholder": "输入数据库用户",
+  "records.db.wizard.selectProfile.dbFileNamePlaceholder": "输入数据库文件的完整路径",
 
   "records.db.wizard.selectFields.title": "选择字段",
   "records.db.wizard.selectFields.description": "从数据源中选择需要导入的字段",
@@ -108,6 +112,8 @@
   "records.db.wizard.fieldMapping.dictTranslate.fields": "个字段",
   "records.db.wizard.fieldMapping.dictTranslate.translated": "已翻译",
 
+  "records.db.wizard.stepIndicator": "步骤$1（共$2步）：",
+
   "records.db.common.loading": "正在加载",
   "records.db.common.missingRequired": "缺少必填项",
   "records.db.common.loadFailed": "加载失败",
@@ -154,7 +160,7 @@
   "records.db.wizard.createProject.noRedirect": "导出后不跳转",
   "records.db.wizard.createProject.saveConfig": "保存当前配置到历史记录",
 
-  "records-db-export/dialog-title": "导出数据绑定资源",
+  "records-db-export/dialog-title": "导出绑定文件资源",
   "records-db-export/tab-path-config": "路径配置",
   "records-db-export/tab-export-settings": "导出设置",
   "records-db-export/tab-option-code": "选项代码",

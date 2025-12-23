@@ -67,8 +67,9 @@ Refine.ImportProjectUI = function(elmt) {
   $('#import-project-button').val($.i18n('core-buttons/import-proj'));
 };
 
-Refine.actionAreas.push({
-  id: "import-project",
-  label: $.i18n('core-index-import/import-proj'),
-  uiClass: Refine.ImportProjectUI
-});
+// 隐藏导入项目一级菜单，移动到新建项目的二级菜单中
+// Refine.actionAreas.push({
+//   id: "import-project",
+//   label: $.i18n('core-index-import/import-proj'),
+//   uiClass: Refine.ImportProjectUI
+// });

@@ -154,7 +154,7 @@ a img {
 
 .button-primary, a.button-primary {
   font-weight: bold;
-  padding: 1px 15px;
+  padding: 1px 12px;
 }
 
 .button-pill-left, a.button-pill-left {
@@ -389,7 +389,8 @@ div.grid-layout.grid-layout-for-ui>table>tbody>tr>td {
 }
 
 div.grid-layout.layout-normal {
-  margin: -10px;
+  margin: 0;
+  padding: var(--padding-tightest);
 }
 
 div.grid-layout.layout-normal>table {

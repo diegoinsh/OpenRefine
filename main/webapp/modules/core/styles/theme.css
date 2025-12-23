@@ -56,6 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   --dialog-header: #e0d6c4;
   --dialog-footer: #eee;
 
+  --padding-tightest: 0;
   --padding-tighter: 3px;
   --padding-tight: 5px;
   --padding-normal: 7px;

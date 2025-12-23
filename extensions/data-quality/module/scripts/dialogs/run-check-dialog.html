@@ -11,7 +11,9 @@
   </div>
   <div class="dialog-footer">
     <button class="button button-primary" bind="startButton">开始检查</button>
-    <button class="button button-danger" bind="stopButton">停止</button>
+    <button class="button button-warning" bind="pauseButton" style="display: none;">暂停</button>
+    <button class="button button-primary" bind="resumeButton" style="display: none;">继续</button>
+    <button class="button button-danger" bind="stopButton" style="display: none;">停止</button>
     <button class="button button-secondary" bind="cancelButton">取消</button>
   </div>
 </div>

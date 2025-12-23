@@ -13,7 +13,7 @@ Prerequisites:
 
 Typical usage (run in the repository root PowerShell):
 
-  scripts/build_jinshurefine_win_with_virbox.ps1 `
+  scripts/build_jinrefine_win_with_virbox.ps1 `
     -VirboxCliPath "C:\Program Files (x86)\senseshield\sdk\Tool\VirboxProtect\bin\virboxprotector_con.exe" `
     -JavaPassword "your-pass" `
     -Platforms "windows-x64" `
@@ -28,9 +28,11 @@ param(
 	[string]$JavaPassword,
 	[string]$Platforms        = 'windows-x64',
 	# Virbox Java project directory (where jars will be copied and .ssp must exist)
-	[string]$VirboxJavaDir    = 'G:\workshop\RUYI\deploy\jinrefine\java_source',
+	[string]$VirboxJavaDir    = 'G:\workshop\RUYI\build\jinrefine\java_source',
 	# Virbox output directory (protected jars and sjt_agent.jar will be written here)
-	[string]$VirboxOutputDir  = 'G:\workshop\RUYI\deploy\jinrefine\java_bce_output',
+	[string]$VirboxOutputDir  = 'G:\workshop\RUYI\build\jinrefine\java_bce_output',
+	[string]$VirboxSSPPath  = 'G:\workshop\RUYI\packaging\jinrefine\config\java_source.ssp',
+	[string]$VirboxOutputSSPDir  = 'G:\workshop\RUYI\build\jinrefine\',
 	# Stable jar file name used inside Virbox project (.ssp must refer to this name)
 	[string]$StableJarName    = 'jinrefine-server.jar',
 	# Virbox license / cloud parameters (optional, but required in cloud mode)
@@ -67,7 +69,7 @@ if (-not $zip) {
 Write-Host "  Using zip: $($zip.FullName)"
 
 Write-Host '[3/6] Extracting zip to temporary release directory...' -ForegroundColor Cyan
-$workDir = Join-Path 'packaging/target' 'jinshurefine_release'
+$workDir = Join-Path 'packaging/target' 'jinrefine_release'
 if (Test-Path $workDir) {
     Remove-Item $workDir -Recurse -Force
 }
@@ -168,6 +170,18 @@ if (-not (Test-Path $VirboxCliPath)) {
 
 Write-Host '[5/6] Protecting server jar with Virbox Protector (Java BCE)...' -ForegroundColor Cyan
 Write-Host "  Jar directory: $VirboxJavaDir"
+Write-Host "  SSP file directory: $VirboxOutputSSPDir"
+$recordsAssetsLibDir = Join-Path $rootDir.FullName 'webapp/extensions/records-assets/module/MOD-INF/lib'
+if (-not (Test-Path $VirboxOutputSSPDir)) {
+    New-Item -ItemType Directory -Path $VirboxOutputSSPDir -Force | Out-Null
+}
+if (Test-Path $VirboxSSPPath) {
+    Copy-Item $VirboxSSPPath -Destination $VirboxOutputSSPDir -Force
+    Write-Host "SSP file copied to: $VirboxOutputSSPDir" -ForegroundColor Green
+} else {
+    Write-Host "[ERROR] SSP file not exist: $VirboxSSPPath" -ForegroundColor Red
+    throw "Could not find ssp file: $VirboxSSPPath"
+}
 
 # Use directory path - Virbox will auto-detect .ssp file in that directory
 $arguments = @(
@@ -225,7 +239,7 @@ Copy-Item $sjtAgent.FullName -Destination $serverLibDir -Force
 Write-Host '[6/6] Re-packaging protected Windows release zip...' -ForegroundColor Cyan
 
 $timestamp    = Get-Date -Format 'yyyyMMdd_HHmmss'
-$finalZipName = "jinrefine-win-with-java-protected-$($rootDir.Name)-$timestamp.zip"
+$finalZipName = "$($rootDir.Name)-$Platforms-$timestamp.zip"
 $finalZip     = Join-Path 'packaging/target' $finalZipName
 
 if (Test-Path $finalZip) {

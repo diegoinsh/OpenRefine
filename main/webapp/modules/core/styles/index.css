@@ -130,7 +130,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   background: var(--chrome-primary);
   left: 150px;
   width: calc(100% - 150px);
-  border-left: 1px solid var(--border-color, #D8D0C8);
+  /* border-left: 1px solid var(--border-color, #D8D0C8); */
   box-shadow: var(--shadow-light, 0 1px 3px rgba(139, 115, 85, 0.1));
 }
 

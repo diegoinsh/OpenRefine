@@ -126,7 +126,32 @@ public class ContentChecker {
         String taskId = "content-check-" + project.id + "-" + System.currentTimeMillis();
         int processedCount = 0;
 
-        for (int i = 0; i < validRows.size(); i += batchSize) {
+        // Get start index from checkpoint if resuming
+        int startIndex = 0;
+        if (task != null && task.getCheckpoint() != null && "内容检查".equals(task.getCheckpoint().getLastPhase())) {
+            startIndex = task.getCheckpoint().getContentCheckProcessed();
+            processedCount = startIndex;
+            logger.info("Resuming content check from index " + startIndex);
+        }
+
+        for (int i = startIndex; i < validRows.size(); i += batchSize) {
+            // Check for task interruption
+            if (task != null && task.shouldStop()) {
+                logger.info("Content check interrupted at index " + i);
+                task.setContentCheckpoint(i);
+                return result;
+            }
+
+            // Wait if paused
+            while (task != null && task.isPaused() && !task.shouldStop()) {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+
             int endIndex = Math.min(i + batchSize, validRows.size());
             List<RowData> batch = validRows.subList(i, endIndex);
 

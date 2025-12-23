@@ -18,15 +18,18 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.refine.ProjectManager;
 import com.google.refine.commands.Command;
 import com.google.refine.extension.quality.checker.ContentChecker;
 import com.google.refine.extension.quality.checker.FormatChecker;
 import com.google.refine.extension.quality.checker.ResourceChecker;
 import com.google.refine.extension.quality.model.CheckResult;
 import com.google.refine.extension.quality.model.QualityRulesConfig;
+import com.google.refine.extension.quality.operations.SaveQualityResultOperation;
 import com.google.refine.extension.quality.operations.SaveQualityRulesOperation;
 import com.google.refine.extension.quality.task.QualityCheckTask;
 import com.google.refine.extension.quality.task.QualityCheckTask.TaskStatus;
+import com.google.refine.extension.quality.task.TaskPersistence;
 import com.google.refine.model.Project;
 
 /**
@@ -179,6 +182,40 @@ public class RunQualityCheckCommand extends Command {
             task.setStatus(TaskStatus.COMPLETED);
             task.setCompletedAt(System.currentTimeMillis());
 
+            // Persist result to project overlay for later retrieval
+            try {
+                CheckResult combinedResult = new CheckResult("combined");
+                combinedResult.setTotalRows(project.rows.size());
+                combinedResult.setCheckedRows(project.rows.size());
+                // Add all errors to combined result
+                for (CheckResult.CheckError err : formatResult.getErrors()) {
+                    err.setCategory("format");
+                    combinedResult.addError(err);
+                }
+                for (CheckResult.CheckError err : resourceResult.getErrors()) {
+                    err.setCategory("resource");
+                    combinedResult.addError(err);
+                }
+                for (CheckResult.CheckError err : contentResult.getErrors()) {
+                    err.setCategory("content");
+                    combinedResult.addError(err);
+                }
+                combinedResult.complete();
+
+                synchronized (project) {
+                    project.overlayModels.put(SaveQualityResultOperation.OVERLAY_MODEL_KEY, combinedResult);
+                }
+                project.getMetadata().updateModified();
+
+                // Force save project to disk
+                ProjectManager.singleton.ensureProjectSaved(project.id);
+                logger.info("Quality result persisted and saved to disk");
+            } catch (Exception e) {
+                logger.error("Failed to persist quality result", e);
+            }
+
+            // Persist task state to disk
+            TaskPersistence.saveTask(task);
             logger.info("Async quality check completed. Task: " + task.getTaskId() + ", Errors: " + totalErrors);
 
         } catch (Exception e) {
@@ -186,6 +223,8 @@ public class RunQualityCheckCommand extends Command {
             task.setStatus(TaskStatus.FAILED);
             task.setErrorMessage(e.getMessage());
             task.setCompletedAt(System.currentTimeMillis());
+            // Persist failed task state to disk
+            TaskPersistence.saveTask(task);
         }
     }
 

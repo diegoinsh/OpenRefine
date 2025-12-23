@@ -83,7 +83,7 @@
   "data-quality-extension/checking-connection": "检查连接中...",
   "data-quality-extension/connected": "已连接",
   "data-quality-extension/not-connected": "未连接 - 点击配置",
-  "data-quality-extension/aimp-config-title": "配置 AIMP 服务",
+  "data-quality-extension/aimp-config-title": "配置AI服务",
   "data-quality-extension/aimp-service-url": "服务地址",
   "data-quality-extension/test-connection": "测试连接",
   "data-quality-extension/please-enter-url": "请输入服务地址",

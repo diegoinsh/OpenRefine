@@ -10,6 +10,7 @@ var ResourceExplorerPanel = {};
 
   // Panel state
   ResourceExplorerPanel._isVisible = false;
+  ResourceExplorerPanel._isActive = false; // Whether panel should be shown (not manually closed)
   ResourceExplorerPanel._currentRootPath = '';
   ResourceExplorerPanel._currentFilePath = '';
   ResourceExplorerPanel._panelElement = null;
@@ -37,13 +38,14 @@ var ResourceExplorerPanel = {};
     }
 
     ResourceExplorerPanel._isVisible = true;
+    ResourceExplorerPanel._isActive = true; // Mark as active
 
     // Load and auto-expand the initial path
     ResourceExplorerPanel._loadAndExpandPath(rootPath, filePath);
   };
 
   /**
-   * Hide the resource explorer panel
+   * Hide the resource explorer panel (close it, return to original tabs)
    */
   ResourceExplorerPanel.hide = function() {
     if (ResourceExplorerPanel._panelElement) {
@@ -56,6 +58,28 @@ var ResourceExplorerPanel = {};
     }
 
     ResourceExplorerPanel._isVisible = false;
+    ResourceExplorerPanel._isActive = false; // Mark as closed
+  };
+
+  /**
+   * Collapse the resource explorer panel (hide left panel, but keep active)
+   */
+  ResourceExplorerPanel.collapse = function() {
+    ResourceExplorerPanel._isVisible = false;
+    // Don't set _isActive to false - we want to restore when left panel shows again
+  };
+
+  /**
+   * Restore the resource explorer panel if it was active
+   */
+  ResourceExplorerPanel.restore = function() {
+    if (ResourceExplorerPanel._isActive && ResourceExplorerPanel._panelElement) {
+      ResourceExplorerPanel._panelElement.show();
+      if (ui && ui.leftPanelTabs) {
+        ui.leftPanelTabs.hide();
+      }
+      ResourceExplorerPanel._isVisible = true;
+    }
   };
 
   /**
@@ -94,12 +118,12 @@ var ResourceExplorerPanel = {};
       .addClass('resource-explorer-header-buttons')
       .appendTo(header);
 
-    // Collapse button (same as original)
+    // Collapse button (hides left panel but keeps resource explorer active)
     $('<button>')
       .addClass('resource-explorer-collapse-btn')
       .attr('title', $.i18n('core-index/hide-panel') || 'Hide panel')
       .on('click', function() {
-        ResourceExplorerPanel.hide();
+        ResourceExplorerPanel.collapse();
         Refine._showHideLeftPanel();
       })
       .appendTo(headerButtons);
@@ -272,11 +296,12 @@ var ResourceExplorerPanel = {};
         .appendTo(itemRow);
 
       // Item icon
-      var icon = item.isDirectory ? '📁' : ResourceExplorerPanel._getFileIcon(item.name);
-      $('<span>')
-        .addClass('tree-icon')
-        .text(icon)
-        .appendTo(itemRow);
+      var iconSpan = $('<span>').addClass('tree-icon').appendTo(itemRow);
+      if (item.isDirectory) {
+        iconSpan.text('📁');
+      } else {
+        iconSpan.html(ResourceExplorerPanel._getFileIcon(item.name));
+      }
 
       // Item name
       $('<span>')
@@ -337,20 +362,38 @@ var ResourceExplorerPanel = {};
 
   /**
    * Get file icon based on extension
+   * 返回 <img> HTML 标签
    */
   ResourceExplorerPanel._getFileIcon = function(filename) {
     var ext = filename.split('.').pop().toLowerCase();
+    var basePath = '/images/extensions/';
     var iconMap = {
-      'jpg': '🖼️', 'jpeg': '🖼️', 'png': '🖼️', 'gif': '🖼️', 'bmp': '🖼️', 'svg': '🖼️', 'webp': '🖼️',
-      'pdf': '📄',
-      'doc': '📝', 'docx': '📝',
-      'xls': '📊', 'xlsx': '📊',
-      'txt': '📃', 'md': '📃', 'json': '📃', 'xml': '📃',
-      'zip': '📦', 'rar': '📦', '7z': '📦', 'tar': '📦', 'gz': '📦',
-      'mp4': '🎬', 'avi': '🎬', 'mov': '🎬', 'mkv': '🎬',
-      'mp3': '🎵', 'wav': '🎵', 'flac': '🎵'
+      // 图片类型
+      'jpg': 'file-image.svg', 'jpeg': 'file-image.svg', 'png': 'file-image.svg',
+      'gif': 'file-image.svg', 'bmp': 'file-image.svg', 'svg': 'file-image.svg',
+      'webp': 'file-image.svg', 'ico': 'file-image.svg', 'tiff': 'file-image.svg',
+      // PDF
+      'pdf': 'file-pdf.svg',
+      // Word 文档
+      'doc': 'file-word.svg', 'docx': 'file-word.svg', 'odt': 'file-word.svg', 'rtf': 'file-word.svg',
+      // Excel 表格
+      'xls': 'file-excel.svg', 'xlsx': 'file-excel.svg', 'csv': 'file-excel.svg', 'ods': 'file-excel.svg',
+      // 文本文件
+      'txt': 'file-text.svg', 'md': 'file-text.svg', 'json': 'file-text.svg',
+      'xml': 'file-text.svg', 'html': 'file-text.svg', 'htm': 'file-text.svg',
+      'css': 'file-text.svg', 'js': 'file-text.svg', 'log': 'file-text.svg',
+      // 压缩文件
+      'zip': 'file-zipper.svg', 'rar': 'file-zipper.svg', '7z': 'file-zipper.svg',
+      'tar': 'file-zipper.svg', 'gz': 'file-zipper.svg', 'bz2': 'file-zipper.svg',
+      // 视频
+      'mp4': 'file-video.svg', 'avi': 'file-video.svg', 'mov': 'file-video.svg',
+      'mkv': 'file-video.svg', 'wmv': 'file-video.svg', 'flv': 'file-video.svg', 'webm': 'file-video.svg',
+      // 音频
+      'mp3': 'file-audio.svg', 'wav': 'file-audio.svg', 'flac': 'file-audio.svg',
+      'aac': 'file-audio.svg', 'ogg': 'file-audio.svg', 'wma': 'file-audio.svg', 'm4a': 'file-audio.svg'
     };
-    return iconMap[ext] || '📄';
+    var iconFile = iconMap[ext] || 'file-text.svg';
+    return '<img src="' + basePath + iconFile + '" class="file-type-icon" alt="" />';
   };
 
   /**
@@ -490,6 +533,26 @@ var ResourceExplorerPanel = {};
 
   // Register keyboard event handler
   $(document).on('keydown', ResourceExplorerPanel._handleKeyDown);
+
+  // Monitor left panel visibility changes using MutationObserver
+  $(document).ready(function() {
+    var body = document.querySelector('div#body');
+    if (body) {
+      var observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+          if (mutation.attributeName === 'class') {
+            var isHidden = body.classList.contains('hide-left-panel');
+            if (!isHidden && ResourceExplorerPanel._isActive) {
+              // Left panel is now visible, restore resource explorer
+              ResourceExplorerPanel.restore();
+            }
+          }
+        });
+      });
+
+      observer.observe(body, { attributes: true });
+    }
+  });
 
 })();
 

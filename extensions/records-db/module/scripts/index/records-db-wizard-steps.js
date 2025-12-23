@@ -13,6 +13,7 @@
   window.FieldMappingStep = function(wizard) {
     this._wizard = wizard;
     this._fieldMappings = {};
+    this.title = 'records.db.wizard.fieldMapping.title';
   };
 
   FieldMappingStep.prototype.render = function(div) {
@@ -1200,6 +1201,7 @@
     this._wizard = wizard;
     this._fileMapping = {};
     this._availableSources = []; // Will be populated from filters
+    this.title = 'records.db.wizard.fileMapping.title';
   };
 
   FileMappingStep.prototype.render = function(div) {

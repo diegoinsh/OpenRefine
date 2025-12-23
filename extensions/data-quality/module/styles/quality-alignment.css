@@ -10,7 +10,7 @@
 }
 
 .main-view-panel-tab-header {
-  margin-top: 6px;
+  margin-top: 3px;
   margin-left: 7px;
   font-size: 1.3em;
   display: inline-block;
@@ -23,8 +23,10 @@
 .main-view-panel-tab-header.active {
   background-color: var(--background-primary);
   color: var(--text-primary);
-  border: 1px solid #818fb7;
+  border: 1px solid var(--chrome-primary);
   border-bottom: none;
+  font-weight: bold;
+  padding: 6px 10px;
 }
 
 .main-view-panel-tab-header.active:first-child {
@@ -408,6 +410,10 @@
 
 .quality-status-label {
   font-weight: bold;
+}
+.quality-status-label img{
+  height: 16px;
+  opacity: 0.5;
 }
 
 .quality-status-indicator {

@@ -38,7 +38,12 @@ Refine.OpenProjectUI = function(elmt) {
 
   this._elmt = elmt;
   this._elmts = DOM.bind(elmt);
-  
+
+  // 分页状态
+  this._currentPage = 1;
+  this._pageSize = parseInt(localStorage.getItem('openProject.pageSize'), 10) || 50; // 从 localStorage 读取，默认50
+  this._allProjects = []; // 缓存所有项目数据
+
   if (Host.isLocalhost()) {
     $('#projects-workspace-open').text($.i18n('core-index-open/browse'));
     $('#projects-workspace-open').on('click',function() {
@@ -56,8 +61,39 @@ Refine.OpenProjectUI = function(elmt) {
   } else {
     $('#projects-workspace-open').hide();
   }
+
+  // 添加每页数量控制
+  this._buildPageSizeControl();
+
   Refine.TagsManager.allProjectTags = [];
   this._buildTagsAndFetchProjects();
+};
+
+/**
+ * 构建每页数量控制
+ */
+Refine.OpenProjectUI.prototype._buildPageSizeControl = function() {
+  var self = this;
+  var controlsDiv = this._elmts.workspaceControls;
+
+  var pageSizeControl = $('<span class="page-size-control"></span>');
+  $('<label>').text($.i18n('core-index-open/page-size') + ': ').appendTo(pageSizeControl);
+
+  var select = $('<select id="page-size-select">')
+    .append('<option value="20">20</option>')
+    .append('<option value="50">50</option>')
+    .append('<option value="100">100</option>')
+    .append('<option value="200">200</option>')
+    .val(this._pageSize) // 设置为当前保存的值
+    .on('change', function() {
+      self._pageSize = parseInt($(this).val(), 10);
+      localStorage.setItem('openProject.pageSize', self._pageSize); // 保存到 localStorage
+      self._currentPage = 1;
+      self._renderProjectsWithPagination();
+    })
+    .appendTo(pageSizeControl);
+
+  controlsDiv.append(pageSizeControl);
 };
 
 Refine.OpenProjectUI.prototype._fetchProjects = function() {
@@ -228,7 +264,7 @@ Refine.OpenProjectUI.prototype._renderProjects = function(data) {
       // project.modified is ISO 8601 format string
       const date = new Date(project.modified);
       project.date = dateFormatter.format(date);
-      
+
       if (typeof project.userMetadata !== "undefined")  {
           for (var m in data.customMetadataColumns) {
               var found = false;
@@ -251,10 +287,45 @@ Refine.OpenProjectUI.prototype._renderProjects = function(data) {
     projects.push(project);
   }
 
+  // 按修改时间倒序排序
+  projects.sort(function(a, b) {
+    var ma = a.modified ? new Date(a.modified).getTime() : 0;
+    var mb = b.modified ? new Date(b.modified).getTime() : 0;
+    return mb - ma;
+  });
+
+  // 缓存数据和元信息用于分页
+  this._allProjects = projects;
+  this._customMetadataColumns = data.customMetadataColumns;
+  this._currentPage = 1;
+
+  this._renderProjectsWithPagination();
+};
+
+/**
+ * 根据分页参数渲染项目列表
+ */
+Refine.OpenProjectUI.prototype._renderProjectsWithPagination = function() {
+  var self = this;
+  var projects = this._allProjects || [];
+  var data = { customMetadataColumns: this._customMetadataColumns || {} };
+
   var container = self._elmts.projectList.empty();
-  if (!projects.length) {
+  if (!projects || !projects.length) {
     $("#no-project-message").clone().show().appendTo(container);
   } else {
+    // 计算分页
+    var totalItems = projects.length;
+    var totalPages = Math.ceil(totalItems / this._pageSize);
+    if (this._currentPage > totalPages) this._currentPage = totalPages;
+    if (this._currentPage < 1) this._currentPage = 1;
+    var startIndex = (this._currentPage - 1) * this._pageSize;
+    var endIndex = Math.min(startIndex + this._pageSize, totalItems);
+    var pagedProjects = projects.slice(startIndex, endIndex);
+
+    // 渲染分页控件
+    this._renderPagination(container, totalItems, totalPages);
+
     var projectsUl = $("<ul/>").attr('id', 'projectsUl').appendTo(container);
 
     var table = $(
@@ -369,8 +440,8 @@ Refine.OpenProjectUI.prototype._renderProjects = function(data) {
 
       };
 
-    for (var i = 0; i < projects.length; i++) {
-      renderProject(projects[i]);
+    for (var i = 0; i < pagedProjects.length; i++) {
+      renderProject(pagedProjects[i]);
     }
 
     $(table).tablesorter({
@@ -384,6 +455,80 @@ Refine.OpenProjectUI.prototype._renderProjects = function(data) {
     });
     self._addTagFilter();
   }
+};
+
+/**
+ * 渲染分页控件
+ */
+Refine.OpenProjectUI.prototype._renderPagination = function(container, totalItems, totalPages) {
+  var self = this;
+
+  if (totalPages <= 1) {
+    return; // 只有一页时不显示分页
+  }
+
+  var paginationDiv = $('<div class="open-project-pagination"></div>');
+
+  // 信息显示
+  var startItem = (this._currentPage - 1) * this._pageSize + 1;
+  var endItem = Math.min(this._currentPage * this._pageSize, totalItems);
+  $('<span class="pagination-info">')
+    .text($.i18n('core-index-open/pagination-info', startItem, endItem, totalItems))
+    .appendTo(paginationDiv);
+
+  // 分页按钮容器
+  var btnContainer = $('<span class="pagination-btns"></span>').appendTo(paginationDiv);
+
+  // 首页
+  $('<button>')
+    .addClass('prjPagebutton')
+    .text($.i18n('core-index-open/first-page'))
+    .prop('disabled', this._currentPage <= 1)
+    .on('click', function() {
+      self._currentPage = 1;
+      self._renderProjectsWithPagination();
+    })
+    .appendTo(btnContainer);
+
+  // 上一页
+  $('<button>')
+    .addClass('prjPagebutton')
+    .text($.i18n('core-index-open/prev-page'))
+    .prop('disabled', this._currentPage <= 1)
+    .on('click', function() {
+      self._currentPage--;
+      self._renderProjectsWithPagination();
+    })
+    .appendTo(btnContainer);
+
+  // 页码显示
+  $('<span class="pagination-current">')
+    .text(' ' + $.i18n('core-index-open/page-of', this._currentPage, totalPages) + ' ')
+    .appendTo(btnContainer);
+
+  // 下一页
+  $('<button>')
+    .addClass('prjPagebutton')
+    .text($.i18n('core-index-open/next-page'))
+    .prop('disabled', this._currentPage >= totalPages)
+    .on('click', function() {
+      self._currentPage++;
+      self._renderProjectsWithPagination();
+    })
+    .appendTo(btnContainer);
+
+  // 末页
+  $('<button>')
+    .addClass('prjPagebutton')
+    .text($.i18n('core-index-open/last-page'))
+    .prop('disabled', this._currentPage >= totalPages)
+    .on('click', function() {
+      self._currentPage = totalPages;
+      self._renderProjectsWithPagination();
+    })
+    .appendTo(btnContainer);
+
+  container.append(paginationDiv);
 };
 
 Refine.OpenProjectUI.prototype._addTagFilter = function() {

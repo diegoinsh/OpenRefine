@@ -32,18 +32,25 @@ public class GetQualityResultCommand extends Command {
 
         try {
             Project project = getProject(request);
-            
+            logger.info("GetQualityResult for project {}, overlayModels size={}",
+                project.id, project.overlayModels.size());
+            logger.info("overlayModels keys: {}", project.overlayModels.keySet());
+
             response.setCharacterEncoding("UTF-8");
             response.setHeader("Content-Type", "application/json");
 
-            CheckResult result = (CheckResult) project.overlayModels.get(QUALITY_RESULT_KEY);
+            Object rawResult = project.overlayModels.get(QUALITY_RESULT_KEY);
+            logger.info("Raw result from overlayModels: {}", rawResult != null ? rawResult.getClass().getName() : "null");
+
+            CheckResult result = (CheckResult) rawResult;
 
             if (result == null) {
                 // Return empty response
+                logger.info("No quality result found for project {}", project.id);
                 response.getWriter().write("{\"code\":\"ok\",\"hasResult\":false}");
             } else {
                 String json = ParsingUtilities.mapper.writeValueAsString(result);
-                logger.debug("Retrieved quality result: {} errors", result.getErrors().size());
+                logger.info("Retrieved quality result: {} errors for project {}", result.getErrors().size(), project.id);
                 response.getWriter().write("{\"code\":\"ok\",\"hasResult\":true,\"result\":" + json + "}");
             }
 

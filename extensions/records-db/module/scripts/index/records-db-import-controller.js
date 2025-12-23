@@ -215,16 +215,64 @@
 
   RecordsDBWizard.prototype.init = function(bodyDiv) {
     this._bodyDiv = bodyDiv;
-    this._showStep(0);
+
+    // 从 localStorage 恢复状态
+    this._restoreState();
+
+    // 显示恢复的步骤或默认第一步
+    var savedStep = parseInt(localStorage.getItem('recordsDb.currentStep'), 10);
+    if (!isNaN(savedStep) && savedStep >= 0 && savedStep < this._steps.length) {
+      this._showStep(savedStep, false);
+    } else {
+      this._showStep(0, false);
+    }
   };
 
-  RecordsDBWizard.prototype._showStep = function(stepIndex) {
+  RecordsDBWizard.prototype._saveState = function() {
+    try {
+      localStorage.setItem('recordsDb.currentStep', this._currentStep);
+      localStorage.setItem('recordsDb.schemaProfile', JSON.stringify(this._schemaProfile || {}));
+      localStorage.setItem('recordsDb.mode', this._mode || 'catalog');
+    } catch (e) {
+      console && console.warn && console.warn('[records-db] Failed to save state:', e);
+    }
+  };
+
+  RecordsDBWizard.prototype._restoreState = function() {
+    try {
+      var savedProfile = localStorage.getItem('recordsDb.schemaProfile');
+      if (savedProfile) {
+        this._schemaProfile = JSON.parse(savedProfile);
+      }
+      var savedMode = localStorage.getItem('recordsDb.mode');
+      if (savedMode) {
+        this._mode = savedMode;
+      }
+    } catch (e) {
+      console && console.warn && console.warn('[records-db] Failed to restore state:', e);
+    }
+  };
+
+  RecordsDBWizard.prototype.clearState = function() {
+    try {
+      localStorage.removeItem('recordsDb.currentStep');
+      localStorage.removeItem('recordsDb.schemaProfile');
+      localStorage.removeItem('recordsDb.mode');
+    } catch (e) {}
+  };
+
+  RecordsDBWizard.prototype._showStep = function(stepIndex, saveState) {
     if (stepIndex < 0 || stepIndex >= this._steps.length) {
       return;
     }
 
     this._currentStep = stepIndex;
     var step = this._steps[stepIndex];
+
+    // 保存状态到 localStorage（默认保存，除非明确指定不保存）
+    if (saveState !== false) {
+      this._saveState();
+    }
 
     // Resolve scoped DOM nodes within the wizard container
     var root = this._bodyDiv || document;
@@ -241,7 +289,8 @@
     }
 
     // Update step indicator
-    stepsDiv.innerHTML = '<p>Step ' + (stepIndex + 1) + ' of ' + this._steps.length + '</p>';
+    var stepTitle = step.title ? $.i18n(step.title) : '';
+    stepsDiv.innerHTML = '<p>' + $.i18n('records.db.wizard.stepIndicator', stepIndex + 1, this._steps.length) + stepTitle + '</p>';
 
     // Show step content
     contentDiv.innerHTML = '';
@@ -311,6 +360,8 @@
     function handleSuccess(data) {
       if (data && data.status === 'ok') {
         statusDiv.innerHTML = '<p style="color: green;">' + i18n.t('records.db.wizard.createProject.success') + '</p>';
+        // 项目创建成功，清除保存的状态
+        self.clearState();
         var projectId = data.projectId || data.projectID;
         if (shouldRedirect && projectId) {
           setTimeout(function() {
@@ -371,12 +422,13 @@
    */
   var SelectModeStep = function(wizard) {
     this._wizard = wizard;
+    this.title = 'records.db.wizard.selectMode.title';
   };
 
   SelectModeStep.prototype.render = function(div) {
     var self = this;
     var html = '<div class="records-db-step">';
-    html += '<h3>' + i18n.t('records.db.wizard.selectMode.title') + '</h3>';
+    //html += '<h3>' + i18n.t('records.db.wizard.selectMode.title') + '</h3>';
     html += '<p>' + i18n.t('records.db.wizard.selectMode.description') + '</p>';
 
     html += '<div class="mode-options">';
@@ -492,6 +544,7 @@
    */
   var SelectProfileStep = function(wizard) {
     this._wizard = wizard;
+    this.title = 'records.db.wizard.selectProfile.title';
   };
 
   SelectProfileStep.prototype.render = function(div) {
@@ -500,8 +553,8 @@
     html += '<h3>' + i18n.t('records.db.wizard.selectProfile.title') + '</h3>';
     html += '<p>' + i18n.t('records.db.wizard.selectProfile.description') + '</p>';
 
-    html += '<div class="database-config">';
     html += '<h4>' + i18n.t('records.db.wizard.selectProfile.databaseConfig') + '</h4>';
+    html += '<div class="database-config">';
     html += '<div class="form-group">';
     html += '<label>' + i18n.t('records.db.wizard.selectProfile.dialect') + ':</label>';
     html += '<select id="dialect">';
@@ -521,15 +574,15 @@
     html += '</div>';
     html += '<div class="form-group">';
     html += '<label>' + i18n.t('records.db.wizard.selectProfile.database') + ':</label>';
-    html += '<input type="text" id="database" placeholder="database_name">';
+    html += '<input type="text" id="database" placeholder="' + i18n.t('records.db.wizard.selectProfile.dbNamePlaceholder') + '">';
     html += '</div>';
     html += '<div class="form-group">';
     html += '<label>' + i18n.t('records.db.wizard.selectProfile.username') + ':</label>';
-    html += '<input type="text" id="username" placeholder="username">';
+    html += '<input type="text" id="username" placeholder="' + i18n.t('records.db.wizard.selectProfile.dbUserPlaceholder') + '">';
     html += '</div>';
     html += '<div class="form-group">';
     html += '<label>' + i18n.t('records.db.wizard.selectProfile.password') + ':</label>';
-    html += '<input type="password" id="password" placeholder="password">';
+    html += '<input type="password" id="password" placeholder="' + i18n.t('records.db.wizard.selectProfile.dbPwPlaceholder') + '">';
     html += '</div>';
     html += '<button id="test-connection">' + i18n.t('records.db.wizard.selectProfile.testConnection') + '</button>';
     html += '<div id="connection-status"></div>';
@@ -641,6 +694,7 @@
   var SelectFieldsStep = function(wizard) {
     this._wizard = wizard;
     this._selectedFields = [];
+    this.title = 'records.db.wizard.selectFields.title';
   };
 
   SelectFieldsStep.prototype.render = function(div) {
@@ -1036,6 +1090,7 @@
   var ConfigureFiltersStep = function(wizard) {
     this._wizard = wizard;
     this._filterBuilder = new FilterConditionBuilder(wizard);
+    this.title = 'records.db.wizard.configureFilters.title';
   };
 
   ConfigureFiltersStep.prototype.render = function(div) {
@@ -1077,6 +1132,7 @@
    */
   var PreviewStep = function(wizard) {
     this._wizard = wizard;
+    this.title = 'records.db.wizard.preview.title';
   };
 
   PreviewStep.prototype.render = function(div) {
@@ -1200,6 +1256,7 @@
    */
   var CreateProjectStep = function(wizard) {
     this._wizard = wizard;
+    this.title = 'records.db.wizard.createProject.title';
   };
 
   CreateProjectStep.prototype.render = function(div) {

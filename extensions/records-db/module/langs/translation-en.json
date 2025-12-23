@@ -108,6 +108,8 @@
   "records.db.wizard.fieldMapping.dictTranslate.fields": "fields",
   "records.db.wizard.fieldMapping.dictTranslate.translated": "Translated",
 
+  "records.db.wizard.stepIndicator": "Step $1 of $2: ",
+
   "records.db.common.loading": "Loading",
   "records.db.common.missingRequired": "Missing required fields",
   "records.db.common.loadFailed": "Load failed",

@@ -28,7 +28,8 @@
           "password": "密码",
           "testConnection": "测试连接",
           "testing": "正在测试连接",
-          "connectionSuccess": "连接成功！"
+          "connectionSuccess": "连接成功！",
+          "dbNamePlaceholder": "输入数据库名称"
         },
         "selectFields": {
           "title": "选择字段",

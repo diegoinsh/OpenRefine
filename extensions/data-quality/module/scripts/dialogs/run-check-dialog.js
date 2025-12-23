@@ -19,11 +19,19 @@ RunCheckDialog.prototype._createDialog = function() {
   this._elmts.startButton.text($.i18n('data-quality-extension/start-check'));
   this._elmts.stopButton.text($.i18n('data-quality-extension/stop-check'));
   this._elmts.cancelButton.text($.i18n('data-quality-extension/cancel'));
-
-  this._elmts.stopButton.hide();
+  this._elmts.pauseButton.text('⏸ 暂停');
+  this._elmts.resumeButton.text('▶ 继续');
 
   this._elmts.startButton.on('click', function() {
     self._startCheck();
+  });
+
+  this._elmts.pauseButton.on('click', function() {
+    self._pauseCheck();
+  });
+
+  this._elmts.resumeButton.on('click', function() {
+    self._resumeCheck();
   });
 
   this._elmts.stopButton.on('click', function() {
@@ -37,6 +45,7 @@ RunCheckDialog.prototype._createDialog = function() {
   this._level = DialogSystem.showDialog(frame);
 
   this._isRunning = false;
+  this._isPaused = false;
   this._checkResult = null;
   this._taskId = null;
   this._pollInterval = null;
@@ -46,8 +55,8 @@ RunCheckDialog.prototype._startCheck = function() {
   var self = this;
 
   this._isRunning = true;
-  this._elmts.startButton.hide();
-  this._elmts.stopButton.show();
+  this._isPaused = false;
+  this._updateButtonStates();
   this._elmts.progressBar.show();
   this._elmts.statusText.text($.i18n('data-quality-extension/checking'));
   this._elmts.progressFill.css('width', '0%');
@@ -96,9 +105,85 @@ RunCheckDialog.prototype._startCheck = function() {
 };
 
 RunCheckDialog.prototype._stopCheck = function() {
-  this._isRunning = false;
-  this._stopProgressPolling();
-  DialogSystem.dismissUntil(this._level - 1);
+  var self = this;
+
+  if (!this._taskId) {
+    this._isRunning = false;
+    this._stopProgressPolling();
+    DialogSystem.dismissUntil(this._level - 1);
+    return;
+  }
+
+  // Call task control API to cancel
+  Refine.postCSRF(
+    "command/data-quality/task-control",
+    { taskId: this._taskId, action: 'cancel' },
+    function(response) {
+      self._isRunning = false;
+      self._isPaused = false;
+      self._stopProgressPolling();
+      DialogSystem.dismissUntil(self._level - 1);
+    },
+    "json"
+  );
+};
+
+RunCheckDialog.prototype._pauseCheck = function() {
+  var self = this;
+
+  if (!this._taskId) return;
+
+  Refine.postCSRF(
+    "command/data-quality/task-control",
+    { taskId: this._taskId, action: 'pause' },
+    function(response) {
+      if (response.code === 'ok') {
+        self._isPaused = true;
+        self._updateButtonStates();
+        self._elmts.statusText.text('已暂停 - 点击"继续"恢复检查');
+      }
+    },
+    "json"
+  );
+};
+
+RunCheckDialog.prototype._resumeCheck = function() {
+  var self = this;
+
+  if (!this._taskId) return;
+
+  Refine.postCSRF(
+    "command/data-quality/task-control",
+    { taskId: this._taskId, action: 'resume' },
+    function(response) {
+      if (response.code === 'ok') {
+        self._isPaused = false;
+        self._updateButtonStates();
+        self._elmts.statusText.text($.i18n('data-quality-extension/checking'));
+      }
+    },
+    "json"
+  );
+};
+
+RunCheckDialog.prototype._updateButtonStates = function() {
+  if (this._isRunning) {
+    this._elmts.startButton.hide();
+    this._elmts.stopButton.show();
+
+    if (this._isPaused) {
+      this._elmts.pauseButton.hide();
+      this._elmts.resumeButton.show();
+    } else {
+      this._elmts.pauseButton.show();
+      this._elmts.resumeButton.hide();
+    }
+  } else {
+    this._elmts.startButton.show();
+    this._elmts.pauseButton.hide();
+    this._elmts.resumeButton.hide();
+    this._elmts.stopButton.hide();
+  }
 };
 
 RunCheckDialog.prototype._startProgressPolling = function() {
@@ -134,10 +219,11 @@ RunCheckDialog.prototype._pollProgress = function() {
       if (response.code === "ok") {
         self._updateProgress(response);
 
-        // Check if task is completed
+        // Check if task status changed
         if (response.status === "COMPLETED") {
           self._stopProgressPolling();
           self._isRunning = false;
+          self._updateButtonStates();
           if (response.result) {
             self._checkResult = response.result;
             self._onCheckComplete(response.result);
@@ -145,7 +231,22 @@ RunCheckDialog.prototype._pollProgress = function() {
         } else if (response.status === "FAILED") {
           self._stopProgressPolling();
           self._isRunning = false;
+          self._updateButtonStates();
           self._onCheckError(response.errorMessage || 'Task failed');
+        } else if (response.status === "PAUSED") {
+          self._isPaused = true;
+          self._updateButtonStates();
+          self._elmts.statusText.text('已暂停 - 点击"继续"恢复检查');
+        } else if (response.status === "RUNNING") {
+          if (self._isPaused) {
+            self._isPaused = false;
+            self._updateButtonStates();
+          }
+        } else if (response.status === "CANCELLED") {
+          self._stopProgressPolling();
+          self._isRunning = false;
+          self._updateButtonStates();
+          self._elmts.statusText.text('检查已取消');
         }
       }
     },

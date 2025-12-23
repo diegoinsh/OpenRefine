@@ -11,6 +11,7 @@ var FilePreviewDialog = {};
 
   FilePreviewDialog._currentDialog = null;
   FilePreviewDialog._zoomLevel = 1;
+  FilePreviewDialog._originalPaddingRight = null;
 
   /**
    * Show file preview dialog
@@ -66,6 +67,9 @@ var FilePreviewDialog = {};
     // Position dialog: right edge of screen, aligned with rightPanelDiv
     FilePreviewDialog._positionDialog(dialog);
 
+    // Adjust data table container to allow scrolling past the preview panel
+    FilePreviewDialog._adjustDataTablePadding(dialog);
+
     // Make draggable by header
     FilePreviewDialog._makeDraggable(dialog, header);
 
@@ -102,6 +106,42 @@ var FilePreviewDialog = {};
       $(document).off('keydown.filePreview');
       $(document).off('mousemove.filePreviewDrag');
       $(document).off('mouseup.filePreviewDrag');
+
+      // Restore data table container padding
+      FilePreviewDialog._restoreDataTablePadding();
+    }
+  };
+
+  /**
+   * Adjust data table container padding to allow scrolling past the preview panel
+   */
+  FilePreviewDialog._adjustDataTablePadding = function(dialog) {
+    var dataTableContainer = $('.data-table-container');
+    if (dataTableContainer.length === 0) return;
+
+    // Save original padding-right
+    if (FilePreviewDialog._originalPaddingRight === null) {
+      FilePreviewDialog._originalPaddingRight = dataTableContainer.css('padding-right') || '0px';
+    }
+
+    // Get dialog width
+    var dialogWidth = dialog.outerWidth() || 700;
+
+    // Add padding-right to data table container so content can scroll past the preview
+    dataTableContainer.css('padding-right', (dialogWidth + 10) + 'px');
+  };
+
+  /**
+   * Restore data table container padding when preview is closed
+   */
+  FilePreviewDialog._restoreDataTablePadding = function() {
+    var dataTableContainer = $('.data-table-container');
+    if (dataTableContainer.length === 0) return;
+
+    // Restore original padding
+    if (FilePreviewDialog._originalPaddingRight !== null) {
+      dataTableContainer.css('padding-right', FilePreviewDialog._originalPaddingRight);
+      FilePreviewDialog._originalPaddingRight = null;
     }
   };
 

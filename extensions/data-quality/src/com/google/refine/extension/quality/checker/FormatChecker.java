@@ -26,17 +26,29 @@ import com.google.refine.model.Row;
 
 /**
  * Checker for format validation rules (non-empty, unique, regex, date format).
+ * Supports task interruption and progress tracking.
  */
 public class FormatChecker {
 
     private static final Logger logger = LoggerFactory.getLogger(FormatChecker.class);
+    private static final int DEFAULT_BATCH_SIZE = 100;
 
     private final Project project;
     private final QualityRulesConfig rules;
+    private com.google.refine.extension.quality.task.QualityCheckTask task;
+    private int startRowIndex = 0;
 
     public FormatChecker(Project project, QualityRulesConfig rules) {
         this.project = project;
         this.rules = rules;
+    }
+
+    public void setTask(com.google.refine.extension.quality.task.QualityCheckTask task) {
+        this.task = task;
+    }
+
+    public void setStartRowIndex(int startRowIndex) {
+        this.startRowIndex = startRowIndex;
     }
 
     public CheckResult runCheck() {
@@ -68,9 +80,33 @@ public class FormatChecker {
 
         int passedRows = 0;
         int failedRows = 0;
+        int batchSize = DEFAULT_BATCH_SIZE;
 
-        // First pass: check each row
-        for (int rowIndex = 0; rowIndex < totalRows; rowIndex++) {
+        // First pass: check each row (starting from startRowIndex for resume support)
+        for (int rowIndex = startRowIndex; rowIndex < totalRows; rowIndex++) {
+            // Check for task interruption
+            if (task != null && task.shouldStop()) {
+                logger.info("Format check interrupted at row " + rowIndex);
+                // Save checkpoint for resume
+                if (task != null) {
+                    task.setFormatCheckpoint(rowIndex);
+                }
+                result.setCheckedRows(rowIndex);
+                result.setPassedRows(passedRows);
+                result.setFailedRows(failedRows);
+                return result;
+            }
+
+            // Wait if paused
+            while (task != null && task.isPaused() && !task.shouldStop()) {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+
             Row row = project.rows.get(rowIndex);
             boolean rowPassed = true;
 
@@ -93,7 +129,7 @@ public class FormatChecker {
                 // Regex check
                 if (rule.getRegex() != null && !rule.getRegex().isEmpty() && !isEmpty(value)) {
                     if (!matchesRegex(value, rule.getRegex())) {
-                        result.addError(new CheckError(rowIndex, colName, value, "regex", 
+                        result.addError(new CheckError(rowIndex, colName, value, "regex",
                             "Value does not match pattern: " + rule.getRegex()));
                         rowPassed = false;
                     }
@@ -135,6 +171,11 @@ public class FormatChecker {
                 passedRows++;
             } else {
                 failedRows++;
+            }
+
+            // Update progress periodically
+            if (task != null && (rowIndex + 1) % batchSize == 0) {
+                task.setFormatCheckProgress(rowIndex + 1, totalRows);
             }
         }
 

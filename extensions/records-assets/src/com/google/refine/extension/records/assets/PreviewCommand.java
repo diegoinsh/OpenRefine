@@ -4,7 +4,9 @@
 
 package com.google.refine.extension.records.assets;
 
+import java.io.File;
 import java.io.IOException;
+import java.nio.file.NoSuchFileException;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -38,9 +40,10 @@ public class PreviewCommand extends Command {
             logger.debug("PreviewCommand::doGet");
         }
 
+        String root = request.getParameter("root");
+        String path = request.getParameter("path");
+
         try {
-            String root = request.getParameter("root");
-            String path = request.getParameter("path");
             String thumbnailStr = request.getParameter("thumbnail");
             boolean thumbnail = "true".equalsIgnoreCase(thumbnailStr);
 
@@ -81,6 +84,22 @@ public class PreviewCommand extends Command {
 
             HttpUtilities.respond(response, result.toString());
 
+        } catch (NoSuchFileException e) {
+            String errorPath = e.getFile() != null ? e.getFile() : (root + File.separator + path);
+            logger.warn("File not found: {}", errorPath);
+            ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+            JSONUtilities.safePut(result, "status", "error");
+            JSONUtilities.safePut(result, "message", "文件路径不存在: " + errorPath);
+            JSONUtilities.safePut(result, "errorPath", errorPath);
+            HttpUtilities.respond(response, result.toString());
+        } catch (IOException e) {
+            String errorPath = root + (path != null && !path.isEmpty() ? File.separator + path : "");
+            logger.warn("IO error for path: {} - {}", errorPath, e.getMessage());
+            ObjectNode result = ParsingUtilities.mapper.createObjectNode();
+            JSONUtilities.safePut(result, "status", "error");
+            JSONUtilities.safePut(result, "message", "文件路径错误: " + errorPath);
+            JSONUtilities.safePut(result, "errorPath", errorPath);
+            HttpUtilities.respond(response, result.toString());
         } catch (Exception e) {
             logger.error("Error in PreviewCommand", e);
             ObjectNode result = ParsingUtilities.mapper.createObjectNode();

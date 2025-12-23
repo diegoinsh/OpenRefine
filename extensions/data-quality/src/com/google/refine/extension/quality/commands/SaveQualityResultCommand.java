@@ -15,6 +15,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.refine.ProjectManager;
 import com.google.refine.commands.Command;
 import com.google.refine.extension.quality.model.CheckResult;
 import com.google.refine.extension.quality.operations.SaveQualityResultOperation;
@@ -46,17 +47,25 @@ public class SaveQualityResultCommand extends Command {
                 return;
             }
 
-            logger.debug("Saving quality result: {} chars", resultJson.length());
+            logger.info("Saving quality result: {} chars for project {}", resultJson.length(), project.id);
 
             CheckResult result = ParsingUtilities.mapper.readValue(resultJson, CheckResult.class);
+            logger.info("Parsed CheckResult with {} errors", result.getErrors() != null ? result.getErrors().size() : 0);
 
             // Save directly to overlay without adding to history
             synchronized (project) {
                 project.overlayModels.put(SaveQualityResultOperation.OVERLAY_MODEL_KEY, result);
+                logger.info("Overlay model saved, key={}, overlayModels size={}",
+                    SaveQualityResultOperation.OVERLAY_MODEL_KEY, project.overlayModels.size());
             }
 
             // Mark project as modified so it gets saved
             project.getMetadata().updateModified();
+            logger.info("Project metadata updated, modified={}", project.getMetadata().getModified());
+
+            // Force save project to disk immediately
+            ProjectManager.singleton.ensureProjectSaved(project.id);
+            logger.info("ensureProjectSaved called for project {}", project.id);
 
             // Respond with success
             ObjectNode responseNode = ParsingUtilities.mapper.createObjectNode();

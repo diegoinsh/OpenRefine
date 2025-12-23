@@ -28,7 +28,7 @@
 
 .resource-explorer-title {
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .resource-explorer-header-buttons {
@@ -36,10 +36,18 @@
   gap: 8px;
 }
 
-.resource-explorer-collapse-btn,
+.resource-explorer-collapse-btn{
+  width: 17px;
+  height: 19px;
+  background-image: url(/images/leftpanel-showhide-ry.png);
+  background-repeat: no-repeat;
+  background-position: 0px 0px;
+  border: none;
+}
+
 .resource-explorer-close-btn {
-  width: 24px;
-  height: 24px;
+  width: 17px;
+  height: 19px;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -48,7 +56,9 @@
   color: #666;
 }
 
-.resource-explorer-collapse-btn:hover,
+.resource-explorer-collapse-btn:hover {
+  background-position: -17px 0px;
+}
 .resource-explorer-close-btn:hover {
   background: #e0e0e0;
   color: #333;
@@ -171,6 +181,18 @@
   font-size: 14px;
   margin-right: 6px;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+/* File type icon (SVG images) */
+.tree-icon .file-type-icon {
+  width: 22px;
+  height: 22px;
+  vertical-align: middle;
 }
 
 /* Item name */

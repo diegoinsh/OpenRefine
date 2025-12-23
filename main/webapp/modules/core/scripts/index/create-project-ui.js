@@ -138,12 +138,24 @@ Refine.CreateProjectUI.prototype.addSourceSelectionUI = function(sourceSelection
     }
   }
 
-  if (this._sourceSelectionUIs.length == 1) {
-    self.selectImportSource(sourceSelectionUI.id);
+  // 选中保存的选项卡或默认第一个
+  var savedSourceId = localStorage.getItem('createProject.selectedSource');
+  if (savedSourceId) {
+    // 检查保存的选项卡是否存在
+    var savedSourceExists = this._sourceSelectionUIs.some(function(ui) {
+      return ui.id === savedSourceId;
+    });
+    if (savedSourceExists) {
+      self.selectImportSource(savedSourceId, false);
+    } else if (this._sourceSelectionUIs.length == 1) {
+      self.selectImportSource(sourceSelectionUI.id, false);
+    }
+  } else if (this._sourceSelectionUIs.length == 1) {
+    self.selectImportSource(sourceSelectionUI.id, false);
   }
 };
 
-Refine.CreateProjectUI.prototype.selectImportSource = function(id) {
+Refine.CreateProjectUI.prototype.selectImportSource = function(id, saveToStorage) {
   for (var i = 0; i < this._sourceSelectionUIs.length; i++) {
     var sourceSelectionUI = this._sourceSelectionUIs[i];
     if (sourceSelectionUI.id == id) {
@@ -154,6 +166,11 @@ Refine.CreateProjectUI.prototype.selectImportSource = function(id) {
       sourceSelectionUI._divHeader.addClass('selected');
 
       sourceSelectionUI.ui.focus();
+
+      // 保存选中的选项卡到 localStorage（默认保存，除非明确指定不保存）
+      if (saveToStorage !== false) {
+        localStorage.setItem('createProject.selectedSource', id);
+      }
 
       break;
     }

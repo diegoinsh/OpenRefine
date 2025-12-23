@@ -426,8 +426,8 @@ function init() {
       "scripts/util/filter-lists-search.js",
 
       "scripts/index.js",
-      "scripts/index/create-project-ui.js",
       "scripts/index/open-project-ui.js",
+      "scripts/index/create-project-ui.js",
       "scripts/index/import-project-ui.js",
       "scripts/index/lang-settings-ui.js",
       "scripts/index/manage-extensions-ui.js",

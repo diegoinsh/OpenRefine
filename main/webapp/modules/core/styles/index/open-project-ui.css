@@ -43,8 +43,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   background: var(--fill-primary);
   border-top: 1px solid var(--chrome-primary);
   font-size: 1.3em;
-  width: 100%;
+  left: 155px;
+  right: 0;
   bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+#projects-workspace-controls>a{
+  margin-left: 3px;
+}
+
+#projects-workspace-controls .page-size-control{
+  margin-right: 20px;
 }
 
 #projects-container>table {
@@ -164,10 +177,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #projectTags {
   position: relative;
   padding: 3px 10px;
-  margin: 5px;
+  margin: 5px 0 0 5px;
   font-size: 130%;
   border-radius: 5px;
-  background: #dbd5ce;
+  background: #fffefd;
   min-height: 18px;
   height: auto;
   overflow: auto;
@@ -208,6 +221,7 @@ ul#tagsUl li a {
 /* Project List */
 #projects-list {
   overflow: auto;
+  padding: 0 0 28px 4px;
 }
 
 .project .project-tag {
@@ -217,7 +231,7 @@ ul#tagsUl li a {
   border-radius: 3px;
   font-size: 100%;
   font-weight: bold;
-  background: #28458A;
+  background: #cbd7f3;
   color: white;
 }
 
@@ -245,4 +259,59 @@ ul#tagsUl li a {
   display: none;
   text-align: center;
   font-size: x-large;
+}
+
+/* 每页数量控制 */
+.page-size-control {
+  margin-right: 20px;
+}
+
+.page-size-control label {
+  margin-right: 5px;
+}
+
+.page-size-control select {
+  border: 1px solid #ccc;
+  border-radius: 3px;
+}
+
+/* 分页控件 */
+.open-project-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 4px;
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.pagination-info {
+  color: #666;
+  font-size: 13px;
+}
+
+.pagination-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pagination-btns button {
+  padding: 2px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.pagination-btns button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pagination-current {
+  color: #333;
+  font-weight: 500;
 }

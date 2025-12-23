@@ -133,6 +133,7 @@ QualityAlignment._refreshDataTable = function() {
  */
 QualityAlignment.autoLaunchIfNeeded = function() {
   var self = this;
+  console.log('[QualityAlignment] autoLaunchIfNeeded called for project:', theProject.id);
 
   // Load rules and results in parallel
   var rulesLoaded = false;
@@ -198,26 +199,107 @@ QualityAlignment.autoLaunchIfNeeded = function() {
   });
 
   // Load previous results
+  console.log('[QualityAlignment] Loading previous results...');
   $.ajax({
     url: "command/data-quality/get-quality-result",
     type: "GET",
     data: { project: theProject.id },
     dataType: "json",
     success: function(response) {
+      console.log('[QualityAlignment] get-quality-result response:', response);
       if (response.code === "ok" && response.hasResult && response.result) {
         self._currentResults = response.result;
         self._lastCheckResult = response.result;
         hasResults = true;
+        console.log('[QualityAlignment] Found saved results with', response.result.errors ? response.result.errors.length : 0, 'errors');
         // Build cell error map for cell marking
         self._buildCellErrorMap();
         self._refreshDataTable();
+      } else {
+        console.log('[QualityAlignment] No saved results found');
       }
       resultsLoaded = true;
       checkAndLaunch();
     },
-    error: function() {
+    error: function(xhr, status, error) {
+      console.error('[QualityAlignment] Error loading results:', status, error);
       resultsLoaded = true;
       checkAndLaunch();
+    }
+  });
+};
+
+/**
+ * Auto-launch with a specific target tab (called when URL has hash)
+ * @param {string} target - 'rules' or 'results'
+ */
+QualityAlignment.autoLaunchIfNeededWithTarget = function(target) {
+  var self = this;
+  console.log('[QualityAlignment] autoLaunchIfNeededWithTarget called, target:', target);
+
+  // Load rules and results in parallel
+  var rulesLoaded = false;
+  var resultsLoaded = false;
+
+  function launchWithTarget() {
+    if (!rulesLoaded || !resultsLoaded) return;
+
+    console.log('[QualityAlignment] Both loaded, launching with target:', target);
+    // Always launch tabs
+    var showResults = (target === 'results');
+    self.launch(showResults, true);
+
+    // Switch to target tab after launch
+    if (target === 'results') {
+      self.switchTab('#quality-results-panel', false);
+    } else {
+      self.switchTab('#quality-rules-panel', false);
+    }
+  }
+
+  // Load rules
+  $.ajax({
+    url: "command/data-quality/get-quality-rules",
+    type: "GET",
+    data: { project: theProject.id },
+    dataType: "json",
+    success: function(response) {
+      if (response.code === "ok" && response.rules) {
+        self._formatRules = response.rules.formatRules || {};
+        self._resourceConfig = response.rules.resourceConfig || self._getDefaultResourceConfig();
+        self._contentRules = response.rules.contentRules || [];
+        self._aimpConfig = response.rules.aimpConfig || { serviceUrl: '' };
+      }
+      rulesLoaded = true;
+      launchWithTarget();
+    },
+    error: function() {
+      rulesLoaded = true;
+      launchWithTarget();
+    }
+  });
+
+  // Load previous results
+  $.ajax({
+    url: "command/data-quality/get-quality-result",
+    type: "GET",
+    data: { project: theProject.id },
+    dataType: "json",
+    success: function(response) {
+      console.log('[QualityAlignment] get-quality-result response:', response);
+      if (response.code === "ok" && response.hasResult && response.result) {
+        self._currentResults = response.result;
+        self._lastCheckResult = response.result;
+        console.log('[QualityAlignment] Found saved results with', response.result.errors ? response.result.errors.length : 0, 'errors');
+        self._buildCellErrorMap();
+        self._refreshDataTable();
+      }
+      resultsLoaded = true;
+      launchWithTarget();
+    },
+    error: function() {
+      resultsLoaded = true;
+      launchWithTarget();
     }
   });
 };
@@ -364,7 +446,17 @@ QualityAlignment._renderRulesTab = function() {
   this._renderFormatCheckTab();
   this._renderResourceCheckTab();
   this._renderContentCheckTab();
-  
+
+  // Restore saved sub-tab state
+  try {
+    var savedSubTab = sessionStorage.getItem('quality_current_subtab_' + theProject.id);
+    if (savedSubTab && subTabs.some(function(tab) { return tab.id === savedSubTab; })) {
+      this._switchSubTab(savedSubTab, false);
+    }
+  } catch (e) {
+    // Ignore storage errors
+  }
+
   // Save button
   var buttonBar = $('<div class="quality-button-bar"></div>')
     .appendTo(container);
@@ -379,13 +471,24 @@ QualityAlignment._renderRulesTab = function() {
 
 /**
  * Switch sub-tab
+ * @param {string} tabId - The tab ID to switch to
+ * @param {boolean} saveState - Whether to save tab state (default: true)
  */
-QualityAlignment._switchSubTab = function(tabId) {
+QualityAlignment._switchSubTab = function(tabId, saveState) {
   $('.quality-sub-tab-header').removeClass('active');
   $('.quality-sub-tab-header[data-tab="' + tabId + '"]').addClass('active');
 
   $('.quality-sub-tab-content').hide();
   $('#quality-' + tabId + '-content').show();
+
+  // Save current sub-tab state for page refresh (unless explicitly disabled)
+  if (saveState !== false) {
+    try {
+      sessionStorage.setItem('quality_current_subtab_' + theProject.id, tabId);
+    } catch (e) {
+      // Ignore storage errors
+    }
+  }
 };
 
 /**
@@ -991,7 +1094,7 @@ QualityAlignment._renderContentCheckTab = function() {
   // Service status
   var statusSection = $('<div class="quality-service-status"></div>').appendTo(container);
   $('<span class="quality-status-label"></span>')
-    .text('⚠ ' + $.i18n('data-quality-extension/aimp-required'))
+    .html('<img src="images/extensions/triangle-exclamation.svg"/> ' + $.i18n('data-quality-extension/aimp-required'))
     .appendTo(statusSection);
   this._serviceStatus = $('<span class="quality-status-indicator"></span>')
     .text($.i18n('data-quality-extension/checking-connection'))
@@ -1157,11 +1260,37 @@ QualityAlignment._showAimpConfigDialog = function() {
   $('<button class="button button-primary"></button>')
     .text($.i18n('data-quality-extension/confirm'))
     .on('click', function() {
+      var url = urlInput.val();
       self._aimpConfig = {
-        serviceUrl: urlInput.val()
+        serviceUrl: url
       };
-      DialogSystem.dismissUntil(level - 1);
-      self._checkAimpConnection();
+      // Save the URL and test connection via POST
+      Refine.postCSRF(
+        "command/data-quality/check-aimp-connection",
+        { serviceUrl: url },
+        function(response) {
+          DialogSystem.dismissUntil(level - 1);
+          if (response.connected) {
+            self._aimpConnected = true;
+            self._serviceStatus
+              .removeClass('disconnected')
+              .addClass('connected')
+              .text('● ' + $.i18n('data-quality-extension/connected'));
+          } else {
+            self._aimpConnected = false;
+            self._serviceStatus
+              .removeClass('connected')
+              .addClass('disconnected')
+              .text('○ ' + $.i18n('data-quality-extension/not-connected'))
+              .css('cursor', 'pointer')
+              .off('click').on('click', function() {
+                self._showAimpConfigDialog();
+              });
+            alert($.i18n('data-quality-extension/connection-failed') + ': ' + (response.message || ''));
+          }
+        },
+        "json"
+      );
     })
     .appendTo(footer);
 

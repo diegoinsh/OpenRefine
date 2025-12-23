@@ -5,7 +5,9 @@
 package com.google.refine.extension.records.assets;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -40,25 +42,50 @@ public class DirectoryLister {
         }
 
         ObjectNode result = ParsingUtilities.mapper.createObjectNode();
-        
+
+        // Build expected path for error messages
+        String expectedPath = root;
+        if (path != null && !path.isEmpty()) {
+            expectedPath = root + File.separator + path;
+        }
+
         // Validate path
-        String fullPath = PathValidator.getCanonicalPath(root, path);
+        String fullPath;
+        try {
+            fullPath = PathValidator.getCanonicalPath(root, path);
+        } catch (NoSuchFileException e) {
+            logger.warn("Path does not exist: {}", expectedPath);
+            JSONUtilities.safePut(result, "status", "error");
+            JSONUtilities.safePut(result, "message", "文件路径不存在: " + expectedPath);
+            JSONUtilities.safePut(result, "errorPath", expectedPath);
+            return result;
+        } catch (IOException e) {
+            logger.warn("Invalid path: {} - {}", expectedPath, e.getMessage());
+            JSONUtilities.safePut(result, "status", "error");
+            JSONUtilities.safePut(result, "message", "文件路径错误: " + expectedPath);
+            JSONUtilities.safePut(result, "errorPath", expectedPath);
+            return result;
+        }
+
         if (fullPath == null) {
             JSONUtilities.safePut(result, "status", "error");
-            JSONUtilities.safePut(result, "message", "Invalid path");
+            JSONUtilities.safePut(result, "message", "无效路径: " + expectedPath);
+            JSONUtilities.safePut(result, "errorPath", expectedPath);
             return result;
         }
 
         File dir = new File(fullPath);
         if (!dir.exists()) {
             JSONUtilities.safePut(result, "status", "error");
-            JSONUtilities.safePut(result, "message", "Directory does not exist");
+            JSONUtilities.safePut(result, "message", "目录不存在: " + fullPath);
+            JSONUtilities.safePut(result, "errorPath", fullPath);
             return result;
         }
 
         if (!dir.isDirectory()) {
             JSONUtilities.safePut(result, "status", "error");
-            JSONUtilities.safePut(result, "message", "Path is not a directory");
+            JSONUtilities.safePut(result, "message", "路径不是目录: " + fullPath);
+            JSONUtilities.safePut(result, "errorPath", fullPath);
             return result;
         }
 

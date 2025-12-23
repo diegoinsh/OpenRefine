@@ -88,11 +88,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 .browsing-panel-help h1, .history-panel-help h1 {
   margin: 10px;
-  padding: 20px 0 0 10px;
+  padding: 10px 0 0 10px;
   font-size: 1.15em;
   font-weight: bold;
   background: url(../../images/jinshu-icon-metallic.png) no-repeat top right;
-  background-size: 43px;
+  background-size: 25px;
 }
 
 .browsing-panel-help p, .history-panel-help p {
