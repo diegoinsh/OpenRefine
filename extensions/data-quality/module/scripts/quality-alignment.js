@@ -1269,13 +1269,19 @@ QualityAlignment._showAimpConfigDialog = function() {
         "command/data-quality/check-aimp-connection",
         { serviceUrl: url },
         function(response) {
-          DialogSystem.dismissUntil(level - 1);
           if (response.connected) {
             self._aimpConnected = true;
             self._serviceStatus
               .removeClass('disconnected')
               .addClass('connected')
               .text('● ' + $.i18n('data-quality-extension/connected'));
+            // Save the AIMP configuration to project rules
+            self._saveRules(function(success) {
+              DialogSystem.dismissUntil(level - 1);
+              if (success) {
+                alert($.i18n('data-quality-extension/configuration-saved'));
+              }
+            });
           } else {
             self._aimpConnected = false;
             self._serviceStatus
@@ -1286,6 +1292,7 @@ QualityAlignment._showAimpConfigDialog = function() {
               .off('click').on('click', function() {
                 self._showAimpConfigDialog();
               });
+            DialogSystem.dismissUntil(level - 1);
             alert($.i18n('data-quality-extension/connection-failed') + ': ' + (response.message || ''));
           }
         },

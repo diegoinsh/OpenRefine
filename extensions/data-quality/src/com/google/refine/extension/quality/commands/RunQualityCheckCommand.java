@@ -76,12 +76,19 @@ public class RunQualityCheckCommand extends Command {
                        ", contentRules: " + (rules.getContentRules() != null ? rules.getContentRules().size() : 0) +
                        ", aimpConfig: " + (rules.getAimpConfig() != null ? rules.getAimpConfig().getServiceUrl() : "null"));
 
-            // Get AIMP URL
+            // Get AIMP URL - priority: request param > global config > project rules config
             String aimpServiceUrl = request.getParameter("aimpServiceUrl");
             logger.info("aimpServiceUrl from request param: " + aimpServiceUrl);
-            if ((aimpServiceUrl == null || aimpServiceUrl.isEmpty()) && rules.getAimpConfig() != null) {
-                aimpServiceUrl = rules.getAimpConfig().getServiceUrl();
-                logger.info("aimpServiceUrl from rules config: " + aimpServiceUrl);
+            if (aimpServiceUrl == null || aimpServiceUrl.isEmpty()) {
+                // Try global config first
+                aimpServiceUrl = CheckAimpConnectionCommand.getConfiguredServiceUrl();
+                logger.info("aimpServiceUrl from global config: " + aimpServiceUrl);
+                
+                // Fallback to project rules config
+                if ((aimpServiceUrl == null || aimpServiceUrl.isEmpty()) && rules.getAimpConfig() != null) {
+                    aimpServiceUrl = rules.getAimpConfig().getServiceUrl();
+                    logger.info("aimpServiceUrl from rules config: " + aimpServiceUrl);
+                }
             }
 
             if (async) {
