@@ -78,9 +78,21 @@ New-Item $workDir -ItemType Directory | Out-Null
 Expand-Archive -Path $zip.FullName -DestinationPath $workDir -Force
 
 # Root directory inside extracted zip (for example jinrefine-3.10-SNAPSHOT)
-$rootDir = Get-ChildItem $workDir | Where-Object { $_.PSIsContainer } | Select-Object -First 1
-if (-not $rootDir) {
+$originalRootDir = Get-ChildItem $workDir | Where-Object { $_.PSIsContainer } | Select-Object -First 1
+if (-not $originalRootDir) {
     throw 'No root directory found after extraction.'
+}
+Write-Host "  Original root dir: $($originalRootDir.FullName)"
+
+# Remove version suffix from directory name (e.g., jinrefine-3.11.0.01 -> jinrefine)
+$newRootName = $originalRootDir.Name -replace '-[\d\.]+(-SNAPSHOT)?$', ''
+if ($newRootName -ne $originalRootDir.Name) {
+    $newRootPath = Join-Path $workDir $newRootName
+    Rename-Item -Path $originalRootDir.FullName -NewName $newRootName
+    $rootDir = Get-Item $newRootPath
+    Write-Host "  Renamed to: $($rootDir.FullName)"
+} else {
+    $rootDir = $originalRootDir
 }
 Write-Host "  Root dir: $($rootDir.FullName)"
 
