@@ -63,6 +63,9 @@ public class GetCheckProgressCommand extends Command {
         if (task.getErrorMessage() != null) {
             responseNode.put("errorMessage", task.getErrorMessage());
         }
+        if (task.getErrorKey() != null) {
+            responseNode.put("errorKey", task.getErrorKey());
+        }
 
         // If completed, include the full result
         if (task.getStatus() == QualityCheckTask.TaskStatus.COMPLETED && task.getResult() != null) {

@@ -343,7 +343,7 @@ var FilePreviewDialog = {};
       .addClass('button')
       .text($.i18n('records.assets.preview.download') || 'Download')
       .on('click', function() {
-        window.open('/command/records-assets/download?root=' + encodeURIComponent(rootPath) + '&path=' + encodeURIComponent(filePath), '_blank');
+        window.open('/command/records-assets/file?root=' + encodeURIComponent(rootPath) + '&path=' + encodeURIComponent(filePath) + '&download=true', '_blank');
       })
       .appendTo(actions);
 

@@ -229,6 +229,7 @@ public class RunQualityCheckCommand extends Command {
             logger.error("Error in async quality check", e);
             task.setStatus(TaskStatus.FAILED);
             task.setErrorMessage(e.getMessage());
+            task.setErrorKey("error-unknown");
             task.setCompletedAt(System.currentTimeMillis());
             // Persist failed task state to disk
             TaskPersistence.saveTask(task);

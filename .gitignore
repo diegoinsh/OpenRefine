@@ -87,3 +87,6 @@ extensions/.gitignore
 
 # Local VS Code workspace
 ruyi-refine.code-workspace
+
+# Trae AI settings
+.trae/

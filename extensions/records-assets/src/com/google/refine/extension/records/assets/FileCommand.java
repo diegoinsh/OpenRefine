@@ -38,6 +38,8 @@ public class FileCommand extends Command {
         try {
             String root = request.getParameter("root");
             String path = request.getParameter("path");
+            String downloadParam = request.getParameter("download");
+            boolean asDownload = "true".equalsIgnoreCase(downloadParam) || "1".equals(downloadParam);
 
             // Handle empty root - use path as full path
             if (root == null || root.isEmpty()) {
@@ -79,8 +81,12 @@ public class FileCommand extends Command {
             response.setContentType(contentType);
             response.setContentLengthLong(file.length());
 
-            // Set headers for inline display (not download)
-            response.setHeader("Content-Disposition", "inline; filename=\"" + file.getName() + "\"");
+            // Set headers for inline display or download
+            if (asDownload) {
+                response.setHeader("Content-Disposition", "attachment; filename=\"" + file.getName() + "\"");
+            } else {
+                response.setHeader("Content-Disposition", "inline; filename=\"" + file.getName() + "\"");
+            }
 
             // Allow cross-origin for PDF viewer
             response.setHeader("Access-Control-Allow-Origin", "*");

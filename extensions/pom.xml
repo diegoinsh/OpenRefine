@@ -25,7 +25,7 @@
 	    <module>records-assets</module>
 	    <module>pc-axis</module>
 	    <module>data-quality</module>
-	    <!-- Add new extensions here -->
+	    <module>FilesExtension</module>
 	  </modules>
 
   <build>

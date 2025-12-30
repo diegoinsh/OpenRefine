@@ -48,6 +48,7 @@ public class QualityCheckTask {
     private volatile int resourceErrors;
     private volatile int contentErrors;
     private volatile String errorMessage;
+    private volatile String errorKey;
     @JsonIgnore
     private volatile Object result;
     private final long createdAt;
@@ -114,6 +115,7 @@ public class QualityCheckTask {
             @JsonProperty("resourceErrors") int resourceErrors,
             @JsonProperty("contentErrors") int contentErrors,
             @JsonProperty("errorMessage") String errorMessage,
+            @JsonProperty("errorKey") String errorKey,
             @JsonProperty("createdAt") long createdAt,
             @JsonProperty("completedAt") long completedAt,
             @JsonProperty("pausedAt") long pausedAt,
@@ -133,6 +135,7 @@ public class QualityCheckTask {
         this.resourceErrors = resourceErrors;
         this.contentErrors = contentErrors;
         this.errorMessage = errorMessage;
+        this.errorKey = errorKey;
         this.createdAt = createdAt;
         this.completedAt = completedAt;
         this.pausedAt = pausedAt;
@@ -346,6 +349,10 @@ public class QualityCheckTask {
     @JsonProperty("errorMessage")
     public String getErrorMessage() { return errorMessage; }
     public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
+
+    @JsonProperty("errorKey")
+    public String getErrorKey() { return errorKey; }
+    public void setErrorKey(String errorKey) { this.errorKey = errorKey; }
 
     @JsonIgnore
     public Object getResult() { return result; }

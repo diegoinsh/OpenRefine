@@ -97,7 +97,10 @@ RunCheckDialog.prototype._startCheck = function() {
         }
       } else {
         self._isRunning = false;
-        self._onCheckError(response.message || 'Unknown error');
+        var errorMessage = response.errorKey ? 
+          $.i18n('data-quality-extension/' + response.errorKey) : 
+          (response.message || 'Unknown error');
+        self._onCheckError(errorMessage);
       }
     },
     "json"
@@ -232,7 +235,10 @@ RunCheckDialog.prototype._pollProgress = function() {
           self._stopProgressPolling();
           self._isRunning = false;
           self._updateButtonStates();
-          self._onCheckError(response.errorMessage || 'Task failed');
+          var asyncErrorMessage = response.errorKey ? 
+            $.i18n('data-quality-extension/' + response.errorKey) : 
+            (response.errorMessage || 'Task failed');
+          self._onCheckError(asyncErrorMessage);
         } else if (response.status === "PAUSED") {
           self._isPaused = true;
           self._updateButtonStates();
