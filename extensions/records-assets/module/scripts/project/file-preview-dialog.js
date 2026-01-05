@@ -12,6 +12,12 @@ var FilePreviewDialog = {};
   FilePreviewDialog._currentDialog = null;
   FilePreviewDialog._zoomLevel = 1;
   FilePreviewDialog._originalPaddingRight = null;
+  FilePreviewDialog._isDraggingImage = false;
+  FilePreviewDialog._dragStartX = 0;
+  FilePreviewDialog._dragStartY = 0;
+  FilePreviewDialog._currentOffsetX = 0;
+  FilePreviewDialog._currentOffsetY = 0;
+  FilePreviewDialog._dragNamespace = '.imageDrag_' + Math.random().toString(36).substr(2, 9);
 
   /**
    * Show file preview dialog
@@ -20,13 +26,28 @@ var FilePreviewDialog = {};
    * @param {Object} fileItem - File item data
    */
   FilePreviewDialog.show = function(rootPath, filePath, fileItem) {
-    // Close existing dialog
+    // Save dragged state if dialog exists
+    var wasDragged = false;
+    var lastPosition = null;
     if (FilePreviewDialog._currentDialog) {
+      wasDragged = FilePreviewDialog._currentDialog.data('dragged') || false;
+      if (wasDragged) {
+        lastPosition = {
+          left: FilePreviewDialog._currentDialog.css('left'),
+          top: FilePreviewDialog._currentDialog.css('top'),
+          width: FilePreviewDialog._currentDialog.css('width'),
+          height: FilePreviewDialog._currentDialog.css('height')
+        };
+      }
       FilePreviewDialog._currentDialog.remove();
     }
 
     // Reset zoom level
     FilePreviewDialog._zoomLevel = 1;
+    
+    // Reset annotation state
+    FilePreviewDialog._showAnnotations = false;
+    FilePreviewDialog._currentErrors = [];
 
     var dialog = $('<div>')
       .addClass('file-preview-dialog-float')
@@ -65,7 +86,19 @@ var FilePreviewDialog = {};
       .appendTo(dialog);
 
     // Position dialog: right edge of screen, aligned with rightPanelDiv
-    FilePreviewDialog._positionDialog(dialog);
+    if (wasDragged && lastPosition) {
+      dialog.css({
+        left: lastPosition.left,
+        top: lastPosition.top,
+        right: 'auto',
+        width: lastPosition.width,
+        height: lastPosition.height
+      });
+      dialog.data('dragged', true);
+    } else {
+      FilePreviewDialog._positionDialog(dialog);
+      dialog.data('dragged', false);
+    }
 
     // Adjust data table container to allow scrolling past the preview panel
     FilePreviewDialog._adjustDataTablePadding(dialog);
@@ -74,7 +107,6 @@ var FilePreviewDialog = {};
     FilePreviewDialog._makeDraggable(dialog, header);
 
     // Handle window resize (only if not dragged)
-    dialog.data('dragged', false);
     $(window).on('resize.filePreview', function() {
       if (!dialog.data('dragged')) {
         FilePreviewDialog._positionDialog(dialog);
@@ -219,8 +251,8 @@ var FilePreviewDialog = {};
       offsetY = actualOffsetY;
       
       // 手动调整偏移量 - 视觉上发现的偏移
-      offsetX += -5;   // 横向往右偏移6px
-      offsetY += -5;  // 纵向往下偏移50px
+      offsetX += -5;   // 横向往左偏移5px
+      offsetY += -5;  // 纵向往上偏移5px
       
       // console.log('[FilePreviewDialog] 缩放信息 - zoomLevel:', FilePreviewDialog._zoomLevel,
                   // 'displayedWidth:', displayedWidth, 'displayedHeight:', displayedHeight,
@@ -250,7 +282,7 @@ var FilePreviewDialog = {};
                   // 'displayed:', displayedWidth, 'x', displayedHeight,
                   // 'container:', containerWidth, 'x', containerHeight,
                   // 'scale:', scaleX.toFixed(3), 'x', scaleY.toFixed(3),
-                  // 'offset:', offsetX.toFixed(1), ',', offsetY.toFixed(1);
+                  // 'offset:', offsetX.toFixed(1), ',', offsetY.toFixed(1));
       
       var legendHtml = '<div class="annotation-legend" style="display: none;">';
       var errorTypes = {};
@@ -278,16 +310,22 @@ var FilePreviewDialog = {};
         legendClass = 'other';
       }
       
+      // Count errors by type
+      if (!errorTypes[legendClass]) {
+        errorTypes[legendClass] = { count: 0, label: '' };
+      }
+      errorTypes[legendClass].count++;
+      
       var x = (error.locationX || 0) * scaleX + offsetX;
       var y = (error.locationY || 0) * scaleY + offsetY;
       var width = (error.locationWidth || 100) * scaleX;
       var height = (error.locationHeight || 100) * scaleY;
       
       // console.log('[FilePreviewDialog] 标注位置 - type:', error.errorType, 
-                  // '原始位置:', (error.locationX || 0), ',', (error.locationY || 0),
-                  // '原始尺寸:', (error.locationWidth || 100), 'x', (error.locationHeight || 100),
-                  // '计算位置:', x.toFixed(1), ',', y.toFixed(1),
-                  // '计算尺寸:', width.toFixed(1), 'x', height.toFixed(1));
+                    // '原始位置:', (error.locationX || 0), ',', (error.locationY || 0),
+                    // '原始尺寸:', (error.locationWidth || 100), 'x', (error.locationHeight || 100),
+                    // '计算位置:', x.toFixed(1), ',', y.toFixed(1),
+                    // '计算尺寸:', width.toFixed(1), 'x', height.toFixed(1));
       
       width = Math.max(width, 10);
       height = Math.max(height, 10);
@@ -297,7 +335,9 @@ var FilePreviewDialog = {};
         left: x + 'px',
         top: y + 'px',
         width: width + 'px',
-        height: height + 'px'
+        height: height + 'px',
+        position: 'absolute',
+        zIndex: 1000
       });
       
       var errorLabel = error.errorType || 'error';
@@ -340,7 +380,7 @@ var FilePreviewDialog = {};
       
       imgContainer.append(marker);
       
-      if (!errorTypes[legendClass]) {
+      if (!errorTypes[legendClass].label) {
         var typeLabel;
         if (legendClass === 'stain') {
           typeLabel = $.i18n('records.assets.annotation.stain') || '污点';
@@ -353,11 +393,19 @@ var FilePreviewDialog = {};
         } else {
           typeLabel = $.i18n('records.assets.annotation.other') || '其他';
         }
-        errorTypes[legendClass] = typeLabel;
-        legendHtml += '<div class="annotation-legend-item">' +
-                      '<div class="annotation-legend-color annotation-legend-' + legendClass + '"></div>' +
-                      '<span>' + typeLabel + '</span></div>';
+        errorTypes[legendClass].label = typeLabel;
       }
+    });
+    
+    // Build legend HTML with counts
+    Object.keys(errorTypes).forEach(function(legendClass) {
+      var typeInfo = errorTypes[legendClass];
+      var typeLabel = typeInfo.label || '其他';
+      var count = typeInfo.count || 0;
+      
+      legendHtml += '<div class="annotation-legend-item">' +
+                    '<div class="annotation-legend-color annotation-legend-' + legendClass + '"></div>' +
+                    '<span>' + typeLabel + '(' + count + ')</span></div>';
     });
     
     legendHtml += '</div>';
@@ -557,6 +605,9 @@ var FilePreviewDialog = {};
 
       // Store image reference for zoom controls
       container.data('previewImage', img);
+      
+      // Initialize image drag functionality
+      FilePreviewDialog._initImageDrag(imgContainer);
 
     } else if (previewType === 'pdf') {
       // PDF preview using iframe with direct file endpoint
@@ -623,6 +674,8 @@ var FilePreviewDialog = {};
 
       $('<button>').addClass('button zoom-btn').text('100%').on('click', function() {
         FilePreviewDialog._zoomLevel = 1;
+        FilePreviewDialog._currentOffsetX = 0;
+        FilePreviewDialog._currentOffsetY = 0;
         FilePreviewDialog._applyZoom();
       }).appendTo(zoomControls);
 
@@ -658,11 +711,74 @@ var FilePreviewDialog = {};
     if (FilePreviewDialog._currentDialog) {
       var img = FilePreviewDialog._currentDialog.find('.preview-image');
       if (img.length) {
-        img.css('transform', 'scale(' + FilePreviewDialog._zoomLevel + ')');
+        img.css('transform', 'translate(' + FilePreviewDialog._currentOffsetX + 'px, ' + FilePreviewDialog._currentOffsetY + 'px) scale(' + FilePreviewDialog._zoomLevel + ')');
         img.css('transform-origin', 'top left');
-        FilePreviewDialog._renderAnnotations();
+        setTimeout(function() {
+          FilePreviewDialog._renderAnnotations();
+        }, 200);
       }
     }
+  };
+
+  /**
+   * Initialize image drag functionality
+   */
+  FilePreviewDialog._initImageDrag = function(imgContainer) {
+    var img = imgContainer.find('.preview-image');
+    var content = FilePreviewDialog._currentDialog.find('.file-preview-float-content');
+    
+    var namespace = FilePreviewDialog._dragNamespace;
+    
+    imgContainer.on('mousedown' + namespace, function(e) {
+      if (e.target.classList.contains('error-marker') || e.target.classList.contains('annotation-legend')) return;
+      
+      FilePreviewDialog._isDraggingImage = true;
+      FilePreviewDialog._dragStartX = e.clientX;
+      FilePreviewDialog._dragStartY = e.clientY;
+      content.addClass('dragging');
+      e.preventDefault();
+    });
+    
+    $(document).on('mousemove' + namespace, function(e) {
+      if (!FilePreviewDialog._isDraggingImage) return;
+      
+      var deltaX = e.clientX - FilePreviewDialog._dragStartX;
+      var deltaY = e.clientY - FilePreviewDialog._dragStartY;
+      
+      FilePreviewDialog._currentOffsetX += deltaX;
+      FilePreviewDialog._currentOffsetY += deltaY;
+      
+      FilePreviewDialog._dragStartX = e.clientX;
+      FilePreviewDialog._dragStartY = e.clientY;
+      
+      FilePreviewDialog._applyZoom();
+      e.preventDefault();
+    });
+    
+    $(document).on('mouseup' + namespace, function() {
+      if (FilePreviewDialog._isDraggingImage) {
+        FilePreviewDialog._isDraggingImage = false;
+        content.removeClass('dragging');
+        FilePreviewDialog._renderAnnotations();
+      }
+    });
+    
+    // Clean up event listeners when dialog is removed
+    imgContainer.on('remove', function() {
+      $(document).off(namespace);
+      imgContainer.off(namespace);
+    });
+    
+    // Add mouse wheel zoom functionality
+    imgContainer.on('wheel' + namespace, function(e) {
+      e.preventDefault();
+      
+      var delta = e.originalEvent.deltaY;
+      var zoomStep = delta > 0 ? -0.1 : 0.1;
+      
+      FilePreviewDialog._zoomLevel = Math.max(0.1, Math.min(5, FilePreviewDialog._zoomLevel + zoomStep));
+      FilePreviewDialog._applyZoom();
+    });
   };
 
   /**
