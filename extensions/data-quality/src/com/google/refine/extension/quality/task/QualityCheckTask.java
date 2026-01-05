@@ -47,6 +47,10 @@ public class QualityCheckTask {
     private volatile int formatErrors;
     private volatile int resourceErrors;
     private volatile int contentErrors;
+    private volatile int imageQualityErrors;
+    private volatile int checkedRows;
+    private volatile int passedRows;
+    private volatile int failedRows;
     private volatile String errorMessage;
     private volatile String errorKey;
     @JsonIgnore
@@ -59,6 +63,10 @@ public class QualityCheckTask {
     // Content check specific progress
     private volatile int contentCheckTotal;
     private final AtomicInteger contentCheckProcessed;
+
+    // Image quality check specific progress
+    private volatile int imageQualityCheckTotal;
+    private final AtomicInteger imageQualityCheckProcessed;
 
     // Checkpoint for resume support
     private volatile Checkpoint checkpoint;
@@ -76,6 +84,8 @@ public class QualityCheckTask {
     private volatile CheckResult resourceResult;
     @JsonIgnore
     private volatile CheckResult contentResult;
+    @JsonIgnore
+    private volatile CheckResult imageQualityResult;
 
     // Rule ID for reference
     private volatile String ruleId;
@@ -93,8 +103,13 @@ public class QualityCheckTask {
         this.createdAt = System.currentTimeMillis();
         this.contentCheckTotal = 0;
         this.contentCheckProcessed = new AtomicInteger(0);
+        this.imageQualityCheckTotal = 0;
+        this.imageQualityCheckProcessed = new AtomicInteger(0);
         this.pauseRequested = false;
         this.cancelRequested = false;
+        this.checkedRows = 0;
+        this.passedRows = 0;
+        this.failedRows = 0;
 
         // Register task in memory
         tasks.put(taskId, this);
@@ -114,6 +129,10 @@ public class QualityCheckTask {
             @JsonProperty("formatErrors") int formatErrors,
             @JsonProperty("resourceErrors") int resourceErrors,
             @JsonProperty("contentErrors") int contentErrors,
+            @JsonProperty("imageQualityErrors") int imageQualityErrors,
+            @JsonProperty("checkedRows") int checkedRows,
+            @JsonProperty("passedRows") int passedRows,
+            @JsonProperty("failedRows") int failedRows,
             @JsonProperty("errorMessage") String errorMessage,
             @JsonProperty("errorKey") String errorKey,
             @JsonProperty("createdAt") long createdAt,
@@ -122,6 +141,8 @@ public class QualityCheckTask {
             @JsonProperty("resumedAt") long resumedAt,
             @JsonProperty("contentCheckTotal") int contentCheckTotal,
             @JsonProperty("contentCheckProcessed") int contentCheckProcessed,
+            @JsonProperty("imageQualityCheckTotal") int imageQualityCheckTotal,
+            @JsonProperty("imageQualityCheckProcessed") int imageQualityCheckProcessed,
             @JsonProperty("checkpoint") Checkpoint checkpoint,
             @JsonProperty("ruleId") String ruleId
     ) {
@@ -134,6 +155,10 @@ public class QualityCheckTask {
         this.formatErrors = formatErrors;
         this.resourceErrors = resourceErrors;
         this.contentErrors = contentErrors;
+        this.imageQualityErrors = imageQualityErrors;
+        this.checkedRows = checkedRows;
+        this.passedRows = passedRows;
+        this.failedRows = failedRows;
         this.errorMessage = errorMessage;
         this.errorKey = errorKey;
         this.createdAt = createdAt;
@@ -142,6 +167,8 @@ public class QualityCheckTask {
         this.resumedAt = resumedAt;
         this.contentCheckTotal = contentCheckTotal;
         this.contentCheckProcessed = new AtomicInteger(contentCheckProcessed);
+        this.imageQualityCheckTotal = imageQualityCheckTotal;
+        this.imageQualityCheckProcessed = new AtomicInteger(imageQualityCheckProcessed);
         this.checkpoint = checkpoint;
         this.ruleId = ruleId;
         this.pauseRequested = false;
@@ -276,23 +303,28 @@ public class QualityCheckTask {
         if (status == TaskStatus.COMPLETED) return 100;
         if (status == TaskStatus.PENDING) return 0;
 
-        // Weight: format(20%) + resource(20%) + content(60%)
+        // Weight: format(15%) + resource(15%) + content(35%) + imageQuality(35%)
         int baseProgress = 0;
 
         if ("格式检查".equals(currentPhase)) {
             baseProgress = 0;
             if (totalRows > 0) {
-                return Math.min(19, baseProgress + (processedRows.get() * 20 / totalRows));
+                return Math.min(14, baseProgress + (processedRows.get() * 15 / totalRows));
             }
         } else if ("资源检查".equals(currentPhase)) {
-            baseProgress = 20;
+            baseProgress = 15;
             if (totalRows > 0) {
-                return Math.min(39, baseProgress + (processedRows.get() * 20 / totalRows));
+                return Math.min(29, baseProgress + (processedRows.get() * 15 / totalRows));
             }
         } else if ("内容检查".equals(currentPhase)) {
-            baseProgress = 40;
+            baseProgress = 30;
             if (contentCheckTotal > 0) {
-                return Math.min(99, baseProgress + (contentCheckProcessed.get() * 60 / contentCheckTotal));
+                return Math.min(64, baseProgress + (contentCheckProcessed.get() * 35 / contentCheckTotal));
+            }
+        } else if ("图像质量检查".equals(currentPhase)) {
+            baseProgress = 65;
+            if (imageQualityCheckTotal > 0) {
+                return Math.min(99, baseProgress + (imageQualityCheckProcessed.get() * 35 / imageQualityCheckTotal));
             }
         }
 
@@ -346,6 +378,22 @@ public class QualityCheckTask {
     public int getContentErrors() { return contentErrors; }
     public void setContentErrors(int contentErrors) { this.contentErrors = contentErrors; }
 
+    @JsonProperty("imageQualityErrors")
+    public int getImageQualityErrors() { return imageQualityErrors; }
+    public void setImageQualityErrors(int imageQualityErrors) { this.imageQualityErrors = imageQualityErrors; }
+
+    @JsonProperty("checkedRows")
+    public int getCheckedRows() { return checkedRows; }
+    public void setCheckedRows(int checkedRows) { this.checkedRows = checkedRows; }
+
+    @JsonProperty("passedRows")
+    public int getPassedRows() { return passedRows; }
+    public void setPassedRows(int passedRows) { this.passedRows = passedRows; }
+
+    @JsonProperty("failedRows")
+    public int getFailedRows() { return failedRows; }
+    public void setFailedRows(int failedRows) { this.failedRows = failedRows; }
+
     @JsonProperty("errorMessage")
     public String getErrorMessage() { return errorMessage; }
     public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
@@ -380,6 +428,15 @@ public class QualityCheckTask {
     @JsonProperty("contentCheckProcessed")
     public int getContentCheckProcessed() { return contentCheckProcessed.get(); }
 
+    @JsonProperty("imageQualityCheckTotal")
+    public int getImageQualityCheckTotal() { return imageQualityCheckTotal; }
+    public void setImageQualityCheckTotal(int total) { this.imageQualityCheckTotal = total; }
+
+    @JsonProperty("imageQualityCheckProcessed")
+    public int getImageQualityCheckProcessed() { return imageQualityCheckProcessed.get(); }
+    public void incrementImageQualityCheckProcessed() { imageQualityCheckProcessed.incrementAndGet(); }
+    public void setImageQualityCheckProcessed(int processed) { imageQualityCheckProcessed.set(processed); }
+
     @JsonProperty("ruleId")
     public String getRuleId() { return ruleId; }
     public void setRuleId(String ruleId) { this.ruleId = ruleId; }
@@ -396,6 +453,10 @@ public class QualityCheckTask {
     @JsonIgnore
     public CheckResult getContentResult() { return contentResult; }
     public void setContentResult(CheckResult contentResult) { this.contentResult = contentResult; }
+
+    @JsonIgnore
+    public CheckResult getImageQualityResult() { return imageQualityResult; }
+    public void setImageQualityResult(CheckResult imageQualityResult) { this.imageQualityResult = imageQualityResult; }
 
     // Methods for checker interruption support
     /**
@@ -439,6 +500,13 @@ public class QualityCheckTask {
      */
     public void setResourceCheckpoint(int rowIndex) {
         this.checkpoint = new Checkpoint(rowIndex, "资源检查", contentCheckProcessed.get(), System.currentTimeMillis());
+    }
+
+    /**
+     * Set image quality check checkpoint for resume
+     */
+    public void setImageQualityCheckpoint(int processedIndex) {
+        this.checkpoint = new Checkpoint(processedRows.get(), "图像质量检查", processedIndex, System.currentTimeMillis());
     }
 
     /**

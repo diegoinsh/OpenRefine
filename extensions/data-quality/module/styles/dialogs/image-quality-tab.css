@@ -1,0 +1,114 @@
+.image-quality-tab-container {
+  padding: 10px 0 0 10px;
+  background-color: var(--background-primary, #f8f8f8);
+}
+
+/* 资源配置样式 - 与文件资源关联检查tab一致 */
+.iq-resource-warning {
+  color: #f57c00;
+  margin-top: 5px;
+  display: block;
+}
+
+.iq-resource-link {
+  color: #1976d2;
+  text-decoration: underline;
+  cursor: pointer;
+  margin-left: 5px;
+}
+
+.iq-resource-link:hover {
+  color: #1565c0;
+}
+
+.iq-categories-container {
+  max-height: 500px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.iq-categories-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.iq-categories-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.iq-categories-container::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.iq-categories-container::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+/* Format options horizontal layout */
+.format-options-container {
+  display: inline-flex;
+  gap: 15px;
+  flex-wrap: wrap;
+  margin-left: 10px;
+}
+
+.format-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.format-option input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.format-option:hover {
+  color: #1976d2;
+}
+
+/* Check Standard Styles */
+.iq-check-standard-container {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  padding: 5px 0;
+}
+
+.iq-standard-option {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 14px;
+  user-select: none;
+}
+
+.iq-standard-option input[type="radio"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.iq-standard-option:hover {
+  color: #1976d2;
+}
+
+.iq-standard-count {
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-weight: normal;
+  display: inline-flex;
+  align-items: center;
+  padding-left: 25px;
+}
+.iq-standard-count img {
+  height: 15px;
+  width: 15px;
+  padding-right: 3px;
+}

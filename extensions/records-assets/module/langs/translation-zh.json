@@ -56,5 +56,12 @@
   "records.assets.explorer.title": "资源浏览器",
   "records.assets.explorer.close": "关闭",
   "records.assets.explorer.directoryTree": "目录树",
-  "records.assets.explorer.noContent": "无内容"
+  "records.assets.explorer.noContent": "无内容",
+
+  "records.assets.annotation.errorType": "错误类型",
+  "records.assets.annotation.stain": "污点",
+  "records.assets.annotation.hole": "装订孔",
+  "records.assets.annotation.edge": "黑边",
+  "records.assets.annotation.skew": "偏斜",
+  "records.assets.annotation.other": "其他"
 }

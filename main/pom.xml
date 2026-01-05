@@ -78,7 +78,7 @@
 	<version>${maven-dependency-plugin.version}</version>
         <executions>
             <execution>
-            <phase>compile</phase>
+            <phase>package</phase>
             <goals>
                 <goal>copy-dependencies</goal>
             </goals>

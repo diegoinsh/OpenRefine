@@ -40,8 +40,18 @@ var ResourceExplorerPanel = {};
     ResourceExplorerPanel._isVisible = true;
     ResourceExplorerPanel._isActive = true; // Mark as active
 
-    // Load and auto-expand the initial path
-    ResourceExplorerPanel._loadAndExpandPath(rootPath, filePath);
+    var displayRoot = rootPath || filePath || '';
+    if (!displayRoot && filePath) {
+      var lastSlash = filePath.lastIndexOf('/');
+      if (lastSlash < 0) {
+        lastSlash = filePath.lastIndexOf('\\');
+      }
+      if (lastSlash > 0) {
+        displayRoot = filePath.substring(0, lastSlash);
+      }
+    }
+
+    ResourceExplorerPanel._loadAndExpandPath(displayRoot, filePath);
   };
 
   /**
@@ -401,7 +411,21 @@ var ResourceExplorerPanel = {};
    */
   ResourceExplorerPanel._onFileClick = function(fileFullPath, item) {
     if (typeof FilePreviewDialog !== 'undefined') {
-      FilePreviewDialog.show('', fileFullPath, item);
+      var lastSlash = fileFullPath.lastIndexOf('/');
+      if (lastSlash < 0) {
+        lastSlash = fileFullPath.lastIndexOf('\\');
+      }
+      
+      var rootPath, filePath;
+      if (lastSlash > 0) {
+        rootPath = fileFullPath.substring(0, lastSlash);
+        filePath = fileFullPath.substring(lastSlash + 1);
+      } else {
+        rootPath = '';
+        filePath = fileFullPath;
+      }
+      
+      FilePreviewDialog.show(rootPath, filePath, item);
     } else {
       console.log('[ResourceExplorerPanel] FilePreviewDialog not available for:', fileFullPath);
     }

@@ -116,7 +116,7 @@ public class ExportQualityReportCommand extends Command {
 
         // Summary stats
         JsonNode summary = results.get("summary");
-        int totalRows = 0, totalErrors = 0, formatErrors = 0, resourceErrors = 0, contentErrors = 0;
+        int totalRows = 0, totalErrors = 0, formatErrors = 0, resourceErrors = 0, contentErrors = 0, imageErrors = 0;
 
         if (summary != null) {
             totalRows = summary.path("totalRows").asInt(0);
@@ -124,12 +124,18 @@ public class ExportQualityReportCommand extends Command {
             formatErrors = summary.path("formatErrors").asInt(0);
             resourceErrors = summary.path("resourceErrors").asInt(0);
             contentErrors = summary.path("contentErrors").asInt(0);
+            // Support both imageQualityErrors (from RunQualityCheckCommand) and imageErrors (legacy)
+            imageErrors = summary.path("imageQualityErrors").asInt(0);
+            if (imageErrors == 0) {
+                imageErrors = summary.path("imageErrors").asInt(0);
+            }
 
             createStatRow(sheet, rowNum++, "总行数", totalRows);
             createStatRow(sheet, rowNum++, "总错误数", totalErrors);
             createStatRow(sheet, rowNum++, "格式错误", formatErrors);
             createStatRow(sheet, rowNum++, "资源错误", resourceErrors);
             createStatRow(sheet, rowNum++, "内容错误", contentErrors);
+            createStatRow(sheet, rowNum++, "图像质量错误", imageErrors);
         }
 
         rowNum++; // Empty row
@@ -154,6 +160,7 @@ public class ExportQualityReportCommand extends Command {
             createDistributionRow(sheet, rowNum++, "数据格式检查", formatErrors, totalErrors, percentStyle);
             createDistributionRow(sheet, rowNum++, "文件资源关联检查", resourceErrors, totalErrors, percentStyle);
             createDistributionRow(sheet, rowNum++, "内容比对检查", contentErrors, totalErrors, percentStyle);
+            createDistributionRow(sheet, rowNum++, "图像质量检查", imageErrors, totalErrors, percentStyle);
         }
 
         sheet.autoSizeColumn(0);
@@ -198,7 +205,7 @@ public class ExportQualityReportCommand extends Command {
                 String value = error.path("value").asText("");
 
                 row.createCell(0).setCellValue(error.path("rowIndex").asInt(0) + 1);
-                row.createCell(1).setCellValue(getColumnDisplay(column, errorType));
+                row.createCell(1).setCellValue(getColumnDisplay(column, errorType, value));
                 row.createCell(2).setCellValue(value.isEmpty() ? "(空)" : value);
                 row.createCell(3).setCellValue(getErrorTypeLabel(errorType));
                 row.createCell(4).setCellValue(translateErrorMessage(message, errorType));
@@ -324,6 +331,7 @@ public class ExportQualityReportCommand extends Command {
             case "format": return "数据格式";
             case "resource": return "文件资源";
             case "content": return "内容比对";
+            case "image_quality": return "图像质量";
             default: return category;
         }
     }
@@ -347,6 +355,13 @@ public class ExportQualityReportCommand extends Command {
             case "content_match": return "内容匹配检查";
             case "content_mismatch": return "内容不匹配";
             case "content_warning": return "内容相似度偏低";
+            case "blank": return "空白页检测";
+            case "skew": return "图像倾斜检测";
+            case "stain": return "污点检测";
+            case "hole": return "装订孔检测";
+            case "dpi": return "分辨率检测";
+            case "kb": return "文件大小检测";
+            case "edge": return "黑边检测";
             default: return errorType;
         }
     }
@@ -396,20 +411,168 @@ public class ExportQualityReportCommand extends Command {
             return "不匹配格式：" + pattern;
         }
 
+        // Image quality errors - blank page
+        if (message.startsWith("Blank page detected:")) {
+            String filename = message.substring("Blank page detected:".length()).trim();
+            return "检测到空白页: " + filename;
+        }
+
+        // Image quality errors - skew
+        if (message.startsWith("Skew detected:")) {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile("angle: ([-]?\\d+)");
+            java.util.regex.Matcher m = p.matcher(message);
+            if (m.find()) {
+                return "检测到图像倾斜, 角度: " + m.group(1) + "°";
+            }
+            return "检测到图像倾斜";
+        }
+
+        // Image quality errors - stain
+        if (message.startsWith("Stain detected:")) {
+            String filename = message.substring("Stain detected:".length()).trim();
+            return "检测到污点: " + filename;
+        }
+
+        // Image quality errors - binding hole
+        if (message.startsWith("Binding hole detected:")) {
+            String filename = message.substring("Binding hole detected:".length()).trim();
+            return "检测到装订孔: " + filename;
+        }
+
+        // Image quality errors - DPI
+        if (message.startsWith("DPI too low:")) {
+            String dpi = message.substring("DPI too low:".length()).trim();
+            return "分辨率过低: " + dpi;
+        }
+
+        // Image quality errors - file size
+        if (message.startsWith("File size too large:")) {
+            String size = message.substring("File size too large:".length()).trim();
+            return "文件过大: " + size;
+        }
+
+        // Image quality errors - edge
+        if (message.startsWith("Edge detected:")) {
+            String desc = message.substring("Edge detected:".length()).trim();
+            return "检测到黑边: " + desc;
+        }
+
         return message;
     }
 
     /**
-     * Get column display value - return "(空)" for empty or special values.
+     * Get column display value - return resource type based on file extension for resource errors.
      */
-    private String getColumnDisplay(String column, String errorType) {
-        if (column == null || column.isEmpty()) return "(空)";
-        // For resource check errors, column might be a path, show "(空)"
-        if ("file_sequential".equals(errorType) || "folder_sequential".equals(errorType) ||
-            "file_sequence".equals(errorType) || "folder_sequence".equals(errorType)) {
+    private String getColumnDisplay(String column, String errorType, String value) {
+        if (column == null || column.isEmpty()) {
+            // For resource check errors, try to extract resource type from value (file path)
+            if (value != null && !value.isEmpty()) {
+                String ext = getFileExtension(value);
+                String resourceType = getResourceType(ext);
+                if (resourceType != null) {
+                    return resourceType;
+                }
+            }
             return "(空)";
         }
+        // For resource check errors, column might be a path, show resource type based on value
+        if ("file_sequential".equals(errorType) || "folder_sequential".equals(errorType) ||
+            "file_sequence".equals(errorType) || "folder_sequence".equals(errorType)) {
+            if (value != null && !value.isEmpty()) {
+                String ext = getFileExtension(value);
+                String resourceType = getResourceType(ext);
+                if (resourceType != null) {
+                    return resourceType;
+                }
+            }
+            return "(空)";
+        }
+        // For other resource errors, show resource type based on file extension
+        if ("resource".equals(getCategoryFromErrorType(errorType))) {
+            if (value != null && !value.isEmpty()) {
+                String ext = getFileExtension(value);
+                String resourceType = getResourceType(ext);
+                if (resourceType != null) {
+                    return resourceType;
+                }
+            }
+        }
         return column;
+    }
+
+    /**
+     * Get file extension from path.
+     */
+    private String getFileExtension(String path) {
+        if (path == null || path.isEmpty()) {
+            return "";
+        }
+        int lastDot = path.lastIndexOf('.');
+        if (lastDot >= 0 && lastDot < path.length() - 1) {
+            return path.substring(lastDot + 1).toLowerCase();
+        }
+        return "";
+    }
+
+    /**
+     * Get resource type display name based on file extension.
+     */
+    private String getResourceType(String ext) {
+        if (ext == null || ext.isEmpty()) {
+            return null;
+        }
+        switch (ext) {
+            case "jpg":
+            case "jpeg":
+            case "png":
+            case "gif":
+            case "bmp":
+            case "webp":
+            case "tif":
+            case "tiff":
+                return "图像";
+            case "pdf":
+                return "PDF";
+            case "ofd":
+                return "OFD";
+            case "doc":
+            case "docx":
+                return "Word";
+            case "xls":
+            case "xlsx":
+                return "Excel";
+            case "ppt":
+            case "pptx":
+                return "PowerPoint";
+            default:
+                return ext.toUpperCase();
+        }
+    }
+
+    /**
+     * Get category from error type.
+     */
+    private String getCategoryFromErrorType(String errorType) {
+        if (errorType == null) {
+            return "";
+        }
+        if (errorType.contains("format") || errorType.contains("Format")) {
+            return "format";
+        }
+        if (errorType.contains("resource") || errorType.contains("Resource") ||
+            errorType.contains("folder") || errorType.contains("file")) {
+            return "resource";
+        }
+        if (errorType.contains("content") || errorType.contains("Content")) {
+            return "content";
+        }
+        if (errorType.contains("image") || errorType.contains("Image") ||
+            errorType.equals("blank") || errorType.equals("skew") || 
+            errorType.equals("stain") || errorType.equals("hole") ||
+            errorType.equals("dpi") || errorType.equals("kb") || errorType.equals("edge")) {
+            return "image_quality";
+        }
+        return "";
     }
 
     private void exportPdf(HttpServletResponse response, JsonNode results) throws IOException {
@@ -449,15 +612,70 @@ public class ExportQualityReportCommand extends Command {
                 addSummaryRow(summaryTable, "格式错误", summary.path("formatErrors").asInt(0), normalFont);
                 addSummaryRow(summaryTable, "资源错误", summary.path("resourceErrors").asInt(0), normalFont);
                 addSummaryRow(summaryTable, "内容错误", summary.path("contentErrors").asInt(0), normalFont);
+                // Support both imageQualityErrors and imageErrors
+                int imageErrors = summary.path("imageQualityErrors").asInt(0);
+                if (imageErrors == 0) {
+                    imageErrors = summary.path("imageErrors").asInt(0);
+                }
+                addSummaryRow(summaryTable, "图像质量错误", imageErrors, normalFont);
 
                 document.add(summaryTable);
                 document.add(new Paragraph(" "));
+
+                // Statistics section
+                JsonNode imageQualityResult = results.get("imageQualityResult");
+                JsonNode fileStatistics = imageQualityResult != null ? imageQualityResult.get("fileStatistics") : null;
+                
+                logger.info("=== PDF导出 - 开始处理统计数据 ===");
+                logger.info("imageQualityResult: " + (imageQualityResult != null ? "存在" : "不存在"));
+                logger.info("fileStatistics: " + (fileStatistics != null ? "存在" : "不存在"));
+                
+                if (fileStatistics != null) {
+                    int totalFolders = fileStatistics.path("totalFolders").asInt(0);
+                    int totalFiles = fileStatistics.path("totalFiles").asInt(0);
+                    int imageFiles = fileStatistics.path("imageFiles").asInt(0);
+                    int otherFiles = fileStatistics.path("otherFiles").asInt(0);
+                    
+                    logger.info("统计数据 - 文件夹: {}, 总文件: {}, 图片文件: {}, 其他文件: {}", 
+                               totalFolders, totalFiles, imageFiles, otherFiles);
+
+                    if (totalFolders > 0 || totalFiles > 0) {
+                        logger.info("添加统计数据到PDF");
+                        Paragraph statsTitle = new Paragraph("统计数据", headerFont);
+                        statsTitle.setSpacingBefore(10);
+                        statsTitle.setSpacingAfter(10);
+                        document.add(statsTitle);
+
+                        PdfPTable statsTable = new PdfPTable(2);
+                        statsTable.setWidthPercentage(50);
+                        statsTable.setHorizontalAlignment(Element.ALIGN_LEFT);
+
+                        addSummaryRow(statsTable, "文件夹数量", totalFolders, normalFont);
+                        addSummaryRow(statsTable, "总文件数量", totalFiles, normalFont);
+                        addSummaryRow(statsTable, "图片文件数量", imageFiles, normalFont);
+                        addSummaryRow(statsTable, "其他文件数量", otherFiles, normalFont);
+
+                        document.add(statsTable);
+                        document.add(new Paragraph(" "));
+                        logger.info("统计数据已添加到PDF");
+                    } else {
+                        logger.info("没有统计数据需要显示");
+                    }
+                }
+                logger.info("=== PDF导出 - 统计数据处理完成 ===");
 
                 // Error distribution chart section
                 int totalErrors = summary.path("totalErrors").asInt(0);
                 int formatErrors = summary.path("formatErrors").asInt(0);
                 int resourceErrors = summary.path("resourceErrors").asInt(0);
                 int contentErrors = summary.path("contentErrors").asInt(0);
+                // Reuse imageErrors from above, support both imageQualityErrors and imageErrors
+                if (imageErrors == 0) {
+                    imageErrors = summary.path("imageQualityErrors").asInt(0);
+                }
+                if (imageErrors == 0) {
+                    imageErrors = summary.path("imageErrors").asInt(0);
+                }
 
                 if (totalErrors > 0) {
                     Paragraph chartTitle = new Paragraph("错误分类统计", headerFont);
@@ -482,6 +700,7 @@ public class ExportQualityReportCommand extends Command {
                     addChartRow(chartTable, "数据格式检查", formatErrors, totalErrors, normalFont, new BaseColor(66, 133, 244));
                     addChartRow(chartTable, "文件资源关联检查", resourceErrors, totalErrors, normalFont, new BaseColor(251, 188, 4));
                     addChartRow(chartTable, "内容比对检查", contentErrors, totalErrors, normalFont, new BaseColor(52, 168, 83));
+                    addChartRow(chartTable, "图像质量检查", imageErrors, totalErrors, normalFont, new BaseColor(219, 68, 55));
 
                     document.add(chartTable);
                     document.add(new Paragraph(" "));
@@ -519,7 +738,7 @@ public class ExportQualityReportCommand extends Command {
                     String value = error.path("value").asText("");
 
                     errorsTable.addCell(new Phrase(String.valueOf(error.path("rowIndex").asInt(0) + 1), normalFont));
-                    errorsTable.addCell(new Phrase(getColumnDisplay(column, errorType), normalFont));
+                    errorsTable.addCell(new Phrase(getColumnDisplay(column, errorType, value), normalFont));
                     errorsTable.addCell(new Phrase(truncate(value.isEmpty() ? "(空)" : value, 30), normalFont));
                     errorsTable.addCell(new Phrase(getErrorTypeLabel(errorType), normalFont));
                     errorsTable.addCell(new Phrase(truncate(translateErrorMessage(message, errorType), 40), normalFont));

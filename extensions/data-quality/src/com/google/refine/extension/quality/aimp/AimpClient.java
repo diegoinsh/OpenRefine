@@ -24,18 +24,147 @@ import org.slf4j.LoggerFactory;
 /**
  * Client for communicating with Jinshu-aimp service.
  * Provides OCR and content extraction capabilities.
+ * Supports two interface modes:
+ * - 7998: Uses unified /api/ocr/extract endpoint
+ * - 7999: Uses individual endpoints (/blank, /stain, /edge, etc.)
  */
 public class AimpClient {
+
+    public static final String INTERFACE_MODE_7998 = "7998";
+    public static final String INTERFACE_MODE_7999 = "7999";
 
     private static final Logger logger = LoggerFactory.getLogger(AimpClient.class);
     private static final ObjectMapper mapper = new ObjectMapper();
     private static final int TIMEOUT_MS = 30000;
 
     private String serviceUrl;
+    private String interfaceMode;
 
     public AimpClient(String serviceUrl) {
-        // Normalize service URL - extract base URL (scheme + host + port)
         this.serviceUrl = normalizeServiceUrl(serviceUrl);
+        this.interfaceMode = detectInterfaceMode(serviceUrl);
+    }
+
+    public AimpClient(String serviceUrl, String interfaceMode) {
+        this.serviceUrl = normalizeServiceUrl(serviceUrl);
+        this.interfaceMode = determineInterfaceMode(serviceUrl, interfaceMode);
+    }
+
+    /**
+     * Detect interface mode from service URL
+     */
+    private String detectInterfaceMode(String serviceUrl) {
+        if (serviceUrl == null) {
+            return INTERFACE_MODE_7998;
+        }
+
+        if (serviceUrl.contains(":7999")) {
+            return INTERFACE_MODE_7999;
+        }
+        if (serviceUrl.contains(":7998")) {
+            return INTERFACE_MODE_7998;
+        }
+        if (serviceUrl.contains(":8089")) {
+            return INTERFACE_MODE_7998;
+        }
+
+        return INTERFACE_MODE_7998;
+    }
+
+    /**
+     * Determine interface mode, prioritizing explicit mode setting
+     */
+    private String determineInterfaceMode(String serviceUrl, String explicitMode) {
+        if (explicitMode != null && !explicitMode.isEmpty() && !explicitMode.equals("auto")) {
+            return explicitMode;
+        }
+        return detectInterfaceMode(serviceUrl);
+    }
+
+    /**
+     * Get the appropriate health check URL based on interface mode
+     */
+    private String getHealthCheckUrl() {
+        if (INTERFACE_MODE_7999.equals(interfaceMode)) {
+            return serviceUrl + "/docs";
+        }
+        return serviceUrl + "/health";
+    }
+
+    /**
+     * Get the appropriate content check endpoint based on interface mode and check type
+     */
+    public String getCheckEndpoint(String checkType) {
+        if (INTERFACE_MODE_7999.equals(interfaceMode)) {
+            Map<String, String> endpoints = new HashMap<>();
+            endpoints.put("blank", "/blank");
+            endpoints.put("stain", "/stain");
+            endpoints.put("edge", "/edge");
+            endpoints.put("hole", "/hole");
+            endpoints.put("skew", "/rectify");
+            endpoints.put("dpi", "/dpi");
+            endpoints.put("bitdepth", "/bitdepth");
+            endpoints.put("quality", "/jpeg/quality");
+            return serviceUrl + (endpoints.get(checkType) != null ? endpoints.get(checkType) : "/" + checkType);
+        }
+        return serviceUrl + "/api/ocr/extract";
+    }
+
+    /**
+     * Test connection to AIMP service
+     */
+    public boolean testConnection() {
+        try {
+            String healthUrl = getHealthCheckUrl();
+            URL url = new URL(healthUrl);
+            logger.info("Testing AIMP connection: " + url.toString() + " (mode: " + interfaceMode + ")");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+
+            int responseCode = conn.getResponseCode();
+            logger.info("AIMP health check response code: " + responseCode);
+
+            if (responseCode == 200) {
+                return true;
+            }
+
+            if (INTERFACE_MODE_7999.equals(interfaceMode)) {
+                logger.info("Trying 7998 mode fallback...");
+                String oldMode = interfaceMode;
+                interfaceMode = INTERFACE_MODE_7998;
+                boolean result = testConnection();
+                interfaceMode = oldMode;
+                return result;
+            }
+
+            return false;
+        } catch (Exception e) {
+            logger.warn("AIMP connection test failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Check if using 7999 interface mode
+     */
+    public boolean is7999Mode() {
+        return INTERFACE_MODE_7999.equals(interfaceMode);
+    }
+
+    /**
+     * Check if using 7998 interface mode
+     */
+    public boolean is7998Mode() {
+        return INTERFACE_MODE_7998.equals(interfaceMode);
+    }
+
+    /**
+     * Get the current interface mode
+     */
+    public String getInterfaceMode() {
+        return interfaceMode;
     }
 
     /**
@@ -47,7 +176,6 @@ public class AimpClient {
         }
         try {
             URL parsed = new URL(url.replaceAll("/$", ""));
-            // Build base URL from scheme, host, and port
             StringBuilder baseUrl = new StringBuilder();
             baseUrl.append(parsed.getProtocol()).append("://").append(parsed.getHost());
             if (parsed.getPort() != -1 && parsed.getPort() != parsed.getDefaultPort()) {
@@ -57,28 +185,6 @@ public class AimpClient {
         } catch (Exception e) {
             logger.warn("Failed to parse service URL: " + url);
             return url.replaceAll("/$", "");
-        }
-    }
-
-    /**
-     * Test connection to AIMP service
-     */
-    public boolean testConnection() {
-        try {
-            // AIMP service uses /health endpoint
-            URL url = new URL(serviceUrl + "/health");
-            logger.info("Testing AIMP connection: " + url.toString());
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(5000);
-            conn.setReadTimeout(5000);
-
-            int responseCode = conn.getResponseCode();
-            logger.info("AIMP health check response code: " + responseCode);
-            return responseCode == 200;
-        } catch (Exception e) {
-            logger.warn("AIMP connection test failed: " + e.getMessage());
-            return false;
         }
     }
 

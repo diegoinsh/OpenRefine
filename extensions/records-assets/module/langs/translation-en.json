@@ -56,5 +56,12 @@
   "records.assets.explorer.title": "Resource Explorer",
   "records.assets.explorer.close": "Close",
   "records.assets.explorer.directoryTree": "Directory Tree",
-  "records.assets.explorer.noContent": "No content"
+  "records.assets.explorer.noContent": "No content",
+
+  "records.assets.annotation.errorType": "Error Type",
+  "records.assets.annotation.stain": "Stain",
+  "records.assets.annotation.hole": "Hole",
+  "records.assets.annotation.edge": "Edge",
+  "records.assets.annotation.skew": "Skew",
+  "records.assets.annotation.other": "Other"
 }

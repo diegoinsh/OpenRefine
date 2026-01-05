@@ -31,11 +31,15 @@ public class QualityRulesConfig implements OverlayModel {
     @JsonProperty("aimpConfig")
     private AimpConfig aimpConfig;
 
+    @JsonProperty("imageQualityRule")
+    private ImageQualityRule imageQualityRule;
+
     public QualityRulesConfig() {
         this.formatRules = new HashMap<>();
         this.resourceConfig = new ResourceCheckConfig();
         this.contentRules = new ArrayList<>();
         this.aimpConfig = new AimpConfig();
+        this.imageQualityRule = new ImageQualityRule();
     }
 
     @JsonCreator
@@ -43,11 +47,13 @@ public class QualityRulesConfig implements OverlayModel {
             @JsonProperty("formatRules") Map<String, FormatRule> formatRules,
             @JsonProperty("resourceConfig") ResourceCheckConfig resourceConfig,
             @JsonProperty("contentRules") List<ContentComparisonRule> contentRules,
-            @JsonProperty("aimpConfig") AimpConfig aimpConfig) {
+            @JsonProperty("aimpConfig") AimpConfig aimpConfig,
+            @JsonProperty("imageQualityRule") ImageQualityRule imageQualityRule) {
         this.formatRules = formatRules != null ? formatRules : new HashMap<>();
         this.resourceConfig = resourceConfig != null ? resourceConfig : new ResourceCheckConfig();
         this.contentRules = contentRules != null ? contentRules : new ArrayList<>();
         this.aimpConfig = aimpConfig != null ? aimpConfig : new AimpConfig();
+        this.imageQualityRule = imageQualityRule != null ? imageQualityRule : new ImageQualityRule();
     }
 
     public Map<String, FormatRule> getFormatRules() {
@@ -80,6 +86,14 @@ public class QualityRulesConfig implements OverlayModel {
 
     public void setAimpConfig(AimpConfig aimpConfig) {
         this.aimpConfig = aimpConfig;
+    }
+
+    public ImageQualityRule getImageQualityRule() {
+        return imageQualityRule;
+    }
+
+    public void setImageQualityRule(ImageQualityRule imageQualityRule) {
+        this.imageQualityRule = imageQualityRule;
     }
 
     @Override

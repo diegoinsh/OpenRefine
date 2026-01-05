@@ -653,14 +653,14 @@ Refine.DataQualityUI.prototype._renderTaskStatus = function(task) {
              '<span class="dq-progress-text">' + progress + '%</span>';
 
     case 'PAUSED':
-      var pausedErrors = (task.formatErrors || 0) + (task.resourceErrors || 0) + (task.contentErrors || 0);
+      var pausedErrors = (task.formatErrors || 0) + (task.resourceErrors || 0) + (task.contentErrors || 0) + (task.imageQualityErrors || 0);
       if (pausedErrors > 0) {
         return '<span class="dq-status-paused">⏸ 已暂停 (' + pausedErrors + '错误)</span>';
       }
       return '<span class="dq-status-paused">⏸ 已暂停 (' + progress + '%)</span>';
 
     case 'COMPLETED':
-      var errorCount = (task.formatErrors || 0) + (task.resourceErrors || 0) + (task.contentErrors || 0);
+      var errorCount = (task.formatErrors || 0) + (task.resourceErrors || 0) + (task.contentErrors || 0) + (task.imageQualityErrors || 0);
       if (errorCount > 0) {
         return '<span class="dq-status-completed-error">✓ 完成 (' + errorCount + '错误)</span>';
       }
@@ -745,7 +745,7 @@ Refine.DataQualityUI.prototype._renderActionButtons = function(container, projec
 
   // 查看报告按钮 (完成后或暂停且有结果时显示)
   if (status === 'COMPLETED' || (status === 'PAUSED' &&
-      ((task.formatErrors || 0) + (task.resourceErrors || 0) + (task.contentErrors || 0)) > 0)) {
+      ((task.formatErrors || 0) + (task.resourceErrors || 0) + (task.contentErrors || 0) + (task.imageQualityErrors || 0)) > 0)) {
     $('<button>')
       .addClass('dq-btn-icon')
       .attr('title', '查看报告')

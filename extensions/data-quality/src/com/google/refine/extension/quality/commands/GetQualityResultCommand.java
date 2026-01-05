@@ -51,6 +51,18 @@ public class GetQualityResultCommand extends Command {
             } else {
                 String json = ParsingUtilities.mapper.writeValueAsString(result);
                 logger.info("Retrieved quality result: {} errors for project {}", result.getErrors().size(), project.id);
+                logger.info("CheckResult keys: {}", ParsingUtilities.mapper.valueToTree(result).fieldNames());
+                logger.info("imageQualityResult: {}", result.getImageQualityResult());
+                if (result.getImageQualityResult() != null) {
+                    logger.info("imageQualityResult errors: {}", result.getImageQualityResult().getErrors().size());
+                    logger.info("imageQualityResult checkType: {}", result.getImageQualityResult().getCheckType());
+                }
+                // Log hiddenFileName for first few errors to verify serialization
+                for (int i = 0; i < Math.min(5, result.getErrors().size()); i++) {
+                    CheckResult.CheckError error = result.getErrors().get(i);
+                    logger.info("Error {}: rowIndex={}, column={}, value={}, hiddenFileName={}",
+                        i, error.getRowIndex(), error.getColumn(), error.getValue(), error.getHiddenFileName());
+                }
                 response.getWriter().write("{\"code\":\"ok\",\"hasResult\":true,\"result\":" + json + "}");
             }
 
@@ -60,4 +72,3 @@ public class GetQualityResultCommand extends Command {
         }
     }
 }
-

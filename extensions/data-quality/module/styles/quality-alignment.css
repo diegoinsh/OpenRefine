@@ -53,7 +53,7 @@
 .quality-sub-tabs-header {
   display: flex;
   border-bottom: 1px solid #ccc;
-  margin-bottom: 15px;
+  margin-bottom: 5px;
 }
 
 .quality-sub-tab-header {
@@ -99,6 +99,12 @@
   font-weight: bold;
 }
 
+/* Highlighted row in errors table */
+.errors-table tr.highlighted {
+  background-color: #e6f3ff;
+  border-left: 4px solid #007bff;
+}
+
 .quality-template-select {
   flex: 1;
   max-width: 300px;
@@ -116,7 +122,7 @@
 
 /* Button bar */
 .quality-button-bar {
-  margin-top: 15px;
+  margin-top: 5px;
   padding-top: 15px;
   border-top: 1px solid #ddd;
 }
@@ -138,9 +144,11 @@
 
 /* Results Container */
 .quality-results-container {
-  padding: 10px;
+  margin-bottom: 10px;
   height: 100%;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* Results Summary */
@@ -149,11 +157,51 @@
   padding: 15px;
   border-radius: 4px;
   margin-bottom: 15px;
+  flex-shrink: 0;
 }
 
 .quality-results-summary h3 {
-  margin: 0 0 10px 0;
+  margin: 0;
   font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.quality-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.quality-summary-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quality-summary-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 16px;
+  color: #666;
+  border-radius: 4px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quality-summary-toggle:hover {
+  background: #e0e0e0;
+  color: #333;
+}
+
+.quality-results-summary.collapsed .quality-summary-content {
+  display: none;
 }
 
 .quality-summary-stats {
@@ -201,7 +249,7 @@
 /* Pie chart section */
 .quality-chart-section {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   min-width: 220px;
 }
@@ -265,15 +313,13 @@
   border: 1px solid #ddd;
   border-radius: 4px;
   min-height: 200px;
-  margin-bottom: 10px;
+  margin-bottom: 20px;
 }
 
-/* Pagination */
-.quality-pagination {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 15px;
+/* Results list section */
+.quality-results-list-section {
+  flex: 1;
+  overflow-y: auto;
   padding: 10px;
 }
 
@@ -373,7 +419,105 @@
 
 .quality-text-input {
   padding: 4px 8px;
-  min-width: 200px;
+  min-width: 50px;
+  background: #ffffff;
+  border: 1px solid #d9d9d9;
+  border-radius: 2px;
+  font-size: 14px;
+  color: #333;
+  transition: all 0.3s;
+  height: 24px;
+  box-sizing: border-box;
+}
+
+.quality-text-input:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.1);
+}
+
+.quality-text-input:hover {
+  border-color: #40a9ff;
+}
+
+.quality-text-input::placeholder {
+  color: #bfbfbf;
+}
+
+/* Number input styling similar to Ant Design */
+.quality-text-input[type="number"] {
+  padding: 4px 8px;
+  width: 80px;
+  height: 24px;
+}
+
+.quality-text-input[type="number"]::-webkit-inner-spin-button,
+.quality-text-input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Checkbox styling similar to Ant Design */
+.quality-checkbox-row input[type="checkbox"] {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  border: 1px solid #d9d9d9;
+  border-radius: 2px;
+  background: #fff;
+  transition: all 0.3s;
+}
+
+.quality-checkbox-row input[type="checkbox"]:hover {
+  border-color: #40a9ff;
+}
+
+.quality-checkbox-row input[type="checkbox"]:checked {
+  background-color: #1976d2;
+  border-color: #1976d2;
+}
+
+.quality-checkbox-row input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 5px;
+  width: 5px;
+  height: 9px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.quality-checkbox-row input[type="checkbox"]:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.1);
+}
+
+/* Label styling */
+.quality-checkbox-row label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #333;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.quality-checkbox-row span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--link-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.quality-checkbox-row label:hover {
+  color: #1976d2;
 }
 
 .quality-concat-inputs {
@@ -388,6 +532,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  font-size: 13px;
 }
 
 .quality-checkbox-row label {
@@ -525,9 +670,10 @@
   align-items: center;
   justify-content: center;
   gap: 15px;
-  padding: 15px 0;
+  padding: 15px 10px 40px ;
   margin-top: 10px;
   border-top: 1px solid #eee;
+  flex-shrink: 0;
 }
 
 .pagination-btn {
@@ -698,11 +844,21 @@
 
 /* Path Config Dialog Styles - same as export-bound-assets */
 .path-config-fields {
-  height: 280px;
+  width: 100%;
+  max-height: 200px;
   overflow-y: auto;
   border: 1px solid #ccc;
   background: #fff;
   padding: 5px;
+  margin-bottom: 10px;
+}
+
+.path-config-options {
+  width: 100%;
+  padding: 10px;
+  background: #fafafa;
+  border: 1px solid #ddd;
+  border-radius: 3px;
 }
 
 .path-field-list {

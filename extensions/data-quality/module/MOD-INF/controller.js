@@ -58,6 +58,14 @@ function registerCommands() {
   RS.registerCommand(module, "list-global-rules",
       new Packages.com.google.refine.extension.quality.commands.ListGlobalRulesCommand());
 
+  // Image quality commands
+  RS.registerCommand(module, "get-image-quality-rule",
+      new Packages.com.google.refine.extension.quality.commands.GetImageQualityRuleCommand());
+  RS.registerCommand(module, "save-image-quality-rule",
+      new Packages.com.google.refine.extension.quality.commands.SaveImageQualityRuleCommand());
+  RS.registerCommand(module, "run-image-quality-check",
+      new Packages.com.google.refine.extension.quality.commands.RunImageQualityCheckCommand());
+
   logger.trace("Data-Quality Extension Command Registration done!");
 }
 
@@ -138,7 +146,9 @@ function init() {
       "scripts/quality-alignment.js",
       "scripts/quality-cell-renderer.js",
       "scripts/dialogs/manage-rules-dialog.js",
-      "scripts/dialogs/run-check-dialog.js"
+      "scripts/dialogs/run-check-dialog.js",
+      "scripts/dialogs/image-quality-tab.js",
+      "scripts/dialogs/image-annotation.js"
     ]
   );
 
@@ -149,7 +159,8 @@ function init() {
     [
       "styles/quality-alignment.css",
       "styles/dialogs/manage-rules-dialog.css",
-      "styles/dialogs/run-check-dialog.css"
+      "styles/dialogs/run-check-dialog.css",
+      "styles/dialogs/image-quality-tab.css"
     ]
   );
 

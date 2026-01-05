@@ -41,9 +41,40 @@ var QualityAlignment = {
   // Content comparison rules: [{ column: '', extractLabel: '', threshold: 90 }]
   _contentRules: [],
 
-  // AIMP service configuration
+  // AIMP service configuration - supports both 7998 and 7999 interface modes
   _aimpConfig: {
-    serviceUrl: ''
+    serviceUrl: '',
+    interfaceMode: 'auto'  // '7998', '7999', or 'auto'
+  }
+};
+
+/**
+ * Get the appropriate API endpoint for a check type based on interface mode
+ * @param {string} serviceUrl - Base service URL
+ * @param {string} interfaceMode - '7998' or '7999'
+ * @param {string} checkType - Type of check (blank, stain, edge, hole, skew, dpi, bitdepth)
+ * @returns {string} - Full API endpoint URL
+ */
+QualityAlignment._getApiEndpoint = function(serviceUrl, interfaceMode, checkType) {
+  // Normalize base URL
+  var baseUrl = serviceUrl.replace(/\/$/, '');
+  
+  if (interfaceMode === '7999') {
+    // 7999 mode uses individual endpoints
+    var endpoints = {
+      'blank': '/blank',
+      'stain': '/stain',
+      'edge': '/edge',
+      'hole': '/house',
+      'skew': '/rectify',
+      'dpi': '/dpi',
+      'bitdepth': '/bitdepth',
+      'quality': '/jpeg/quality'
+    };
+    return baseUrl + (endpoints[checkType] || '/' + checkType);
+  } else {
+    // 7998 mode uses unified extract endpoint
+    return baseUrl + '/api/ocr/extract';
   }
 };
 
@@ -52,15 +83,20 @@ var QualityAlignment = {
  * @param {boolean} showResults - If true, show results tab; otherwise show rules tab
  */
 QualityAlignment.launch = function(showResults, saveState) {
+  console.log('[QualityAlignment.launch] 被调用, showResults:', showResults);
   if (!this._isSetUp) {
+    console.log('[QualityAlignment.launch] _isSetUp为false，调用setUpTabs');
     this.setUpTabs();
   }
 
   if (showResults) {
+    console.log('[QualityAlignment.launch] 调用_renderResultsTab');
     // Always re-render results tab when showing results to ensure latest data is displayed
     this._renderResultsTab();
+    console.log('[QualityAlignment.launch] 调用switchTab切换到results');
     this.switchTab('#quality-results-panel', saveState);
   } else {
+    console.log('[QualityAlignment.launch] 调用switchTab切换到rules');
     this.switchTab('#quality-rules-panel', saveState);
   }
 };
@@ -88,7 +124,18 @@ QualityAlignment._hasAnyRules = function() {
  * Check if there are any quality check results
  */
 QualityAlignment._hasResults = function() {
-  return this._currentResults && this._currentResults.errors && this._currentResults.errors.length > 0;
+  if (!this._currentResults) {
+    return false;
+  }
+  // Has errors OR service unavailable (needs to show alert)
+  if (this._currentResults.errors && this._currentResults.errors.length > 0) {
+    return true;
+  }
+  // Also consider service unavailable as having "results" to display
+  if (this._currentResults.serviceUnavailable) {
+    return true;
+  }
+  return false;
 };
 
 /**
@@ -212,6 +259,24 @@ QualityAlignment.autoLaunchIfNeeded = function() {
         self._lastCheckResult = response.result;
         hasResults = true;
         console.log('[QualityAlignment] Found saved results with', response.result.errors ? response.result.errors.length : 0, 'errors');
+        if (response.result.errors && response.result.errors.length > 0) {
+          console.log('[QualityAlignment] Sample error structure:', response.result.errors[0]);
+          console.log('[QualityAlignment] Error categories:', response.result.errors.map(function(e) { return e.category; }).filter(function(c, i, a) { return a.indexOf(c) === i; }));
+          // 详细检查前5个错误的 hiddenFileName
+          for (var i = 0; i < Math.min(5, response.result.errors.length); i++) {
+            var error = response.result.errors[i];
+            console.log('[QualityAlignment] Error ' + i + ':', {
+              rowIndex: error.rowIndex,
+              column: error.column,
+              value: error.value,
+              errorType: error.errorType,
+              message: error.message,
+              hiddenFileName: error.hiddenFileName,
+              locationX: error.locationX,
+              locationY: error.locationY
+            });
+          }
+        }
         // Build cell error map for cell marking
         self._buildCellErrorMap();
         self._refreshDataTable();
@@ -416,7 +481,8 @@ QualityAlignment._renderRulesTab = function() {
   var subTabs = [
     { id: 'format-check', label: $.i18n('data-quality-extension/format-check-tab') },
     { id: 'resource-check', label: $.i18n('data-quality-extension/resource-check-tab') },
-    { id: 'content-check', label: $.i18n('data-quality-extension/content-check-tab') }
+    { id: 'content-check', label: $.i18n('data-quality-extension/content-check-tab') },
+    { id: 'image-quality', label: $.i18n('data-quality-extension/image-quality-tab') }
   ];
   
   subTabs.forEach(function(tab, index) {
@@ -446,6 +512,7 @@ QualityAlignment._renderRulesTab = function() {
   this._renderFormatCheckTab();
   this._renderResourceCheckTab();
   this._renderContentCheckTab();
+  this._renderImageQualityTab();
 
   // Restore saved sub-tab state
   try {
@@ -780,6 +847,29 @@ QualityAlignment._renderResourceCheckTab = function() {
 };
 
 /**
+ * Render image quality sub-tab
+ */
+QualityAlignment._renderImageQualityTab = function() {
+  var self = this;
+  var container = $('#quality-image-quality-content');
+  container.empty();
+
+  // Load image quality tab HTML
+  var frame = $(DOM.loadHTML('data-quality', 'scripts/dialogs/image-quality-tab.html'));
+  container.html(frame);
+
+  // Initialize the ImageQualityTab module
+  if (typeof ImageQualityTab !== 'undefined') {
+    ImageQualityTab.setUpUI();
+  } else {
+    console.error('[QualityAlignment] ImageQualityTab module not loaded');
+    $('<p class="error-message"></p>')
+      .text('ImageQualityTab模块未加载')
+      .appendTo(container);
+  }
+};
+
+/**
  * Helper: render a checkbox
  */
 QualityAlignment._renderCheckbox = function(container, id, label, checked, onChange) {
@@ -884,13 +974,10 @@ QualityAlignment._showPathConfigDialog = function() {
   // Header row
   var headerRow = $('<tr></tr>').appendTo(mainTableInner);
   $('<td></td>').text($.i18n('data-quality-extension/select-path-fields')).appendTo(headerRow);
-  $('<td></td>').html('<span>' + $.i18n('data-quality-extension/path-options') + '</span>').appendTo(headerRow);
-
-  // Content row
-  var contentRow = $('<tr></tr>').appendTo(mainTableInner);
 
   // Left: Field list
-  var leftTd = $('<td width="40%"></td>').appendTo(contentRow);
+  var fieldListRow = $('<tr></tr>').appendTo(mainTableInner);
+  var leftTd = $('<td width="100%"></td>').appendTo(fieldListRow);
   var fieldListContainer = $('<div class="path-config-fields"></div>').appendTo(leftTd);
   var fieldList = $('<ul class="path-field-list"></ul>').appendTo(fieldListContainer);
 
@@ -928,9 +1015,10 @@ QualityAlignment._showPathConfigDialog = function() {
     update: function() { updatePreview(); }
   });
 
-  // Right: Path options
-  var rightTd = $('<td></td>').appendTo(contentRow);
-  var optionsPane = $('<div class="path-config-options"></div>').appendTo(rightTd);
+  // Right: Path options (moved below field list)
+  var pathOptionsRow = $('<tr></tr>').appendTo(mainTableInner);
+  var pathOptionsTd = $('<td width="100%"></td>').appendTo(pathOptionsRow);
+  var optionsPane = $('<div class="path-config-options"></div>').appendTo(pathOptionsTd);
   var optionsTable = $('<div class="grid-layout layout-normal"><table role="presentation"></table></div>').appendTo(optionsPane);
   var optionsTableInner = optionsTable.find('table');
 
@@ -1262,7 +1350,8 @@ QualityAlignment._showAimpConfigDialog = function() {
     .on('click', function() {
       var url = urlInput.val();
       self._aimpConfig = {
-        serviceUrl: url
+        serviceUrl: url,
+        interfaceMode: 'auto'
       };
       // Save the URL and test connection via POST
       Refine.postCSRF(
@@ -1281,7 +1370,7 @@ QualityAlignment._showAimpConfigDialog = function() {
               if (success) {
                 alert($.i18n('data-quality-extension/configuration-saved'));
               }
-            });
+            }, true);
           } else {
             self._aimpConnected = false;
             self._serviceStatus
@@ -1374,6 +1463,9 @@ QualityAlignment._refreshContentRulesTable = function() {
  * Render results tab
  */
 QualityAlignment._renderResultsTab = function() {
+  console.log('========================================');
+  console.log('[QualityAlignment._renderResultsTab] 函数被调用!!!');
+  console.log('========================================');
   var self = this;
   this._resultsPanel.empty();
 
@@ -1382,21 +1474,53 @@ QualityAlignment._renderResultsTab = function() {
 
   // Get last check result
   var result = this._lastCheckResult;
+  
+  console.log('[QualityAlignment._renderResultsTab] _lastCheckResult:', result);
+  console.log('[QualityAlignment._renderResultsTab] serviceUnavailable:', result ? result.serviceUnavailable : 'result is null');
 
   // Summary section
-  var summarySection = $('<div class="quality-results-summary"></div>')
+  var summarySection = $('<div class="quality-results-summary" id="quality-results-summary"></div>')
     .appendTo(container);
+
+  var summaryHeader = $('<div class="quality-summary-header"></div>')
+    .appendTo(summarySection);
+
+  var summaryTitle = $('<div class="quality-summary-title"></div>')
+    .appendTo(summaryHeader);
 
   $('<h3></h3>')
     .text($.i18n('data-quality-extension/results-summary'))
-    .appendTo(summarySection);
+    .appendTo(summaryTitle);
 
-  // Summary content with stats and chart side by side
   var summaryContent = $('<div class="quality-summary-content"></div>')
     .appendTo(summarySection);
 
   var summaryStats = $('<div class="quality-summary-stats"></div>')
     .appendTo(summaryContent);
+
+  // Toggle button
+  var toggleBtn = $('<button class="quality-summary-toggle expanded"></button>')
+    .attr('title', '收起 / 展开')
+    .appendTo(summaryHeader);
+
+  $('<img src="images/extensions/angle-down.svg" class="toggle-icon-down" style="width: 14px; height: 14px;" />').hide().appendTo(toggleBtn);
+  $('<img src="images/extensions/angle-up.svg" class="toggle-icon-up" style="width: 14px; height: 14px;" />').appendTo(toggleBtn);
+
+  // Toggle functionality
+  toggleBtn.on('click', function() {
+    var isCollapsed = summarySection.hasClass('collapsed');
+    if (isCollapsed) {
+      summarySection.removeClass('collapsed');
+      toggleBtn.addClass('expanded');
+      toggleBtn.find('.toggle-icon-down').hide();
+      toggleBtn.find('.toggle-icon-up').show();
+    } else {
+      summarySection.addClass('collapsed');
+      toggleBtn.removeClass('expanded');
+      toggleBtn.find('.toggle-icon-down').show();
+      toggleBtn.find('.toggle-icon-up').hide();
+    }
+  });
 
   // Render stats from result
   var stats = {
@@ -1405,24 +1529,66 @@ QualityAlignment._renderResultsTab = function() {
     warnings: 0,
     passed: result ? result.passedRows : 0
   };
+
+  // Add file statistics if available
+  if (result && result.imageQualityResult && result.imageQualityResult.fileStatistics) {
+    stats.totalFolders = result.imageQualityResult.fileStatistics.totalFolders || 0;
+    stats.totalFiles = result.imageQualityResult.fileStatistics.totalFiles || 0;
+  }
+
   this._renderSummaryStats(summaryStats, stats);
+
+  if (result && result.serviceUnavailable) {
+    console.log('[QualityAlignment._renderResultsTab] 准备渲染serviceUnavailable alert');
+    var serviceUnavailableAlert = $('<div class="quality-service-unavailable-alert"></div>')
+      .css({
+        'background-color': '#fffbfbff',
+        'border-radius': '4px',
+        'padding': '15px',
+        'margin': '15px 0',
+        'color': '#b82e3bff'
+      })
+      .appendTo(summarySection);
+
+    $('<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;"></div>')
+      .append(
+        $('<img src="images/extensions/triangle-exclamation.svg"/>')
+          .css({'width': '20px', 'height': '20px'})
+      )
+      .append(
+        $('<span></span>')
+          .html('<strong>' + $.i18n('data-quality-extension/aimp-service-unavailable') + '</strong> ' + $.i18n('data-quality-extension/aimp-service-incomplete'))
+      )
+      .append(
+        $('<button class="button"></button>')
+          .text($.i18n('data-quality-extension/configure-aimp'))
+          .css({'padding': '4px 12px', 'font-size': '13px'})
+          .on('click', function() {
+            self._showAimpConfigDialog();
+          })
+      )
+      .appendTo(serviceUnavailableAlert);
+  }
 
   // Pie chart section
   var chartSection = $('<div class="quality-chart-section"></div>')
     .appendTo(summaryContent);
 
   // Get category counts from result
-  var formatErrors = 0, resourceErrors = 0, contentErrors = 0;
+  var formatErrors = 0, resourceErrors = 0, contentErrors = 0, imageErrors = 0;
   if (result && result.summary) {
     formatErrors = result.summary.formatErrors || 0;
     resourceErrors = result.summary.resourceErrors || 0;
     contentErrors = result.summary.contentErrors || 0;
+    // Use imageQualityErrors (with capital Q) from backend
+    imageErrors = result.summary.imageQualityErrors || result.summary.imageErrors || 0;
   } else if (result && result.errors) {
     // Calculate from errors if summary not available
     // Error types from backend:
     // Format: non_empty, regex, date_format, value_list, unique
     // Resource: folder_existence, file_count, file_name_format, file_sequential
     // Content: content_mismatch, content_warning
+    // Image: image_quality (blank, skew, stain, hole, dpi, kb, edge)
     result.errors.forEach(function(err) {
       var errType = err.errorType || err.category || '';
       // Format errors
@@ -1441,13 +1607,20 @@ QualityAlignment._renderResultsTab = function() {
                errType.indexOf('content') >= 0) {
         contentErrors++;
       }
+      // Image quality errors
+      else if (errType === 'image_quality' || errType.indexOf('image') >= 0 ||
+               errType === 'blank' || errType === 'skew' || errType === 'stain' ||
+               errType === 'hole' || errType === 'dpi' || errType === 'kb' || errType === 'edge') {
+        imageErrors++;
+      }
     });
   }
 
   this._renderPieChart(chartSection, {
     format: formatErrors,
     resource: resourceErrors,
-    content: contentErrors
+    content: contentErrors,
+    image: imageErrors
   });
 
   // Export buttons
@@ -1484,6 +1657,7 @@ QualityAlignment._renderResultsTab = function() {
   $('<option value="format">' + $.i18n('data-quality-extension/format-check-tab') + '</option>').appendTo(categoryFilter);
   $('<option value="resource">' + $.i18n('data-quality-extension/resource-check-tab') + '</option>').appendTo(categoryFilter);
   $('<option value="content">' + $.i18n('data-quality-extension/content-check-tab') + '</option>').appendTo(categoryFilter);
+  $('<option value="image_quality">' + $.i18n('data-quality-extension/image-quality-check-tab') + '</option>').appendTo(categoryFilter);
 
   categoryFilter.on('change', function() {
     self._filterCategory = $(this).val();
@@ -1495,15 +1669,47 @@ QualityAlignment._renderResultsTab = function() {
   var typeFilter = $('<select id="quality-type-filter"></select>')
     .appendTo(filterBar);
   $('<option value="">' + $.i18n('data-quality-extension/all') + '</option>').appendTo(typeFilter);
-  $('<option value="non_empty">' + $.i18n('data-quality-extension/check-non-empty') + '</option>').appendTo(typeFilter);
-  $('<option value="unique">' + $.i18n('data-quality-extension/check-unique') + '</option>').appendTo(typeFilter);
-  $('<option value="regex">' + $.i18n('data-quality-extension/check-regex') + '</option>').appendTo(typeFilter);
-  $('<option value="date_format">' + $.i18n('data-quality-extension/check-date-format') + '</option>').appendTo(typeFilter);
-  $('<option value="value_list">' + $.i18n('data-quality-extension/check-value-list') + '</option>').appendTo(typeFilter);
-  $('<option value="folder_existence">' + $.i18n('data-quality-extension/folder-existence') + '</option>').appendTo(typeFilter);
-  $('<option value="file_count">' + $.i18n('data-quality-extension/file-count-match') + '</option>').appendTo(typeFilter);
-  $('<option value="file_name_format">' + $.i18n('data-quality-extension/file-name-format') + '</option>').appendTo(typeFilter);
-  $('<option value="file_sequential">' + $.i18n('data-quality-extension/file-sequential') + '</option>').appendTo(typeFilter);
+
+  var formatGroup = $('<optgroup label="' + $.i18n('data-quality-extension/format-check-tab') + '"></optgroup>').appendTo(typeFilter);
+  $('<option value="non_empty">' + $.i18n('data-quality-extension/check-non-empty') + '</option>').appendTo(formatGroup);
+  $('<option value="unique">' + $.i18n('data-quality-extension/check-unique') + '</option>').appendTo(formatGroup);
+  $('<option value="regex">' + $.i18n('data-quality-extension/check-regex') + '</option>').appendTo(formatGroup);
+  $('<option value="date_format">' + $.i18n('data-quality-extension/check-date-format') + '</option>').appendTo(formatGroup);
+  $('<option value="value_list">' + $.i18n('data-quality-extension/check-value-list') + '</option>').appendTo(formatGroup);
+
+  var resourceGroup = $('<optgroup label="' + $.i18n('data-quality-extension/resource-check-tab') + '"></optgroup>').appendTo(typeFilter);
+  $('<option value="folder_existence">' + $.i18n('data-quality-extension/folder-existence') + '</option>').appendTo(resourceGroup);
+  $('<option value="file_count">' + $.i18n('data-quality-extension/file-count-match') + '</option>').appendTo(resourceGroup);
+  $('<option value="file_name_format">' + $.i18n('data-quality-extension/file-name-format') + '</option>').appendTo(resourceGroup);
+  $('<option value="file_sequential">' + $.i18n('data-quality-extension/file-sequential') + '</option>').appendTo(resourceGroup);
+
+  var imageGroup = $('<optgroup label="' + $.i18n('data-quality-extension/image-quality-check-tab') + '"></optgroup>').appendTo(typeFilter);
+  
+  $('<option value="damage">' + $.i18n('data-quality-extension/damage-check') + '</option>').appendTo(imageGroup);
+  $('<option value="blank">' + $.i18n('data-quality-extension/blank-check') + '</option>').appendTo(imageGroup);
+  $('<option value="format">' + $.i18n('data-quality-extension/format-check') + '</option>').appendTo(imageGroup);
+  $('<option value="repeatimage">' + $.i18n('data-quality-extension/duplicate-check') + '</option>').appendTo(imageGroup);
+  $('<option value="houseAngle">' + $.i18n('data-quality-extension/text-direction-check') + '</option>').appendTo(imageGroup);
+  $('<option value="bias">' + $.i18n('data-quality-extension/skew-check') + '</option>').appendTo(imageGroup);
+  $('<option value="edgeRemove">' + $.i18n('data-quality-extension/edge-check') + '</option>').appendTo(imageGroup);
+  $('<option value="stainValue">' + $.i18n('data-quality-extension/stain-check') + '</option>').appendTo(imageGroup);
+  $('<option value="hole">' + $.i18n('data-quality-extension/hole-check') + '</option>').appendTo(imageGroup);
+  
+  $('<option value="counting">' + $.i18n('data-quality-extension/count-stats-check') + '</option>').appendTo(imageGroup);
+  $('<option value="pageSize">' + $.i18n('data-quality-extension/page-stats-check') + '</option>').appendTo(imageGroup);
+  $('<option value="blankFilesCheck">' + $.i18n('data-quality-extension/empty-folders-check') + '</option>').appendTo(imageGroup);
+  
+  $('<option value="pieceContinuous">' + $.i18n('data-quality-extension/sequence-check') + '</option>').appendTo(imageGroup);
+  $('<option value="continuity">' + $.i18n('data-quality-extension/page-sequence-check') + '</option>').appendTo(imageGroup);
+  
+  $('<option value="dpi">' + $.i18n('data-quality-extension/dpi-check') + '</option>').appendTo(imageGroup);
+  $('<option value="kb">' + $.i18n('data-quality-extension/kb-check') + '</option>').appendTo(imageGroup);
+  
+  $('<option value="reImageName">' + $.i18n('data-quality-extension/image-name-check') + '</option>').appendTo(imageGroup);
+  $('<option value="reImagePath">' + $.i18n('data-quality-extension/image-path-check') + '</option>').appendTo(imageGroup);
+  $('<option value="reImagePathRoot">' + $.i18n('data-quality-extension/image-path-regex-check') + '</option>').appendTo(imageGroup);
+  $('<option value="quality">' + $.i18n('data-quality-extension/quality-check') + '</option>').appendTo(imageGroup);
+  $('<option value="pdfImageUniformity">' + $.i18n('data-quality-extension/pdf-image-uniformity-check') + '</option>').appendTo(imageGroup);
 
   typeFilter.on('change', function() {
     self._filterErrorType = $(this).val();
@@ -1539,6 +1745,190 @@ QualityAlignment._renderResultsTab = function() {
 
   // Render errors table
   this._renderErrorsTable();
+  
+  // Add keyboard shortcut functionality for navigating between errors
+  this._setupKeyboardNavigation();
+};
+
+/**
+ * Setup keyboard navigation for error results using arrow keys
+ */
+QualityAlignment._setupKeyboardNavigation = function() {
+  var self = this;
+  
+  // Remove existing event listeners to avoid duplicates
+  $(document).off('keydown.qualityNavigation');
+  
+  // Add keyboard event listener
+  $(document).on('keydown.qualityNavigation', function(e) {
+    // Only handle keyboard events when results panel is active
+    var resultsPanel = $('#quality-results-panel');
+    var isResultsPanelActive = resultsPanel.is(':visible') && resultsPanel.hasClass('main-view-panel-tab');
+    
+    if (!isResultsPanelActive) {
+      return;
+    }
+    
+    // Handle arrow keys
+    var keyCode = e.which || e.keyCode;
+    var currentPage = self._currentPage || 1;
+    var pageSize = self._pageSize || 20;
+    var errors = self._filteredErrors || [];
+    var totalErrors = errors.length;
+    
+    if (totalErrors === 0) {
+      return;
+    }
+    
+    // Find currently highlighted row
+    var highlightedRow = $('.errors-table tr.highlighted');
+    var currentIndex = -1;
+    
+    if (highlightedRow.length > 0) {
+      // Get the stored error index directly from the row
+      currentIndex = highlightedRow.data('errorIndex');
+      // Fallback to searching if errorIndex is not available
+      if (currentIndex === undefined || currentIndex === null) {
+        var clickedError = highlightedRow.data('error');
+        for (var i = 0; i < errors.length; i++) {
+          if (errors[i].rowIndex === clickedError.rowIndex && 
+              errors[i].column === clickedError.column && 
+              errors[i].errorType === clickedError.errorType) {
+            currentIndex = i;
+            break;
+          }
+        }
+      }
+    }
+    
+    // Helper function to find the next resource category error
+    function findNextResourceError(startIndex, direction) {
+      var index = startIndex;
+      var iterations = 0;
+      var maxIterations = errors.length;
+      
+      while (iterations < maxIterations) {
+        index = index + direction;
+        
+        // Wrap around
+        if (index >= totalErrors) {
+          index = 0;
+        } else if (index < 0) {
+          index = totalErrors - 1;
+        }
+        
+        // Check if this error has hiddenFileName (indicates resource/image error)
+        if (errors[index].hiddenFileName) {
+          return index;
+        }
+        
+        iterations++;
+      }
+      
+      return -1; // No resource error found
+    }
+    
+    // Determine target index based on key pressed
+    var targetIndex = -1;
+    
+    if (keyCode === 38) { // Up arrow
+      e.preventDefault();
+      if (currentIndex === -1) {
+        // No highlighted row, go to last resource error
+        for (var i = totalErrors - 1; i >= 0; i--) {
+          if (errors[i].hiddenFileName) {
+            targetIndex = i;
+            break;
+          }
+        }
+      } else {
+        // Move to previous resource error
+        targetIndex = findNextResourceError(currentIndex, -1);
+      }
+    } else if (keyCode === 40) { // Down arrow
+      e.preventDefault();
+      if (currentIndex === -1) {
+        // No highlighted row, go to first resource error
+        for (var i = 0; i < totalErrors; i++) {
+          if (errors[i].hiddenFileName) {
+            targetIndex = i;
+            break;
+          }
+        }
+      } else {
+        // Move to next resource error
+        targetIndex = findNextResourceError(currentIndex, 1);
+      }
+    } else if (keyCode === 37) { // Left arrow
+      e.preventDefault();
+      if (currentIndex === -1) {
+        // No highlighted row, go to first resource error
+        for (var i = 0; i < totalErrors; i++) {
+          if (errors[i].hiddenFileName) {
+            targetIndex = i;
+            break;
+          }
+        }
+      } else {
+        // Move to previous resource error (same as up arrow)
+        targetIndex = findNextResourceError(currentIndex, -1);
+      }
+    } else if (keyCode === 39) { // Right arrow
+      e.preventDefault();
+      if (currentIndex === -1) {
+        // No highlighted row, go to last resource error
+        for (var i = totalErrors - 1; i >= 0; i--) {
+          if (errors[i].hiddenFileName) {
+            targetIndex = i;
+            break;
+          }
+        }
+      } else {
+        // Move to next resource error (same as down arrow)
+        targetIndex = findNextResourceError(currentIndex, 1);
+      }
+    }
+    
+    // If target index is valid, navigate to it
+    if (targetIndex >= 0 && targetIndex < totalErrors) {
+      var targetError = errors[targetIndex];
+      
+      // Update current page if needed
+      var targetPage = Math.floor(targetIndex / pageSize) + 1;
+      if (targetPage !== currentPage) {
+        self._currentPage = targetPage;
+        self._renderErrorsTable();
+      }
+      
+      // Highlight the target row (only select tbody rows, not thead)
+      $('.errors-table tbody tr').removeClass('highlighted');
+      var targetRow = $('.errors-table tbody tr').eq(targetIndex % pageSize);
+      targetRow.addClass('highlighted');
+      
+      // Scroll to the target row
+      targetRow[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      
+      // Trigger click event on the target row
+      targetRow.click();
+    }
+  });
+};
+
+/**
+ * Highlight a specific row in the errors table
+ */
+QualityAlignment._highlightRow = function(rowIndex) {
+  // Remove existing highlights (only from tbody)
+  $('.errors-table tbody tr').removeClass('highlighted');
+  
+  // Find and highlight the row with matching rowIndex (only in tbody)
+  $('.errors-table tbody tr').each(function() {
+    var error = $(this).data('error');
+    if (error && error.rowIndex === rowIndex) {
+      $(this).addClass('highlighted');
+      return false; // Break the loop
+    }
+  });
 };
 
 /**
@@ -1576,37 +1966,89 @@ QualityAlignment._renderErrorsTable = function() {
 
   // Calculate page range
   var startIndex = (currentPage - 1) * pageSize;
-  var endIndex = Math.min(startIndex + pageSize, errors.length);
+  var resourceTypeMap = {
+        'jpg': '图像', 'jpeg': '图像', 'png': '图像', 'gif': '图像', 'bmp': '图像', 'webp': '图像',
+        'pdf': 'PDF',
+        'ofd': 'OFD',
+        'doc': 'Word', 'docx': 'Word',
+        'xls': 'Excel', 'xlsx': 'Excel',
+        'ppt': 'PowerPoint', 'pptx': 'PowerPoint',
+        'tif': '图像', 'tiff': '图像'
+      };
+    
+    var endIndex = Math.min(startIndex + pageSize, errors.length);
 
-  for (var i = startIndex; i < endIndex; i++) {
-    var error = errors[i];
-    var row = $('<tr></tr>').appendTo(tbody);
-    $('<td></td>').text(error.rowIndex + 1).appendTo(row);
-    // For resource checks like file_sequential, column is not a real column name
-    var columnDisplay = error.column;
-    if (error.errorType === 'file_sequential' || error.errorType === 'folder_sequential' ||
-        error.errorType === 'file_sequence' || error.errorType === 'folder_sequence') {
-      columnDisplay = '';
-    }
-    $('<td></td>').text(columnDisplay || '(空)').appendTo(row);
-    $('<td></td>').text(error.value || '(空)').appendTo(row);
-    $('<td></td>').text(this._getErrorTypeLabel(error.errorType)).appendTo(row);
-    $('<td></td>').text(this._formatErrorMessage(error)).appendTo(row);
+    for (var i = startIndex; i < endIndex; i++) {
+      var error = errors[i];
+      var row = $('<tr></tr>').appendTo(tbody);
+      row.data('error', error);
+      row.data('errorIndex', i); // Store the actual error index
+      $('<td></td>').text(error.rowIndex + 1).appendTo(row);
+      var columnDisplay = error.column;
+      var isSequentialError = error.errorType === 'file_sequential' || error.errorType === 'folder_sequential' ||
+          error.errorType === 'file_sequence' || error.errorType === 'folder_sequence';
+      var isFileCountError = error.errorType === 'file_count' || error.errorType === 'folder_count';
+      
+      if (error.category === 'resource') {
+        if (isFileCountError) {
+          columnDisplay = '页数';
+        } else if (isSequentialError) {
+          columnDisplay = '顺序检查';
+        } else if (error.value) {
+          var ext = error.value.split('.').pop().toLowerCase();
+          if (ext && ext.length <= 10 && !ext.includes('\\') && !ext.includes('/')) {
+            columnDisplay = resourceTypeMap[ext] || ext.toUpperCase();
+          }
+        }
+      }
+      $('<td></td>').text(columnDisplay || '(空)').appendTo(row);
+      $('<td></td>').text(error.value || '(空)').appendTo(row);
+      $('<td></td>').text(this._getErrorTypeLabel(error.errorType)).appendTo(row);
+      $('<td></td>').text(this._formatErrorMessage(error)).appendTo(row);
 
-    // Click to navigate to row
+    // Click to handle error navigation
     row.css('cursor', 'pointer').on('click', function() {
-      var rowIndex = parseInt($(this).find('td:first').text(), 10) - 1;
-      // Navigate to row in data table using _showRows method
-      if (typeof ui !== 'undefined' && ui.dataTableView && typeof ui.dataTableView._showRows === 'function') {
-        // Switch to the data view panel first
-        QualityAlignment.switchTab('#view-panel');
-        // Then navigate to the row
-        ui.dataTableView._showRows({start: rowIndex}, function() {
-          // Render after navigation
-          ui.dataTableView.render();
-          // Highlight the target row
-          QualityAlignment._highlightRow(rowIndex);
-        });
+      // Remove existing highlights (only from tbody)
+      $('.errors-table tbody tr').removeClass('highlighted');
+      // Highlight current row
+      $(this).addClass('highlighted');
+      
+      var clickedError = $(this).data('error');
+      var rowIndex = clickedError.rowIndex;
+      
+      console.log('[QualityAlignment] Row clicked:', {
+        rowIndex: rowIndex,
+        errorType: clickedError.errorType,
+        errorValue: clickedError.value,
+        locationX: clickedError.locationX,
+        locationY: clickedError.locationY,
+        column: clickedError.column
+      });
+      
+      // Check if this is an image error with location data
+      var isImageError = QualityAlignment._isImageError(clickedError);
+      var hasLocationData = clickedError.locationX !== undefined || clickedError.locationY !== undefined;
+      
+      console.log('[QualityAlignment] isImageError:', isImageError, 'hasLocationData:', hasLocationData);
+      
+      if (isImageError && hasLocationData) {
+        // Open image preview with annotations
+        console.log('[QualityAlignment] Opening image preview with annotations');
+        QualityAlignment._openImagePreviewWithAnnotations(clickedError, rowIndex);
+      } else {
+        // Navigate to row in data table using _showRows method
+        console.log('[QualityAlignment] Navigating to data view');
+        if (typeof ui !== 'undefined' && ui.dataTableView && typeof ui.dataTableView._showRows === 'function') {
+          // Switch to the data view panel first
+          QualityAlignment.switchTab('#view-panel');
+          // Then navigate to the row
+          ui.dataTableView._showRows({start: rowIndex}, function() {
+            // Render after navigation
+            ui.dataTableView.render();
+            // Highlight the target row
+            QualityAlignment._highlightRow(rowIndex);
+          });
+        }
       }
     });
   }
@@ -1634,9 +2076,61 @@ QualityAlignment._getErrorTypeLabel = function(errorType) {
     'folder_sequential': $.i18n('data-quality-extension/folder-sequential'),
     'folder_sequence': $.i18n('data-quality-extension/folder-sequential'),
     // Content checks
-    'content_mismatch': $.i18n('data-quality-extension/content-check-tab')
+    'content_mismatch': $.i18n('data-quality-extension/content-check-tab'),
+    // Image quality checks - USABILITY category
+    'damage': $.i18n('data-quality-extension/damage-check'),
+    'blank': $.i18n('data-quality-extension/blank-check'),
+    'format': $.i18n('data-quality-extension/format-check'),
+    'repeatimage': $.i18n('data-quality-extension/duplicate-check'),
+    'houseAngle': $.i18n('data-quality-extension/text-direction-check'),
+    'bias': $.i18n('data-quality-extension/skew-check'),
+    'edgeRemove': $.i18n('data-quality-extension/edge-check'),
+    'stainValue': $.i18n('data-quality-extension/stain-check'),
+    'hole': $.i18n('data-quality-extension/hole-check'),
+    // Image quality checks - INTEGRITY category
+    'counting': $.i18n('data-quality-extension/count-stats-check'),
+    'pageSize': $.i18n('data-quality-extension/page-stats-check'),
+    'blankFilesCheck': $.i18n('data-quality-extension/empty-folders-check'),
+    // Image quality checks - UNIQUENESS category
+    'pieceContinuous': $.i18n('data-quality-extension/sequence-check'),
+    'continuity': $.i18n('data-quality-extension/page-sequence-check'),
+    // Image quality checks - SECURITY category
+    'dpi': $.i18n('data-quality-extension/dpi-check'),
+    'kb': $.i18n('data-quality-extension/kb-check'),
+    // Image quality checks - OTHERS category
+    'reImageName': $.i18n('data-quality-extension/image-name-check'),
+    'reImagePath': $.i18n('data-quality-extension/image-path-check'),
+    'reImagePathRoot': $.i18n('data-quality-extension/image-path-regex-check'),
+    'quality': $.i18n('data-quality-extension/quality-check'),
+    'pdfImageUniformity': $.i18n('data-quality-extension/pdf-image-uniformity-check'),
+    // Legacy mappings
+    'image_quality': $.i18n('data-quality-extension/image-quality-check-tab'),
+    'skew': $.i18n('data-quality-extension/skew-check'),
+    'stain': $.i18n('data-quality-extension/stain-check'),
+    'edge': $.i18n('data-quality-extension/edge-check')
   };
   return labels[errorType] || errorType;
+};
+
+/**
+ * Format location information for display
+ * @param {Object} error - Error object with location data
+ * @returns {string} Formatted location string or empty string
+ */
+QualityAlignment._formatLocationInfo = function(error) {
+  if (!error) return '';
+  
+  var x = error.locationX;
+  var y = error.locationY;
+  var width = error.locationWidth;
+  var height = error.locationHeight;
+  
+  if (x !== undefined && x !== null && y !== undefined && y !== null) {
+    return '(位置: x=' + x + ', y=' + y + 
+           (width !== undefined && width !== null ? ', 宽=' + width : '') + 
+           (height !== undefined && height !== null ? ', 高=' + height : '') + ')';
+  }
+  return '';
 };
 
 /**
@@ -1703,6 +2197,99 @@ QualityAlignment._formatErrorMessage = function(error) {
     }
   }
 
+  if (error.category === 'image_quality' || errorType === 'blank' || errorType === 'skew' ||
+      errorType === 'stain' || errorType === 'hole' || errorType === 'edge' ||
+      errorType === 'dpi' || errorType === 'kb' ||
+      errorType === 'damage' || errorType === 'format' || errorType === 'repeatimage' ||
+      errorType === 'houseAngle' || errorType === 'bias' || errorType === 'edgeRemove' ||
+      errorType === 'stainValue' || errorType === 'counting' || errorType === 'pageSize' ||
+      errorType === 'blankFilesCheck' || errorType === 'pieceContinuous' ||
+      errorType === 'continuity' || errorType === 'reImageName' || errorType === 'reImagePath' ||
+      errorType === 'reImagePathRoot' || errorType === 'quality' || errorType === 'pdfImageUniformity') {
+    if (errorType === 'damage') {
+      return '检测到破损文件: ' + (message || '');
+    }
+    if (errorType === 'format') {
+      return '格式检查失败: ' + (message || '');
+    }
+    if (errorType === 'repeatimage') {
+      return '检测到重复图片: ' + (message || '');
+    }
+    if (errorType === 'houseAngle') {
+      return '文本方向异常: ' + (message || '');
+    }
+    if (errorType === 'bias' || errorType === 'skew') {
+      var skewMatch = message.match(/angle: ([-]?\d+)/);
+      return '检测到图像倾斜' + (skewMatch ? ', 角度: ' + skewMatch[1] + '°' : '');
+    }
+    if (errorType === 'edgeRemove' || errorType === 'edge') {
+      var edgeMatch = message.match(/Edge issue detected: (\S+)/);
+      var baseMsg = '检测到黑边' + (edgeMatch ? ': ' + edgeMatch[1] : '');
+      var locationInfo = QualityAlignment._formatLocationInfo(error);
+      return locationInfo ? baseMsg + ' ' + locationInfo : baseMsg;
+    }
+    if (errorType === 'stainValue' || errorType === 'stain') {
+      var stainMatch = message.match(/Stain detected: (\S+)/);
+      var stainBaseMsg = '检测到污点' + (stainMatch ? ': ' + stainMatch[1] : '');
+      var stainLocationInfo = QualityAlignment._formatLocationInfo(error);
+      return stainLocationInfo ? stainBaseMsg + ' ' + stainLocationInfo : stainBaseMsg;
+    }
+    if (errorType === 'hole') {
+      var holeMatch = message.match(/Binding hole detected: (\S+)/);
+      var holeBaseMsg = '检测到装订孔' + (holeMatch ? ': ' + holeMatch[1] : '');
+      var holeLocationInfo = QualityAlignment._formatLocationInfo(error);
+      return holeLocationInfo ? holeBaseMsg + ' ' + holeLocationInfo : holeBaseMsg;
+    }
+    if (errorType === 'blank') {
+      var blankMatch = message.match(/Blank page detected: (\S+)/);
+      return '检测到空白页: ' + (blankMatch ? blankMatch[1] : '');
+    }
+    if (errorType === 'counting') {
+      return '数量统计异常: ' + (message || '');
+    }
+    if (errorType === 'pageSize') {
+      return '篇幅检查异常: ' + (message || '');
+    }
+    if (errorType === 'blankFilesCheck') {
+      return '检测到空文件: ' + (message || '');
+    }
+    if (errorType === 'pieceContinuous') {
+      return '件号连续性检查失败: ' + (message || '');
+    }
+    if (errorType === 'continuity') {
+      return '页号连续性检查失败: ' + (message || '');
+    }
+    if (errorType === 'reImageName') {
+      return '图片名称检查失败: ' + (message || '');
+    }
+    if (errorType === 'reImagePath') {
+      return '文件路径检查失败: ' + (message || '');
+    }
+    if (errorType === 'reImagePathRoot') {
+      return '文件路径正则规则错误: ' + (message || '');
+    }
+    if (errorType === 'quality') {
+      return '压缩率检查失败: ' + (message || '');
+    }
+    if (errorType === 'pdfImageUniformity') {
+      return 'PDF与图片不一致: ' + (message || '');
+    }
+    if (errorType === 'dpi') {
+      var dpiMatch = message.match(/DPI: (\d+).*minimum: (\d+)/);
+      if (dpiMatch) {
+        return 'DPI过低: ' + dpiMatch[1] + ', 最低要求: ' + dpiMatch[2];
+      }
+      return message;
+    }
+    if (errorType === 'kb') {
+      var kbMatch = message.match(/Size: (\d+)KB.*minimum: (\d+)KB/);
+      if (kbMatch) {
+        return '文件大小不足: ' + kbMatch[1] + 'KB, 最低要求: ' + kbMatch[2] + 'KB';
+      }
+      return message;
+    }
+  }
+
   // Return original message if no translation found
   return message;
 };
@@ -1715,14 +2302,20 @@ QualityAlignment._filterResults = function() {
   var category = this._filterCategory || '';
   var errorType = this._filterErrorType || '';
 
+  console.log('[QualityAlignment._filterResults] category:', category, 'errorType:', errorType, 'totalErrors:', result ? result.errors.length : 0);
+
   if (!result || !result.errors) {
     this._filteredErrors = [];
   } else {
     this._filteredErrors = result.errors.filter(function(e) {
       var matchCategory = !category || e.category === category;
       var matchType = !errorType || e.errorType === errorType;
+      if (!matchCategory || !matchType) {
+        console.log('[QualityAlignment._filterResults] Filtered out:', e.errorType, 'category:', e.category, 'matchCategory:', matchCategory, 'matchType:', matchType);
+      }
       return matchCategory && matchType;
     });
+    console.log('[QualityAlignment._filterResults] Filtered count:', this._filteredErrors.length);
   }
   this._currentPage = 1;
   this._renderErrorsTable();
@@ -1737,6 +2330,18 @@ QualityAlignment._renderSummaryStats = function(container, stats) {
   $('<div class="quality-stat"></div>')
     .html('<span class="stat-label">' + $.i18n('data-quality-extension/total-rows') + ':</span> <span class="stat-value">' + stats.total + '</span>')
     .appendTo(container);
+
+  if (stats.totalFolders !== undefined && stats.totalFolders !== null) {
+    $('<div class="quality-stat"></div>')
+      .html('<span class="stat-label">文件夹数:</span> <span class="stat-value">' + stats.totalFolders + '</span>')
+      .appendTo(container);
+  }
+
+  if (stats.totalFiles !== undefined && stats.totalFiles !== null) {
+    $('<div class="quality-stat"></div>')
+      .html('<span class="stat-label">文件数:</span> <span class="stat-value">' + stats.totalFiles + '</span>')
+      .appendTo(container);
+  }
 
   $('<div class="quality-stat stat-error"></div>')
     .html('<span class="stat-label">' + $.i18n('data-quality-extension/error-count') + ':</span> <span class="stat-value">' + stats.errors + '</span>')
@@ -1757,7 +2362,7 @@ QualityAlignment._renderSummaryStats = function(container, stats) {
 QualityAlignment._renderPieChart = function(container, data) {
   container.empty();
 
-  var total = data.format + data.resource + data.content;
+  var total = data.format + data.resource + data.content + data.image;
   if (total === 0) {
     $('<div class="chart-no-data"></div>')
       .text($.i18n('data-quality-extension/no-errors'))
@@ -1776,12 +2381,13 @@ QualityAlignment._renderPieChart = function(container, data) {
   var colors = {
     format: '#e74c3c',    // Red
     resource: '#f39c12',  // Orange
-    content: '#3498db'    // Blue
+    content: '#3498db',   // Blue
+    image: '#9b59b6'      // Purple
   };
 
   // Draw pie slices
   var startAngle = -Math.PI / 2;
-  var categories = ['format', 'resource', 'content'];
+  var categories = ['format', 'resource', 'content', 'image'];
 
   categories.forEach(function(cat) {
     if (data[cat] > 0) {
@@ -1802,7 +2408,8 @@ QualityAlignment._renderPieChart = function(container, data) {
   var labels = {
     format: $.i18n('data-quality-extension/format-check-tab'),
     resource: $.i18n('data-quality-extension/resource-check-tab'),
-    content: $.i18n('data-quality-extension/content-check-tab')
+    content: $.i18n('data-quality-extension/content-check-tab'),
+    image: $.i18n('data-quality-extension/image-quality-check-tab')
   };
 
   categories.forEach(function(cat) {
@@ -2507,6 +3114,24 @@ QualityAlignment._saveRules = function(callback, silent) {
     },
     function(response) {
       if (response.code === "ok") {
+        // Also save image quality rule if ImageQualityTab is available
+        if (typeof ImageQualityTab !== 'undefined' && ImageQualityTab._currentRule) {
+          var imageRule = ImageQualityTab._collectRuleFromUI();
+          Refine.postCSRF(
+            "command/data-quality/save-image-quality-rule",
+            {
+              project: theProject.id,
+              rule: JSON.stringify(imageRule)
+            },
+            function(imageResponse) {
+              if (imageResponse.code !== "ok") {
+                console.error('Failed to save image quality rule:', imageResponse.message);
+              }
+            },
+            "json"
+          );
+        }
+
         self._hasUnsavedChanges = false;
         if (self._unsavedIndicator) self._unsavedIndicator.hide();
         if (!silent) {
@@ -2625,8 +3250,12 @@ QualityAlignment._getDefaultResourceConfig = function() {
 QualityAlignment._buildExportData = function(result) {
   if (!result) return null;
 
+  console.log('[QualityAlignment] _buildExportData called, result keys:', Object.keys(result));
+  console.log('[QualityAlignment] result.imageQualityResult:', result.imageQualityResult);
+
   // If summary already exists, return as is
   if (result.summary) {
+    console.log('[QualityAlignment] summary exists, returning result as is');
     return result;
   }
 
@@ -2635,6 +3264,7 @@ QualityAlignment._buildExportData = function(result) {
   var formatErrors = 0;
   var resourceErrors = 0;
   var contentErrors = 0;
+  var imageErrors = 0;
 
   errors.forEach(function(err) {
     if (err.category === 'format') {
@@ -2643,19 +3273,33 @@ QualityAlignment._buildExportData = function(result) {
       resourceErrors++;
     } else if (err.category === 'content') {
       contentErrors++;
+    } else if (err.category === 'image_quality') {
+      imageErrors++;
     }
   });
 
-  return {
+  var exportData = {
     summary: {
       totalRows: result.totalRows || theProject.rowModel.total || 0,
       totalErrors: errors.length,
       formatErrors: formatErrors,
       resourceErrors: resourceErrors,
-      contentErrors: contentErrors
+      contentErrors: contentErrors,
+      imageQualityErrors: imageErrors
     },
     errors: errors
   };
+
+  // Include imageQualityResult if it exists in the original result
+  if (result.imageQualityResult) {
+    console.log('[QualityAlignment] Adding imageQualityResult to exportData');
+    exportData.imageQualityResult = result.imageQualityResult;
+  } else {
+    console.log('[QualityAlignment] imageQualityResult not found in result');
+  }
+
+  console.log('[QualityAlignment] exportData keys:', Object.keys(exportData));
+  return exportData;
 };
 
 /**
@@ -2767,5 +3411,224 @@ QualityAlignment._highlightRow = function(rowIndex) {
       break;
     }
   }
+};
+
+QualityAlignment._initImageAnnotation = function() {
+  if (typeof ImageAnnotation !== 'undefined') {
+    ImageAnnotation.init();
+    console.log('[QualityAlignment] Image annotation initialized');
+  }
+};
+
+QualityAlignment.showImageWithAnnotations = function(imagePath, errors) {
+  if (typeof ImageAnnotation !== 'undefined' && typeof ImageAnnotation.showImageWithAnnotations === 'function') {
+    ImageAnnotation.showImageWithAnnotations(imagePath, errors);
+  } else {
+    console.error('[QualityAlignment] ImageAnnotation module not loaded');
+    alert('图像标注功能未加载，请刷新页面后重试');
+  }
+};
+
+QualityAlignment._isImageError = function(error) {
+  if (!error || !error.errorType) return false;
+  
+  var errorType = error.errorType;
+  
+  var imageErrorTypes = [
+    'damage', 'blank', 'format', 'repeatimage', 'houseAngle', 'bias', 
+    'edgeRemove', 'stainValue', 'hole', 'skew', 'edge', 'stain'
+  ];
+  
+  return imageErrorTypes.indexOf(errorType) >= 0 || 
+         errorType.indexOf('image') >= 0 ||
+         errorType === 'image_quality';
+};
+
+QualityAlignment._openImagePreviewWithAnnotations = function(error, rowIndex) {
+  var self = this;
+  
+  console.log('[QualityAlignment._openImagePreviewWithAnnotations] Called with error:', error);
+  
+  var resourceConfig = this._resourceConfig || {};
+  var basePath = resourceConfig.path || resourceConfig.basePath || '';
+  
+  var columnName = error.column;
+  var value = error.value;
+  
+  console.log('[QualityAlignment] Column:', columnName, 'Value:', value, 'BasePath:', basePath);
+  console.log('[QualityAlignment] hiddenFileName:', error.hiddenFileName);
+  
+  var fullPath;
+  if (error.hiddenFileName) {
+    fullPath = value + '/' + error.hiddenFileName;
+  } else {
+    fullPath = value;
+  }
+  
+  if (!fullPath.startsWith('/') && !fullPath.match(/^[a-zA-Z]:/)) {
+    fullPath = basePath + '/' + fullPath;
+  }
+  
+  var resourcePath = fullPath.replace(/\\/g, '/');
+  console.log('[QualityAlignment] Final resource path:', resourcePath);
+  
+  var resourceErrors = this._lastCheckResult && this._lastCheckResult.errors 
+    ? this._lastCheckResult.errors.filter(function(err) {
+        console.log('[QualityAlignment] Filtering error:', err.rowIndex, err.column, err.locationX, err.locationY, err.hiddenFileName);
+        var matchRowCol = err.rowIndex === error.rowIndex && err.column === error.column;
+        var matchHiddenFile = error.hiddenFileName ? err.hiddenFileName === error.hiddenFileName : true;
+        return matchRowCol && matchHiddenFile &&
+               (err.locationX !== undefined || err.locationY !== undefined || (err.details && err.details.locations));
+      })
+    : [];
+  
+  console.log('[QualityAlignment] Found', resourceErrors.length, 'resource errors before expansion');
+  
+  var expandedAnnotations = [];
+  resourceErrors.forEach(function(err, index) {
+    console.log('[QualityAlignment] Processing error', index, 'errorType:', err.errorType, 'details:', err.details);
+    if (err.details && err.details.locations && Array.isArray(err.details.locations) && err.details.locations.length > 0) {
+      console.log('[QualityAlignment] Expanding aggregated error, location count:', err.details.locations.length);
+      err.details.locations.forEach(function(loc, locIndex) {
+        console.log('[QualityAlignment] Location', locIndex, ':', loc);
+        if (loc && loc.length >= 4) {
+          expandedAnnotations.push({
+            rowIndex: err.rowIndex,
+            column: err.column,
+            hiddenFileName: err.hiddenFileName,
+            value: err.value,
+            errorType: err.errorType,
+            message: err.message,
+            locationX: loc[0],
+            locationY: loc[1],
+            locationWidth: loc[2],
+            locationHeight: loc[3]
+          });
+        }
+      });
+    } else {
+      expandedAnnotations.push(err);
+    }
+  });
+  
+  resourceErrors = expandedAnnotations;
+  console.log('[QualityAlignment] Found', resourceErrors.length, 'resource errors after expansion');
+  
+  if (typeof FilePreviewDialog !== 'undefined') {
+    console.log('[QualityAlignment] Calling FilePreviewDialog.showWithAnnotations');
+    FilePreviewDialog.showWithAnnotations(resourcePath, resourceErrors);
+  } else if (typeof ImageAnnotation !== 'undefined') {
+    console.log('[QualityAlignment] Calling ImageAnnotation.showImageWithAnnotations');
+    ImageAnnotation.showImageWithAnnotations(resourcePath, resourceErrors);
+  } else {
+    console.error('[QualityAlignment] Preview modules not loaded');
+    alert('预览功能未加载，请刷新页面后重试');
+  }
+};
+
+QualityAlignment.getLocationErrors = function(rowIndex, columnName) {
+  if (!this._cellErrorMap || !this._lastCheckResult || !this._lastCheckResult.errors) {
+    return [];
+  }
+
+  var errorKey = rowIndex + '_' + columnName;
+  var errors = this._cellErrorMap[errorKey];
+
+  if (!errors || errors.length === 0) {
+    return [];
+  }
+
+  return errors.filter(function(error) {
+    return error.locationX !== undefined || error.locationY !== undefined;
+  });
+};
+
+QualityAlignment.annotateImageCell = function(cell, rowIndex, columnName) {
+  if (typeof ImageAnnotation === 'undefined') {
+    return cell;
+  }
+
+  var value = cell && cell.v ? cell.v : '';
+  if (!value || typeof value !== 'string') {
+    return cell;
+  }
+
+  var isImagePath = value.match(/\.(jpg|jpeg|png|gif|bmp|tiff|webp)$/i);
+  if (!isImagePath) {
+    return cell;
+  }
+
+  var locationErrors = this.getLocationErrors(rowIndex, columnName);
+  var hasAnnotations = locationErrors.length > 0;
+
+  if (!hasAnnotations) {
+    return cell;
+  }
+
+  var annotatedValue = {
+    v: value,
+    annotation: {
+      hasAnnotations: true,
+      errorCount: locationErrors.length,
+      errors: locationErrors
+    }
+  };
+
+  return annotatedValue;
+};
+
+QualityAlignment._createImageViewLink = function(cell, rowIndex, columnName) {
+  var self = this;
+  var value = cell && cell.v ? cell.v : '';
+
+  if (!value || typeof value !== 'string') {
+    return $('<span></span>');
+  }
+
+  var isImagePath = value.match(/\.(jpg|jpeg|png|gif|bmp|tiff|webp)$/i);
+  if (!isImagePath) {
+    return $('<span></span>');
+  }
+
+  var locationErrors = this.getLocationErrors(rowIndex, columnName);
+  var hasAnnotations = locationErrors.length > 0;
+
+  var link = $('<a href="javascript:;" class="quality-image-view-link"></a>');
+  link.css({
+    'margin-left': '8px',
+    'cursor': 'pointer',
+    'color': hasAnnotations ? '#ff6b6b' : '#007bff'
+  });
+
+  var icon = hasAnnotations ? '⚠️' : '👁️';
+  link.text(icon);
+
+  link.attr('title', hasAnnotations
+    ? '查看图像 (有 ' + locationErrors.length + ' 个问题标注)'
+    : '查看图像');
+
+  link.on('click', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    var resourceConfig = self._resourceConfig || {};
+    var basePath = resourceConfig.path || '';
+    var fullPath = value;
+
+    if (!fullPath.startsWith('/') && !fullPath.match(/^[a-zA-Z]:/)) {
+      fullPath = basePath + '/' + value;
+    }
+
+    var resourcePath = fullPath.replace(/\\/g, '/');
+
+    if (hasAnnotations) {
+      console.log('[QualityAlignment] 调用 showImageWithAnnotations, errors数量:', locationErrors.length);
+      self.showImageWithAnnotations(resourcePath, locationErrors);
+    } else {
+      window.open(resourcePath, '_blank');
+    }
+  });
+
+  return link;
 };
 

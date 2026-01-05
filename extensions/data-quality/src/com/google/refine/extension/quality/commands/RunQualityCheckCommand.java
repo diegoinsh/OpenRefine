@@ -22,6 +22,7 @@ import com.google.refine.ProjectManager;
 import com.google.refine.commands.Command;
 import com.google.refine.extension.quality.checker.ContentChecker;
 import com.google.refine.extension.quality.checker.FormatChecker;
+import com.google.refine.extension.quality.checker.ImageQualityChecker;
 import com.google.refine.extension.quality.checker.ResourceChecker;
 import com.google.refine.extension.quality.model.CheckResult;
 import com.google.refine.extension.quality.model.QualityRulesConfig;
@@ -144,7 +145,20 @@ public class RunQualityCheckCommand extends Command {
             contentResult.complete();
         }
 
-        return buildResponse(totalRows, formatResult, resourceResult, contentResult);
+        // Run image quality checks
+        logger.info("Image quality check AIMP service URL: " + aimpServiceUrl);
+        CheckResult imageQualityResult = new CheckResult("image_quality");
+        if (aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
+            logger.info("Running image quality check with AIMP service: " + aimpServiceUrl);
+            ImageQualityChecker imageChecker = new ImageQualityChecker(project, rules, aimpServiceUrl);
+            imageQualityResult = imageChecker.runCheck();
+            logger.info("Image quality check completed, errors: " + imageQualityResult.getErrors().size());
+        } else {
+            logger.info("Skipping image quality check - no AIMP service URL configured");
+            imageQualityResult.complete();
+        }
+
+        return buildResponse(totalRows, formatResult, resourceResult, contentResult, imageQualityResult);
     }
 
     /**
@@ -183,8 +197,22 @@ public class RunQualityCheckCommand extends Command {
                 contentResult.complete();
             }
 
+            // Phase 4: Image quality checks
+            task.setCurrentPhase("图像质量检查");
+            CheckResult imageQualityResult = new CheckResult("image_quality");
+            if (aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
+                logger.info("Running async image quality check with AIMP service: " + aimpServiceUrl);
+                ImageQualityChecker imageChecker = new ImageQualityChecker(project, rules, aimpServiceUrl);
+                imageChecker.setTask(task); // Set task for progress updates
+                imageQualityResult = imageChecker.runCheck();
+                task.setImageQualityErrors(imageQualityResult.getErrors().size());
+                totalErrors += imageQualityResult.getErrors().size();
+            } else {
+                imageQualityResult.complete();
+            }
+
             // Build and store result
-            ObjectNode result = buildResponse(project.rows.size(), formatResult, resourceResult, contentResult);
+            ObjectNode result = buildResponse(project.rows.size(), formatResult, resourceResult, contentResult, imageQualityResult);
             task.setResult(result);
             task.setStatus(TaskStatus.COMPLETED);
             task.setCompletedAt(System.currentTimeMillis());
@@ -194,6 +222,31 @@ public class RunQualityCheckCommand extends Command {
                 CheckResult combinedResult = new CheckResult("combined");
                 combinedResult.setTotalRows(project.rows.size());
                 combinedResult.setCheckedRows(project.rows.size());
+                // 复制serviceUnavailable状态
+                combinedResult.setServiceUnavailable(
+                    formatResult.isServiceUnavailable() || 
+                    resourceResult.isServiceUnavailable() || 
+                    contentResult.isServiceUnavailable() || 
+                    imageQualityResult.isServiceUnavailable()
+                );
+                // 设置serviceUnavailableMessage
+                if (contentResult.isServiceUnavailable()) {
+                    combinedResult.setServiceUnavailableMessage(contentResult.getServiceUnavailableMessage());
+                } else if (imageQualityResult.isServiceUnavailable()) {
+                    combinedResult.setServiceUnavailableMessage(imageQualityResult.getServiceUnavailableMessage());
+                } else if (formatResult.isServiceUnavailable()) {
+                    combinedResult.setServiceUnavailableMessage(formatResult.getServiceUnavailableMessage());
+                } else if (resourceResult.isServiceUnavailable()) {
+                    combinedResult.setServiceUnavailableMessage(resourceResult.getServiceUnavailableMessage());
+                }
+                // 设置imageQualityResult以保留统计数据
+                combinedResult.setImageQualityResult(imageQualityResult);
+                logger.info("=== 保存 combinedResult ===");
+                logger.info("combinedResult.imageQualityResult: {}", combinedResult.getImageQualityResult());
+                if (combinedResult.getImageQualityResult() != null) {
+                    logger.info("combinedResult.imageQualityResult.errors: {}", combinedResult.getImageQualityResult().getErrors().size());
+                    logger.info("combinedResult.imageQualityResult.checkType: {}", combinedResult.getImageQualityResult().getCheckType());
+                }
                 // Add all errors to combined result
                 for (CheckResult.CheckError err : formatResult.getErrors()) {
                     err.setCategory("format");
@@ -205,6 +258,10 @@ public class RunQualityCheckCommand extends Command {
                 }
                 for (CheckResult.CheckError err : contentResult.getErrors()) {
                     err.setCategory("content");
+                    combinedResult.addError(err);
+                }
+                for (CheckResult.CheckError err : imageQualityResult.getErrors()) {
+                    err.setCategory("image_quality");
                     combinedResult.addError(err);
                 }
                 combinedResult.complete();
@@ -236,22 +293,47 @@ public class RunQualityCheckCommand extends Command {
         }
     }
 
-    private ObjectNode buildResponse(int totalRows, CheckResult formatResult, CheckResult resourceResult, CheckResult contentResult) {
+    private ObjectNode buildResponse(int totalRows, CheckResult formatResult, CheckResult resourceResult, 
+            CheckResult contentResult, CheckResult imageQualityResult) {
         ObjectNode responseNode = mapper.createObjectNode();
         responseNode.put("code", "ok");
 
-        int totalErrors = formatResult.getErrors().size() + resourceResult.getErrors().size() + contentResult.getErrors().size();
+        int totalErrors = formatResult.getErrors().size() + resourceResult.getErrors().size() + 
+                         contentResult.getErrors().size() + imageQualityResult.getErrors().size();
 
-        // Summary
+        // 检查是否有服务不可用状态
+        boolean serviceUnavailable = formatResult.isServiceUnavailable() || 
+                                     resourceResult.isServiceUnavailable() || 
+                                     contentResult.isServiceUnavailable() || 
+                                     imageQualityResult.isServiceUnavailable();
+        responseNode.put("serviceUnavailable", serviceUnavailable);
+        
+        // 设置服务不可用消息
+        String serviceUnavailableMessage = null;
+        if (contentResult.isServiceUnavailable()) {
+            serviceUnavailableMessage = contentResult.getServiceUnavailableMessage();
+        } else if (imageQualityResult.isServiceUnavailable()) {
+            serviceUnavailableMessage = imageQualityResult.getServiceUnavailableMessage();
+        } else if (formatResult.isServiceUnavailable()) {
+            serviceUnavailableMessage = formatResult.getServiceUnavailableMessage();
+        } else if (resourceResult.isServiceUnavailable()) {
+            serviceUnavailableMessage = resourceResult.getServiceUnavailableMessage();
+        }
+        if (serviceUnavailableMessage != null) {
+            responseNode.put("serviceUnavailableMessage", serviceUnavailableMessage);
+        }
+
+        // Summary with image quality errors
         ObjectNode summary = mapper.createObjectNode();
         summary.put("totalRows", totalRows);
         summary.put("totalErrors", totalErrors);
         summary.put("formatErrors", formatResult.getErrors().size());
         summary.put("resourceErrors", resourceResult.getErrors().size());
         summary.put("contentErrors", contentResult.getErrors().size());
+        summary.put("imageQualityErrors", imageQualityResult.getErrors().size());
         responseNode.set("summary", summary);
 
-        // Combine all errors and set category on each error object
+        // Combine all errors including image quality
         ArrayNode allErrors = mapper.createArrayNode();
         for (CheckResult.CheckError err : formatResult.getErrors()) {
             err.setCategory("format");
@@ -265,12 +347,17 @@ public class RunQualityCheckCommand extends Command {
             err.setCategory("content");
             allErrors.add(mapper.valueToTree(err));
         }
+        for (CheckResult.CheckError err : imageQualityResult.getErrors()) {
+            err.setCategory("image_quality");
+            allErrors.add(mapper.valueToTree(err));
+        }
         responseNode.set("errors", allErrors);
 
         // Individual results
         responseNode.set("formatResult", mapper.valueToTree(formatResult));
         responseNode.set("resourceResult", mapper.valueToTree(resourceResult));
         responseNode.set("contentResult", mapper.valueToTree(contentResult));
+        responseNode.set("imageQualityResult", mapper.valueToTree(imageQualityResult));
 
         return responseNode;
     }

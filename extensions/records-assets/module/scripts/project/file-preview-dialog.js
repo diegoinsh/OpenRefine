@@ -96,6 +96,287 @@ var FilePreviewDialog = {};
   };
 
   /**
+   * Show file preview dialog with error annotations
+   * @param {string} filePath - Full file path (root + path)
+   * @param {Array} errors - Array of error objects with location data
+   */
+  FilePreviewDialog.showWithAnnotations = function(filePath, errors) {
+    var self = this;
+    
+    var lastSlash = filePath.lastIndexOf('/');
+    var rootPath = lastSlash > 0 ? filePath.substring(0, lastSlash) : '';
+    var pathOnly = lastSlash > 0 ? filePath.substring(lastSlash + 1) : filePath;
+    
+    this.show(rootPath, pathOnly, null);
+    
+    this._currentErrors = errors || [];
+    this._showAnnotations = errors && errors.length > 0;
+    
+    var checkAnnotationInterval = setInterval(function() {
+      if (FilePreviewDialog._currentDialog && FilePreviewDialog._currentDialog.find('.preview-image').length > 0) {
+        clearInterval(checkAnnotationInterval);
+        FilePreviewDialog._updateAnnotationToggle(errors);
+      }
+    }, 100);
+    
+    setTimeout(function() {
+      clearInterval(checkAnnotationInterval);
+    }, 5000);
+  };
+  
+  FilePreviewDialog._updateAnnotationToggle = function(errors) {
+    var footer = FilePreviewDialog._currentDialog.find('.file-preview-float-footer');
+    if (footer.length === 0) return;
+    
+    var actions = footer.find('.file-actions');
+    if (actions.length === 0) return;
+    
+    var existingToggle = actions.find('.annotation-toggle-btn');
+    if (existingToggle.length > 0) {
+      existingToggle.remove();
+    }
+    
+    var toggleBtn = $('<button>')
+      .addClass('button annotation-toggle-btn')
+      .text(FilePreviewDialog._showAnnotations ? '隐藏标注' : '显示标注')
+      .on('click', function() {
+        FilePreviewDialog._showAnnotations = !FilePreviewDialog._showAnnotations;
+        $(this).text(FilePreviewDialog._showAnnotations ? '隐藏标注' : '显示标注');
+        FilePreviewDialog._renderAnnotations();
+      });
+    
+    actions.find('.button:last').before(toggleBtn);
+    
+    if (errors && errors.length > 0) {
+      FilePreviewDialog._currentErrors = errors;
+      FilePreviewDialog._renderAnnotations();
+    }
+  };
+  
+  FilePreviewDialog._renderAnnotations = function() {
+    if (!FilePreviewDialog._currentDialog) return;
+    
+    var imgContainer = FilePreviewDialog._currentDialog.find('.image-preview-container');
+    if (imgContainer.length === 0) return;
+    
+    imgContainer.find('.error-marker, .annotation-legend, .annotation-tooltip').remove();
+    
+    if (!FilePreviewDialog._showAnnotations || !FilePreviewDialog._currentErrors || FilePreviewDialog._currentErrors.length === 0) {
+      return;
+    }
+    
+    var img = imgContainer.find('.preview-image');
+    if (img.length === 0) return;
+    
+    var renderMarkers = function() {
+      var naturalWidth = img[0].naturalWidth;
+      var naturalHeight = img[0].naturalHeight;
+      
+      // console.log('[FilePreviewDialog] 图像尺寸检查 - naturalWidth:', naturalWidth, 'naturalHeight:', naturalHeight);
+      
+      if (!naturalWidth || !naturalHeight || naturalWidth === 0 || naturalHeight === 0) {
+        // console.log('[FilePreviewDialog] 图像未加载完成，等待100ms后重试');
+        setTimeout(renderMarkers, 100);
+        return;
+      }
+      
+      var displayedWidth = img.width();
+      var displayedHeight = img.height();
+      
+      var scaleX = displayedWidth / naturalWidth;
+      var scaleY = displayedHeight / naturalHeight;
+      
+      scaleX *= FilePreviewDialog._zoomLevel;
+      scaleY *= FilePreviewDialog._zoomLevel;
+      
+      var containerWidth = imgContainer.width();
+      var containerHeight = imgContainer.height();
+      
+      var imgOffset = img.offset();
+      var containerOffset = imgContainer.offset();
+      
+      var offsetX = imgOffset.left - containerOffset.left;
+      var offsetY = imgOffset.top - containerOffset.top;
+      
+      // 考虑缩放对偏移量的影响
+      // transform-origin: top left，所以缩放后图片的左上角位置不变
+      // 但是图片的实际显示尺寸会改变，需要使用 getBoundingClientRect 获取实际尺寸
+      var imgRect = img[0].getBoundingClientRect();
+      var containerRect = imgContainer[0].getBoundingClientRect();
+      
+      // 计算图片相对于容器的实际位置（考虑缩放）
+      // getBoundingClientRect 返回的是相对于视口的位置，需要减去容器的位置
+      var actualOffsetX = imgRect.left - containerRect.left;
+      var actualOffsetY = imgRect.top - containerRect.top;
+      
+      // 考虑容器的滚动位置
+      // 当容器滚动时，图片相对于容器的位置会改变
+      actualOffsetX += imgContainer.scrollLeft();
+      actualOffsetY += imgContainer.scrollTop();
+      
+      // 使用实际偏移量
+      offsetX = actualOffsetX;
+      offsetY = actualOffsetY;
+      
+      // 手动调整偏移量 - 视觉上发现的偏移
+      offsetX += -5;   // 横向往右偏移6px
+      offsetY += -5;  // 纵向往下偏移50px
+      
+      // console.log('[FilePreviewDialog] 缩放信息 - zoomLevel:', FilePreviewDialog._zoomLevel,
+                  // 'displayedWidth:', displayedWidth, 'displayedHeight:', displayedHeight,
+                  // 'imgRect.width:', imgRect.width, 'imgRect.height:', imgRect.height,
+                  // 'offsetX:', offsetX.toFixed(1), 'offsetY:', offsetY.toFixed(1),
+                  // 'scaleX:', scaleX.toFixed(3), 'scaleY:', scaleY.toFixed(3),
+                  // 'scrollLeft:', imgContainer.scrollLeft(), 'scrollTop:', imgContainer.scrollTop());
+      
+      var contentDiv = FilePreviewDialog._currentDialog.find('.file-preview-float-content');
+      var contentOffset = contentDiv.offset();
+      var contentPaddingTop = parseInt(contentDiv.css('padding-top')) || 0;
+      var contentPaddingBottom = parseInt(contentDiv.css('padding-bottom')) || 0;
+      
+      var headerDiv = FilePreviewDialog._currentDialog.find('.file-preview-float-header');
+      var headerHeight = headerDiv.outerHeight();
+      var headerPaddingTop = parseInt(headerDiv.css('padding-top')) || 0;
+      var headerPaddingBottom = parseInt(headerDiv.css('padding-bottom')) || 0;
+      
+      // console.log('[FilePreviewDialog] 布局详情:');
+      // console.log('  headerHeight:', headerHeight, 'headerPadding:', headerPaddingTop, '+', headerPaddingBottom);
+      // console.log('  contentPaddingTop:', contentPaddingTop, 'contentPaddingBottom:', contentPaddingBottom);
+      console.log('  contentOffset.top:', contentOffset.top);
+      console.log('  imgOffset.top:', imgOffset.top);
+      console.log('  containerOffset.top:', containerOffset.top);
+      
+      // console.log('[FilePreviewDialog] 标注计算 - natural:', naturalWidth, 'x', naturalHeight, 
+                  // 'displayed:', displayedWidth, 'x', displayedHeight,
+                  // 'container:', containerWidth, 'x', containerHeight,
+                  // 'scale:', scaleX.toFixed(3), 'x', scaleY.toFixed(3),
+                  // 'offset:', offsetX.toFixed(1), ',', offsetY.toFixed(1);
+      
+      var legendHtml = '<div class="annotation-legend" style="display: none;">';
+      var errorTypes = {};
+    
+    FilePreviewDialog._currentErrors.forEach(function(error, index) {
+      if (!error.locationX && !error.locationY) return;
+      
+      var markerClass = 'error-marker-';
+      var legendClass = '';
+      
+      if (error.errorType === 'stainValue' || error.errorType === 'stain') {
+        markerClass += 'stain';
+        legendClass = 'stain';
+      } else if (error.errorType === 'hole') {
+        markerClass += 'hole';
+        legendClass = 'hole';
+      } else if (error.errorType === 'edgeRemove' || error.errorType === 'edge') {
+        markerClass += 'edge';
+        legendClass = 'edge';
+      } else if (error.errorType === 'bias' || error.errorType === 'skew') {
+        markerClass += 'skew';
+        legendClass = 'skew';
+      } else {
+        markerClass += 'other';
+        legendClass = 'other';
+      }
+      
+      var x = (error.locationX || 0) * scaleX + offsetX;
+      var y = (error.locationY || 0) * scaleY + offsetY;
+      var width = (error.locationWidth || 100) * scaleX;
+      var height = (error.locationHeight || 100) * scaleY;
+      
+      // console.log('[FilePreviewDialog] 标注位置 - type:', error.errorType, 
+                  // '原始位置:', (error.locationX || 0), ',', (error.locationY || 0),
+                  // '原始尺寸:', (error.locationWidth || 100), 'x', (error.locationHeight || 100),
+                  // '计算位置:', x.toFixed(1), ',', y.toFixed(1),
+                  // '计算尺寸:', width.toFixed(1), 'x', height.toFixed(1));
+      
+      width = Math.max(width, 10);
+      height = Math.max(height, 10);
+      
+      var marker = $('<div class="error-marker ' + markerClass + '"></div>');
+      marker.css({
+        left: x + 'px',
+        top: y + 'px',
+        width: width + 'px',
+        height: height + 'px'
+      });
+      
+      var errorLabel = error.errorType || 'error';
+      var translatedLabel = errorLabel;
+      if (errorLabel === 'stain' || errorLabel === 'stainValue') {
+        translatedLabel = $.i18n('records.assets.annotation.stain') || '污点';
+      } else if (errorLabel === 'hole') {
+        translatedLabel = $.i18n('records.assets.annotation.hole') || '装订孔';
+      } else if (errorLabel === 'edge' || errorLabel === 'edgeRemove') {
+        translatedLabel = $.i18n('records.assets.annotation.edge') || '黑边';
+      } else if (errorLabel === 'skew' || errorLabel === 'bias') {
+        translatedLabel = $.i18n('records.assets.annotation.skew') || '偏斜';
+      } else {
+        translatedLabel = $.i18n('records.assets.annotation.other') || '其他';
+      }
+      
+      // if (error.message) {
+      //   marker.attr('title', translatedLabel + ': ' + error.message);
+      // } else {
+      //   marker.attr('title', translatedLabel);
+      // }
+      
+      marker.on('mouseenter', function(e) {
+        var tooltip = imgContainer.find('.annotation-tooltip');
+        if (tooltip.length === 0) {
+          tooltip = $('<div class="annotation-tooltip"></div>').appendTo(imgContainer);
+        }
+        tooltip.html('<div class="tooltip-title">' + (translatedLabel) + '</div>' +
+                     '<div class="tooltip-message">' + (error.message || '') + '</div>');
+        tooltip.css({
+          left: (x + width + 10) + 'px',
+          top: y + 'px',
+          display: 'block'
+        });
+      });
+      
+      marker.on('mouseleave', function() {
+        imgContainer.find('.annotation-tooltip').hide();
+      });
+      
+      imgContainer.append(marker);
+      
+      if (!errorTypes[legendClass]) {
+        var typeLabel;
+        if (legendClass === 'stain') {
+          typeLabel = $.i18n('records.assets.annotation.stain') || '污点';
+        } else if (legendClass === 'hole') {
+          typeLabel = $.i18n('records.assets.annotation.hole') || '装订孔';
+        } else if (legendClass === 'edge') {
+          typeLabel = $.i18n('records.assets.annotation.edge') || '黑边';
+        } else if (legendClass === 'skew') {
+          typeLabel = $.i18n('records.assets.annotation.skew') || '偏斜';
+        } else {
+          typeLabel = $.i18n('records.assets.annotation.other') || '其他';
+        }
+        errorTypes[legendClass] = typeLabel;
+        legendHtml += '<div class="annotation-legend-item">' +
+                      '<div class="annotation-legend-color annotation-legend-' + legendClass + '"></div>' +
+                      '<span>' + typeLabel + '</span></div>';
+      }
+    });
+    
+    legendHtml += '</div>';
+    
+    if (Object.keys(errorTypes).length > 0) {
+      var errorTypeTitle = $.i18n('records.assets.annotation.errorType') || '错误类型';
+      var legend = $(legendHtml);
+      legend.prepend('<div class="annotation-legend-title">' + errorTypeTitle + '</div>');
+      imgContainer.append(legend);
+      legend.fadeIn(200);
+      
+      FilePreviewDialog._makeDraggable(legend, legend);
+    }
+    };
+    
+    renderMarkers();
+  };
+
+  /**
    * Close the file preview dialog
    */
   FilePreviewDialog.close = function() {
@@ -180,24 +461,24 @@ var FilePreviewDialog = {};
   FilePreviewDialog._makeDraggable = function(element, handle) {
     var isDragging = false;
     var startX, startY, startLeft, startTop;
+    var dragNamespace = '.drag_' + Math.random().toString(36).substr(2, 9);
 
     handle.css('cursor', 'move');
 
-    handle.on('mousedown', function(e) {
+    handle.on('mousedown' + dragNamespace, function(e) {
       if ($(e.target).is('button')) return;
       isDragging = true;
       startX = e.clientX;
       startY = e.clientY;
 
-      // Get current position
-      var offset = element.offset();
-      startLeft = offset.left;
-      startTop = offset.top;
+      var position = element.position();
+      startLeft = position.left;
+      startTop = position.top;
 
       e.preventDefault();
     });
 
-    $(document).on('mousemove.filePreviewDrag', function(e) {
+    $(document).on('mousemove' + dragNamespace, function(e) {
       if (!isDragging) return;
 
       var newLeft = startLeft + e.clientX - startX;
@@ -209,12 +490,16 @@ var FilePreviewDialog = {};
         right: 'auto'
       });
 
-      // Mark as dragged so resize won't reset position
       element.data('dragged', true);
     });
 
-    $(document).on('mouseup.filePreviewDrag', function() {
+    $(document).on('mouseup' + dragNamespace, function() {
       isDragging = false;
+    });
+    
+    element.on('remove', function() {
+      $(document).off(dragNamespace);
+      handle.off(dragNamespace);
     });
   };
 
@@ -222,20 +507,29 @@ var FilePreviewDialog = {};
    * Load file preview
    */
   FilePreviewDialog._loadPreview = function(rootPath, filePath, container, footer) {
+    console.log('[FilePreviewDialog._loadPreview] 接收参数:');
+    console.log('  rootPath:', rootPath);
+    console.log('  filePath:', filePath);
+    console.log('  rootPath类型:', typeof rootPath);
+    console.log('  filePath类型:', typeof filePath);
+    
     $.ajax({
       url: '/command/records-assets/preview',
       type: 'GET',
       data: { root: rootPath, path: filePath },
       dataType: 'json',
       success: function(data) {
+        console.log('[FilePreviewDialog._loadPreview] AJAX成功返回:', data);
         if (data.status === 'ok' || data.status === 'success') {
           FilePreviewDialog._renderPreview(container, data, rootPath, filePath);
           FilePreviewDialog._renderFooter(footer, data, rootPath, filePath);
         } else {
+          console.log('[FilePreviewDialog._loadPreview] 返回状态不是ok:', data.status);
           container.html('<div class="error">' + (data.message || 'Error') + '</div>');
         }
       },
-      error: function() {
+      error: function(xhr, status, error) {
+        console.log('[FilePreviewDialog._loadPreview] AJAX错误:', status, error);
         container.html('<div class="error">' + ($.i18n('records.assets.errors.connectionError') || 'Error') + '</div>');
       }
     });
@@ -365,6 +659,8 @@ var FilePreviewDialog = {};
       var img = FilePreviewDialog._currentDialog.find('.preview-image');
       if (img.length) {
         img.css('transform', 'scale(' + FilePreviewDialog._zoomLevel + ')');
+        img.css('transform-origin', 'top left');
+        FilePreviewDialog._renderAnnotations();
       }
     }
   };

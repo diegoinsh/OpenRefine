@@ -84,47 +84,50 @@ public class TestAimpConnectionCommand extends Command {
                 return false;
             }
 
-            // Try health endpoint first
-            URL url = new URL(serverUrl + "/health");
+            // Determine health check endpoint based on port number
+            // Port 7998: uses /health endpoint (old unified interface)
+            // Port 7999: uses /docs endpoint (new individual endpoints interface)
+            String healthEndpoint = getHealthEndpoint(serverUrl);
+            URL url = new URL(healthEndpoint);
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(CONNECTION_TIMEOUT);
             connection.setReadTimeout(CONNECTION_TIMEOUT);
 
             int responseCode = connection.getResponseCode();
-            logger.debug("AIMP health check response: {}", responseCode);
+            logger.debug("AIMP health check response ({}): {}", healthEndpoint, responseCode);
 
-            // Only 200 is considered successful for health endpoint
+            // Only 200 is considered successful
             return responseCode == 200;
 
         } catch (Exception e) {
-            logger.warn("AIMP health endpoint failed: {}, trying root endpoint", e.getMessage());
-            // Try root endpoint as fallback
-            if (connection != null) {
-                connection.disconnect();
-                connection = null;
-            }
-            try {
-                URL url = new URL(serverUrl);
-                connection = (HttpURLConnection) url.openConnection();
-                connection.setRequestMethod("GET");
-                connection.setConnectTimeout(CONNECTION_TIMEOUT);
-                connection.setReadTimeout(CONNECTION_TIMEOUT);
-
-                int responseCode = connection.getResponseCode();
-                logger.debug("AIMP root endpoint response: {}", responseCode);
-
-                // Only accept 2xx responses for root endpoint
-                return responseCode >= 200 && responseCode < 300;
-
-            } catch (Exception e2) {
-                logger.warn("AIMP connection test failed: {}", e2.getMessage());
-                return false;
-            }
+            logger.warn("AIMP connection test failed: {}", e.getMessage());
+            return false;
         } finally {
             if (connection != null) {
                 connection.disconnect();
             }
+        }
+    }
+
+    /**
+     * Get the appropriate health check endpoint based on port number
+     * Port 7998: /health (old unified interface)
+     * Port 7999: /docs (new individual endpoints interface)
+     */
+    private String getHealthEndpoint(String serverUrl) {
+        // Extract port number from URL
+        try {
+            URL url = new URL(serverUrl);
+            int port = url.getPort();
+            if (port == 7999) {
+                return serverUrl + "/docs";
+            }
+            // Default to /health for port 7998 and others
+            return serverUrl + "/health";
+        } catch (Exception e) {
+            // Fallback to /health if URL parsing fails
+            return serverUrl + "/health";
         }
     }
 

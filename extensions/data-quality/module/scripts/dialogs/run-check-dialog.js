@@ -291,6 +291,9 @@ RunCheckDialog.prototype._updateProgress = function(progress) {
   if (progress.contentErrors > 0) {
     errorParts.push($.i18n('data-quality-extension/content-check-tab') + ': ' + progress.contentErrors);
   }
+  if (progress.imageQualityErrors > 0) {
+    errorParts.push($.i18n('data-quality-extension/image-quality-check-tab') + ': ' + progress.imageQualityErrors);
+  }
 
   if (errorParts.length > 0) {
     statusParts.push($.i18n('data-quality-extension/error-count') + ': ' + errorParts.join(', '));
@@ -301,6 +304,11 @@ RunCheckDialog.prototype._updateProgress = function(progress) {
 
 RunCheckDialog.prototype._onCheckComplete = function(response) {
   var self = this;
+
+  console.log('[RunCheckDialog] 收到后端响应:', response);
+  console.log('[RunCheckDialog] serviceUnavailable:', response.serviceUnavailable);
+  console.log('[RunCheckDialog] serviceUnavailableMessage:', response.serviceUnavailableMessage);
+  console.log('[RunCheckDialog] imageQualityResult:', response.imageQualityResult);
 
   this._elmts.progressFill.css('width', '100%');
   this._elmts.progressText.text('100%');
@@ -314,15 +322,24 @@ RunCheckDialog.prototype._onCheckComplete = function(response) {
     formatErrors: response.summary ? response.summary.formatErrors : 0,
     resourceErrors: response.summary ? response.summary.resourceErrors : 0,
     contentErrors: response.summary ? response.summary.contentErrors : 0,
+    imageQualityErrors: response.summary ? response.summary.imageQualityErrors : 0,
+    // 添加服务不可用状态
+    serviceUnavailable: response.serviceUnavailable || false,
+    serviceUnavailableMessage: response.serviceUnavailableMessage || null,
+    // Add imageQualityResult for statistics export
+    imageQualityResult: response.imageQualityResult || null,
     // Add summary object for export
     summary: {
       totalRows: response.summary ? response.summary.totalRows : 0,
       totalErrors: response.summary ? response.summary.totalErrors : 0,
       formatErrors: response.summary ? response.summary.formatErrors : 0,
       resourceErrors: response.summary ? response.summary.resourceErrors : 0,
-      contentErrors: response.summary ? response.summary.contentErrors : 0
+      contentErrors: response.summary ? response.summary.contentErrors : 0,
+      imageQualityErrors: response.summary ? response.summary.imageQualityErrors : 0
     }
   };
+
+  console.log('[RunCheckDialog] 构建的result对象:', result);
 
   var totalErrors = result.errors.length;
   var statusMsg = $.i18n('data-quality-extension/check-complete') + ' - ' +
@@ -337,14 +354,33 @@ RunCheckDialog.prototype._onCheckComplete = function(response) {
   if (result.contentErrors > 0) {
     statusMsg += ' (' + $.i18n('data-quality-extension/content-check-tab') + ': ' + result.contentErrors + ')';
   }
+  if (result.imageQualityErrors > 0) {
+    statusMsg += ' (' + $.i18n('data-quality-extension/image-quality-check-tab') + ': ' + result.imageQualityErrors + ')';
+  }
 
   this._elmts.statusText.text(statusMsg);
   this._elmts.stopButton.hide();
   this._elmts.cancelButton.text($.i18n('data-quality-extension/view-results'));
 
+  // 在对话框中显示服务不可用提示
+  if (response.serviceUnavailable) {
+    var alertHtml = '<div style="background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; padding: 15px; margin: 15px 0; color: #b82e3bff;">' +
+      '<div style="display: flex; align-items: center;">' +
+        '<img src="images/extensions/triangle-exclamation.svg" style="width: 20px; height: 20px; margin-right: 8px; flex-shrink: 0;" />' +
+        '<span><strong>' + $.i18n('data-quality-extension/aimp-service-unavailable') + '</strong> ' + $.i18n('data-quality-extension/aimp-service-incomplete') + '</span>' +
+      '</div>' +
+      '</div>';
+    
+    // 在状态文本后插入警告
+    this._elmts.statusText.after(alertHtml);
+  }
+
   // Store result in QualityAlignment
   QualityAlignment._lastCheckResult = result;
   QualityAlignment._currentResults = result;
+
+  console.log('[RunCheckDialog] _currentResults设置完成:', QualityAlignment._currentResults);
+  console.log('[RunCheckDialog] _lastCheckResult设置完成:', QualityAlignment._lastCheckResult);
 
   // Build cell error map for cell marking and refresh data table
   QualityAlignment._buildCellErrorMap();
@@ -367,7 +403,9 @@ RunCheckDialog.prototype._onCheckComplete = function(response) {
 
   // Update cancel button to view results
   this._elmts.cancelButton.off('click').on('click', function() {
+    console.log('[RunCheckDialog] 点击了查看结果按钮');
     DialogSystem.dismissUntil(self._level - 1);
+    console.log('[RunCheckDialog] 调用QualityAlignment.launch(true)');
     QualityAlignment.launch(true); // Switch to results tab
   });
 };
