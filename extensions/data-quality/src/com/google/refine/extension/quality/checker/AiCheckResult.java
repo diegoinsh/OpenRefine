@@ -21,8 +21,7 @@ public class AiCheckResult {
     private Boolean hasSkew;
     private Integer skewAngle;
     private Integer bitDepth;
-    private Integer expectedPageSize;
-    private Integer actualPageSize;
+    private String pageSize;
     
     // 位置坐标数据 [x, y, width, height]
     private List<int[]> stainLocations;
@@ -134,27 +133,19 @@ public class AiCheckResult {
         this.bitDepth = bitDepth;
     }
 
-    public Integer getExpectedPageSize() {
-        return expectedPageSize;
+    public String getPageSize() {
+        return pageSize;
     }
 
-    public void setExpectedPageSize(Integer expectedPageSize) {
-        this.expectedPageSize = expectedPageSize;
-    }
-
-    public Integer getActualPageSize() {
-        return actualPageSize;
-    }
-
-    public void setActualPageSize(Integer actualPageSize) {
-        this.actualPageSize = actualPageSize;
+    public void setPageSize(String pageSize) {
+        this.pageSize = pageSize;
     }
 
     public boolean isEmpty() {
         return !blank && rectify == null && !hasEdgeRemove && !hasStain && !hasHole
                && dpi == null && kb == null && quality == null && format == null
                && !hasSkew() && skewAngle == null && bitDepth == null
-               && expectedPageSize == null && actualPageSize == null;
+               && pageSize == null;
     }
 
     public List<int[]> getStainLocations() {

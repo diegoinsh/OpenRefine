@@ -89,7 +89,8 @@ var ImageAnnotation = {
       .annotation-legend {
         position: absolute;
         top: 10px;
-        right: 10px;
+        left: 10px;
+        right: auto;
         background: rgba(255, 255, 255, 0.95);
         padding: 8px 12px;
         border-radius: 4px;
@@ -124,6 +125,13 @@ var ImageAnnotation = {
       .annotation-legend-edge {
         background: rgba(128, 0, 128, 0.2);
         border: 1px solid #800080;
+      }
+
+      .annotation-legend-dot {
+        color: #000;
+        font-weight: bold;
+        margin-right: 6px;
+        font-size: 14px;
       }
 
       .error-marker {
@@ -170,22 +178,7 @@ var ImageAnnotation = {
   _createOverlay: function() {
     this._overlayContainer = $('<div class="image-annotation-overlay"></div>');
     this._tooltip = $('<div class="annotation-tooltip"></div>');
-    this._legend = $(`
-      <div class="annotation-legend">
-        <div class="annotation-legend-item">
-          <div class="annotation-legend-color annotation-legend-stain"></div>
-          <span>污点</span>
-        </div>
-        <div class="annotation-legend-item">
-          <div class="annotation-legend-color annotation-legend-hole"></div>
-          <span>装订孔</span>
-        </div>
-        <div class="annotation-legend-item">
-          <div class="annotation-legend-color annotation-legend-edge"></div>
-          <span>黑边</span>
-        </div>
-      </div>
-    `);
+    this._legend = $('<div class="annotation-legend"></div>');
 
     this._overlayContainer.append(this._tooltip);
     this._overlayContainer.append(this._legend);
@@ -312,6 +305,12 @@ var ImageAnnotation = {
       return null;
     }
 
+    console.log('[ImageAnnotation._createAnnotationOverlay] 开始创建标注层');
+    console.log('[ImageAnnotation._createAnnotationOverlay] 传入的 errors 数量:', errors ? errors.length : 0);
+    if (errors && errors.length > 0) {
+      console.log('[ImageAnnotation._createAnnotationOverlay] errors 详细信息:', JSON.stringify(errors, null, 2));
+    }
+
     var imageOffset = image.offset();
     var imageWidth = image.width();
     var imageHeight = image.height();
@@ -330,36 +329,34 @@ var ImageAnnotation = {
     });
 
     var tooltip = $('<div class="annotation-tooltip"></div>');
-    var legend = $(`
-      <div class="annotation-legend">
-        <div class="annotation-legend-item">
-          <div class="annotation-legend-color annotation-legend-stain"></div>
-          <span>污点</span>
-        </div>
-        <div class="annotation-legend-item">
-          <div class="annotation-legend-color annotation-legend-hole"></div>
-          <span>装订孔</span>
-        </div>
-        <div class="annotation-legend-item">
-          <div class="annotation-legend-color annotation-legend-edge"></div>
-          <span>黑边</span>
-        </div>
-      </div>
-    `);
+    var legend = $('<div class="annotation-legend"></div>');
 
     overlay.append(tooltip);
     overlay.append(legend);
 
     if (!errors || errors.length === 0) {
+      console.log('[ImageAnnotation._createAnnotationOverlay] errors 为空，隐藏图例');
       legend.hide();
     }
 
     var hasErrors = false;
+    var hasLocationErrors = false;
+    var nonLocationErrors = {};
+
+    console.log('[ImageAnnotation._createAnnotationOverlay] 开始处理 errors 数组');
     errors.forEach(function(error) {
+      console.log('[ImageAnnotation._createAnnotationOverlay] 处理错误:', error.errorType, 'locationX:', error.locationX, 'locationY:', error.locationY, 'extractedValue:', error.extractedValue);
+      
       if (!error.locationX && !error.locationY) {
+        if (!nonLocationErrors[error.errorType]) {
+          nonLocationErrors[error.errorType] = [];
+        }
+        nonLocationErrors[error.errorType].push(error);
+        console.log('[ImageAnnotation._createAnnotationOverlay] 添加到 nonLocationErrors:', error.errorType, '当前数量:', nonLocationErrors[error.errorType].length);
         return;
       }
 
+      hasLocationErrors = true;
       hasErrors = true;
       var markerClass = 'error-marker-';
       switch (error.errorType) {
@@ -414,8 +411,68 @@ var ImageAnnotation = {
       overlay.append(marker);
     });
 
+    var legendHtml = '';
+    if (hasLocationErrors) {
+      legendHtml += '<div class="annotation-legend-item"><div class="annotation-legend-color annotation-legend-stain"></div><span>污点</span></div>';
+      legendHtml += '<div class="annotation-legend-item"><div class="annotation-legend-color annotation-legend-hole"></div><span>装订孔</span></div>';
+      legendHtml += '<div class="annotation-legend-item"><div class="annotation-legend-color annotation-legend-edge"></div><span>黑边</span></div>';
+    }
+
+    console.log('[ImageAnnotation._createAnnotationOverlay] 开始处理非位置错误');
+    console.log('[ImageAnnotation._createAnnotationOverlay] nonLocationErrors 对象:', JSON.stringify(nonLocationErrors, null, 2));
+    console.log('[ImageAnnotation._createAnnotationOverlay] nonLocationErrors 键数量:', Object.keys(nonLocationErrors).length);
+
+    for (var errorType in nonLocationErrors) {
+      var errorList = nonLocationErrors[errorType];
+      console.log('[ImageAnnotation._createAnnotationOverlay] 处理错误类型:', errorType, '错误数量:', errorList.length);
+      
+      if (errorList.length > 0) {
+        var error = errorList[0];
+        var extractedValue = error.extractedValue || '';
+        var label = '';
+        
+        console.log('[ImageAnnotation._createAnnotationOverlay] 生成图例项 - errorType:', errorType, 'extractedValue:', extractedValue);
+        
+        switch (errorType) {
+          case 'dpi':
+            label = 'DPI';
+            break;
+          case 'file-size':
+          case 'kb':
+            label = '文件大小';
+            break;
+          case 'quality':
+            label = 'JPEG质量';
+            break;
+          case 'bit_depth':
+            label = '位深度';
+            break;
+          default:
+            label = errorType;
+        }
+        
+        legendHtml += '<div class="annotation-legend-item annotation-legend-nonlocation">';
+        legendHtml += '<span class="annotation-legend-dot">·</span>';
+        legendHtml += '<span>' + label;
+        if (extractedValue) {
+          legendHtml += '(' + extractedValue + ')';
+        }
+        legendHtml += '</span></div>';
+        hasErrors = true;
+        console.log('[ImageAnnotation._createAnnotationOverlay] 已添加图例项:', label, 'hasErrors 设置为 true');
+      }
+    }
+
+    console.log('[ImageAnnotation._createAnnotationOverlay] 最终 legendHtml:', legendHtml);
+    console.log('[ImageAnnotation._createAnnotationOverlay] 最终 hasErrors:', hasErrors);
+
+    legend.html(legendHtml);
+
     if (!hasErrors) {
+      console.log('[ImageAnnotation._createAnnotationOverlay] hasErrors 为 false，隐藏图例');
       legend.hide();
+    } else {
+      console.log('[ImageAnnotation._createAnnotationOverlay] hasErrors 为 true，显示图例');
     }
 
     return overlay;
@@ -558,7 +615,10 @@ var ImageAnnotation = {
   },
 
   showImageWithAnnotations: function(imagePath, errors) {
-    // console.log('[ImageAnnotation.showImageWithAnnotations] 被调用, errors数量:', errors ? errors.length : 0);
+    console.log('[ImageAnnotation.showImageWithAnnotations] 开始执行');
+    console.log('[ImageAnnotation.showImageWithAnnotations] 传入的 errors 数量:', errors ? errors.length : 0);
+    console.log('[ImageAnnotation.showImageWithAnnotations] 传入的 errors 详细信息:', JSON.stringify(errors, null, 2));
+    
     var self = this;
 
     var dialogId = 'quality-image-annotation-dialog';
@@ -571,17 +631,18 @@ var ImageAnnotation = {
     var expandedErrors = [];
     var totalLocations = 0;
     
-    // console.log('[ImageAnnotation] 原始错误数量:', errors.length);
+    console.log('[ImageAnnotation] 开始展开聚合错误');
+    console.log('[ImageAnnotation] 原始错误数量:', errors.length);
     
     errors.forEach(function(error, errorIndex) {
-      // console.log('[ImageAnnotation] 处理错误', errorIndex, 'errorType:', error.errorType, 'details:', JSON.stringify(error.details, null, 2));
+      console.log('[ImageAnnotation] 处理错误', errorIndex, 'errorType:', error.errorType, 'details:', JSON.stringify(error.details, null, 2));
       
       if (error.details && error.details.locations && Array.isArray(error.details.locations) && error.details.locations.length > 0) {
-        // console.log('[ImageAnnotation] 展开聚合错误，位置数量:', error.details.locations.length);
+        console.log('[ImageAnnotation] 展开聚合错误，位置数量:', error.details.locations.length);
         totalLocations += error.details.locations.length;
         
         error.details.locations.forEach(function(loc, locIndex) {
-          // console.log('[ImageAnnotation] 位置', locIndex, ':', JSON.stringify(loc));
+          console.log('[ImageAnnotation] 位置', locIndex, ':', JSON.stringify(loc));
           
           if (loc && loc.length >= 4) {
             expandedErrors.push({
@@ -599,12 +660,14 @@ var ImageAnnotation = {
           }
         });
       } else {
+        console.log('[ImageAnnotation] 非聚合错误，直接添加 - errorType:', error.errorType, 'locationX:', error.locationX, 'locationY:', error.locationY);
         expandedErrors.push(error);
       }
     });
     
     errors = expandedErrors;
-    // console.log('[ImageAnnotation] 展开后的错误数量:', errors.length);
+    console.log('[ImageAnnotation] 展开后的错误数量:', errors.length);
+    console.log('[ImageAnnotation] 展开后的 errors 详细信息:', JSON.stringify(errors, null, 2));
 
     var dialog = $('<div id="' + dialogId + '" class="quality-image-dialog"></div>');
     dialog.html(`
@@ -676,10 +739,14 @@ var ImageAnnotation = {
     });
 
     imagePreview.on('load', function() {
+      console.log('[ImageAnnotation] 图像加载完成，调用 annotateImage');
+      console.log('[ImageAnnotation] 传递给 annotateImage 的 errors:', JSON.stringify(errors, null, 2));
       ImageAnnotation.annotateImage('#' + dialogId + ' .quality-image-preview', errors);
     });
 
     if (imagePreview[0].complete) {
+      console.log('[ImageAnnotation] 图像已加载完成，直接调用 annotateImage');
+      console.log('[ImageAnnotation] 传递给 annotateImage 的 errors:', JSON.stringify(errors, null, 2));
       ImageAnnotation.annotateImage('#' + dialogId + ' .quality-image-preview', errors);
     }
 

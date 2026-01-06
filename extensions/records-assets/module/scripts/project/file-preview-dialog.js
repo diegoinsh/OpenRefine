@@ -286,9 +286,17 @@ var FilePreviewDialog = {};
       
       var legendHtml = '<div class="annotation-legend" style="display: none;">';
       var errorTypes = {};
+      var nonLocationErrors = {};
     
     FilePreviewDialog._currentErrors.forEach(function(error, index) {
-      if (!error.locationX && !error.locationY) return;
+      if (!error.locationX && !error.locationY) {
+        var nonLocationType = error.errorType;
+        if (!nonLocationErrors[nonLocationType]) {
+          nonLocationErrors[nonLocationType] = { count: 0, extractedValue: error.extractedValue };
+        }
+        nonLocationErrors[nonLocationType].count++;
+        return;
+      }
       
       var markerClass = 'error-marker-';
       var legendClass = '';
@@ -408,9 +416,43 @@ var FilePreviewDialog = {};
                     '<span>' + typeLabel + '(' + count + ')</span></div>';
     });
     
+    // Add non-location errors to legend
+    Object.keys(nonLocationErrors).forEach(function(errorType) {
+      var errorInfo = nonLocationErrors[errorType];
+      var count = errorInfo.count || 0;
+      var extractedValue = errorInfo.extractedValue || '';
+      var label = '';
+      
+      switch (errorType) {
+        case 'dpi':
+          label = 'DPI';
+          break;
+        case 'file-size':
+        case 'kb':
+          label = '文件大小';
+          break;
+        case 'quality':
+          label = 'JPEG质量';
+          break;
+        case 'bit_depth':
+          label = '位深度';
+          break;
+        default:
+          label = errorType;
+      }
+      
+      legendHtml += '<div class="annotation-legend-item annotation-legend-nonlocation">' +
+                    '<span class="annotation-legend-dot">·</span>' +
+                    '<span>' + label;
+      if (extractedValue) {
+        legendHtml += '(' + extractedValue + ')';
+      }
+      legendHtml += '</span></div>';
+    });
+    
     legendHtml += '</div>';
     
-    if (Object.keys(errorTypes).length > 0) {
+    if (Object.keys(errorTypes).length > 0 || Object.keys(nonLocationErrors).length > 0) {
       var errorTypeTitle = $.i18n('records.assets.annotation.errorType') || '错误类型';
       var legend = $(legendHtml);
       legend.prepend('<div class="annotation-legend-title">' + errorTypeTitle + '</div>');
@@ -729,13 +771,13 @@ var FilePreviewDialog = {};
     
     var namespace = FilePreviewDialog._dragNamespace;
     
-    imgContainer.on('mousedown' + namespace, function(e) {
+    img.on('mousedown' + namespace, function(e) {
       if (e.target.classList.contains('error-marker') || e.target.classList.contains('annotation-legend')) return;
       
       FilePreviewDialog._isDraggingImage = true;
       FilePreviewDialog._dragStartX = e.clientX;
       FilePreviewDialog._dragStartY = e.clientY;
-      content.addClass('dragging');
+      img.addClass('dragging');
       e.preventDefault();
     });
     
@@ -758,7 +800,7 @@ var FilePreviewDialog = {};
     $(document).on('mouseup' + namespace, function() {
       if (FilePreviewDialog._isDraggingImage) {
         FilePreviewDialog._isDraggingImage = false;
-        content.removeClass('dragging');
+        img.removeClass('dragging');
         FilePreviewDialog._renderAnnotations();
       }
     });
@@ -766,7 +808,7 @@ var FilePreviewDialog = {};
     // Clean up event listeners when dialog is removed
     imgContainer.on('remove', function() {
       $(document).off(namespace);
-      imgContainer.off(namespace);
+      img.off(namespace);
     });
     
     // Add mouse wheel zoom functionality

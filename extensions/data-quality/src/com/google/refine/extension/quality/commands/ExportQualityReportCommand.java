@@ -361,6 +361,8 @@ public class ExportQualityReportCommand extends Command {
             case "hole": return "装订孔检测";
             case "dpi": return "分辨率检测";
             case "kb": return "文件大小检测";
+            case "quality": return "JPEG质量检测";
+            case "bit_depth": return "位深度检测";
             case "edge": return "黑边检测";
             default: return errorType;
         }
@@ -569,7 +571,9 @@ public class ExportQualityReportCommand extends Command {
         if (errorType.contains("image") || errorType.contains("Image") ||
             errorType.equals("blank") || errorType.equals("skew") || 
             errorType.equals("stain") || errorType.equals("hole") ||
-            errorType.equals("dpi") || errorType.equals("kb") || errorType.equals("edge")) {
+            errorType.equals("dpi") || errorType.equals("kb") || 
+            errorType.equals("quality") || errorType.equals("bit_depth") ||
+            errorType.equals("edge")) {
             return "image_quality";
         }
         return "";
@@ -635,11 +639,13 @@ public class ExportQualityReportCommand extends Command {
                     int totalFiles = fileStatistics.path("totalFiles").asInt(0);
                     int imageFiles = fileStatistics.path("imageFiles").asInt(0);
                     int otherFiles = fileStatistics.path("otherFiles").asInt(0);
+                    int blankPages = fileStatistics.path("blankPages").asInt(0);
+                    int emptyFolders = fileStatistics.path("emptyFolders").asInt(0);
                     
-                    logger.info("统计数据 - 文件夹: {}, 总文件: {}, 图片文件: {}, 其他文件: {}", 
-                               totalFolders, totalFiles, imageFiles, otherFiles);
+                    logger.info("统计数据 - 文件夹: {}, 总文件: {}, 图片文件: {}, 其他文件: {}, 空白页: {}, 空文件夹: {}", 
+                               totalFolders, totalFiles, imageFiles, otherFiles, blankPages, emptyFolders);
 
-                    if (totalFolders > 0 || totalFiles > 0) {
+                    if (totalFolders > 0 || totalFiles > 0 || blankPages > 0 || emptyFolders > 0) {
                         logger.info("添加统计数据到PDF");
                         Paragraph statsTitle = new Paragraph("统计数据", headerFont);
                         statsTitle.setSpacingBefore(10);
@@ -654,9 +660,35 @@ public class ExportQualityReportCommand extends Command {
                         addSummaryRow(statsTable, "总文件数量", totalFiles, normalFont);
                         addSummaryRow(statsTable, "图片文件数量", imageFiles, normalFont);
                         addSummaryRow(statsTable, "其他文件数量", otherFiles, normalFont);
+                        addSummaryRow(statsTable, "空白页数量", blankPages, normalFont);
+                        addSummaryRow(statsTable, "空文件夹数量", emptyFolders, normalFont);
 
                         document.add(statsTable);
                         document.add(new Paragraph(" "));
+
+                        // Page size distribution
+                        JsonNode pageSizeDistribution = fileStatistics.get("pageSizeDistribution");
+                        if (pageSizeDistribution != null && pageSizeDistribution.size() > 0) {
+                            Paragraph pageSizeTitle = new Paragraph("页面尺寸分布", headerFont);
+                            pageSizeTitle.setSpacingBefore(10);
+                            pageSizeTitle.setSpacingAfter(10);
+                            document.add(pageSizeTitle);
+
+                            PdfPTable pageSizeTable = new PdfPTable(2);
+                            pageSizeTable.setWidthPercentage(50);
+                            pageSizeTable.setHorizontalAlignment(Element.ALIGN_LEFT);
+
+                            java.util.Iterator<java.util.Map.Entry<String, JsonNode>> fields = pageSizeDistribution.fields();
+                            while (fields.hasNext()) {
+                                java.util.Map.Entry<String, JsonNode> entry = fields.next();
+                                String pageSize = entry.getKey();
+                                int count = entry.getValue().asInt(0);
+                                addSummaryRow(pageSizeTable, pageSize, count, normalFont);
+                            }
+
+                            document.add(pageSizeTable);
+                            document.add(new Paragraph(" "));
+                        }
                         logger.info("统计数据已添加到PDF");
                     } else {
                         logger.info("没有统计数据需要显示");

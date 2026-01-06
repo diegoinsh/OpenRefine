@@ -5,6 +5,7 @@
 package com.google.refine.extension.quality.commands;
 
 import java.io.IOException;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -77,6 +78,50 @@ public class RunQualityCheckCommand extends Command {
                        ", contentRules: " + (rules.getContentRules() != null ? rules.getContentRules().size() : 0) +
                        ", aimpConfig: " + (rules.getAimpConfig() != null ? rules.getAimpConfig().getServiceUrl() : "null"));
 
+            try {
+                // Log all image quality check parameters
+                logger.info("=== Image Quality Check Parameters ===");
+                com.google.refine.extension.quality.model.ImageQualityRule imageQualityRule = rules.getImageQualityRule();
+                if (imageQualityRule != null) {
+                    logger.info("ImageQualityRule - id: " + imageQualityRule.getId() + 
+                               ", name: " + imageQualityRule.getName() +
+                               ", enabled: " + imageQualityRule.isEnabled() +
+                               ", standard: " + imageQualityRule.getStandard());
+                    
+                    if (imageQualityRule.getCategories() != null) {
+                        for (com.google.refine.extension.quality.model.ImageCheckCategory category : imageQualityRule.getCategories()) {
+                            logger.info("  Category - code: " + category.getCategoryCode() + 
+                                       ", name: " + category.getCategoryName() +
+                                       ", enabled: " + category.isEnabled());
+                            
+                            if (category.getItems() != null) {
+                                for (com.google.refine.extension.quality.model.ImageCheckItem item : category.getItems()) {
+                                    logger.info("    Item - code: " + item.getItemCode() + 
+                                               ", name: " + item.getItemName() +
+                                               ", enabled: " + item.isEnabled());
+                                    
+                                    if (item.getParameters() != null && !item.getParameters().isEmpty()) {
+                                        StringBuilder paramBuilder = new StringBuilder("    Parameters: ");
+                                        for (Map.Entry<String, Object> entry : item.getParameters().entrySet()) {
+                                            paramBuilder.append(entry.getKey()).append("=").append(entry.getValue()).append(", ");
+                                        }
+                                        logger.info(paramBuilder.toString());
+                                    } else {
+                                        logger.info("    Parameters: (none)");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    logger.info("ImageQualityRule: null");
+                }
+                logger.info("=== End Image Quality Check Parameters ===");
+            } catch (Exception e) {
+                logger.warn("记录图像质量检查参数时发生异常", e);
+                return;
+            }
+            
             // Get AIMP URL - priority: request param > global config > project rules config
             String aimpServiceUrl = request.getParameter("aimpServiceUrl");
             logger.info("aimpServiceUrl from request param: " + aimpServiceUrl);

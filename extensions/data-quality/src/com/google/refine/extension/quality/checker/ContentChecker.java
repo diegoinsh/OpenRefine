@@ -11,6 +11,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.*;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,6 +30,7 @@ import com.google.refine.model.Row;
 public class ContentChecker {
 
     private static final Logger logger = LoggerFactory.getLogger(ContentChecker.class);
+    private static final ObjectMapper mapper = new ObjectMapper();
 
     public static final String INTERFACE_MODE_7998 = "7998";
     public static final String INTERFACE_MODE_7999 = "7999";
@@ -309,6 +312,7 @@ public class ContentChecker {
         queryParams.append("&set_kb=").append(params.getSetKb());
         queryParams.append("&max_kb=").append(params.getMaxKb());
         queryParams.append("&set_quality=").append(params.getMinQuality());
+        queryParams.append("&set_bit_depth=").append(params.isCheckBitDepth() ? String.valueOf(params.getMinBitDepth()) : "8");
         queryParams.append("&edge_strict=").append(params.getEdgeStrictMode());
         queryParams.append("&tolerance=").append(params.getTolerance());
 
@@ -367,115 +371,104 @@ public class ContentChecker {
                 return;
             }
 
-            if (response.contains("\"rectify\"")) {
-                int start = response.indexOf("\"rectify\"") + 10;
-                int end = response.indexOf(",", start);
-                if (end == -1) end = response.indexOf("}", start);
-                String value = response.substring(start, end).trim();
-                logger.info("提取到rectify值: " + value);
-                result.setRectify(Float.parseFloat(value));
+            JsonNode jsonNode = mapper.readTree(response);
+            
+            StringBuilder fieldsBuilder = new StringBuilder("JSON响应的所有字段: [");
+            java.util.Iterator<String> fieldNames = jsonNode.fieldNames();
+            while (fieldNames.hasNext()) {
+                fieldsBuilder.append(fieldNames.next());
+                if (fieldNames.hasNext()) {
+                    fieldsBuilder.append(", ");
+                }
+            }
+            fieldsBuilder.append("]");
+            logger.info(fieldsBuilder.toString());
+
+            if (jsonNode.has("rectify")) {
+                float rectify = jsonNode.get("rectify").floatValue();
+                logger.info("提取到rectify值: " + rectify);
+                result.setRectify(rectify);
                 logger.info("倾斜角度解析成功: " + result.getRectify());
             } else {
                 logger.info("响应中未找到rectify字段");
             }
 
-            if (response.contains("\"blank\":true") || response.contains("\"is_blank\":true")) {
-                result.setBlank(true);
-                logger.info("空白检测: 是");
-            } else if (response.contains("\"blank\":false") || response.contains("\"is_blank\":false")) {
-                result.setBlank(false);
-                logger.info("空白检测: 否");
+            if (jsonNode.has("blank")) {
+                boolean blank = jsonNode.get("blank").asBoolean();
+                result.setBlank(blank);
+                logger.info("空白检测: " + (blank ? "是" : "否"));
+            } else if (jsonNode.has("is_blank")) {
+                boolean blank = jsonNode.get("is_blank").asBoolean();
+                result.setBlank(blank);
+                logger.info("空白检测: " + (blank ? "是" : "否"));
             } else {
                 logger.info("响应中未找到blank字段，默认false");
             }
 
-            if (response.contains("\"dpi\"")) {
-                int start = response.indexOf("\"dpi\"") + 6;
-                int end = response.indexOf(",", start);
-                if (end == -1) end = response.indexOf("}", start);
-                String value = response.substring(start, end).trim();
-                logger.info("提取到dpi值: " + value);
-                result.setDpi(Integer.parseInt(value));
+            if (jsonNode.has("dpi")) {
+                int dpi = jsonNode.get("dpi").asInt();
+                logger.info("提取到dpi值: " + dpi);
+                result.setDpi(dpi);
                 logger.info("DPI解析成功: " + result.getDpi());
             } else {
                 logger.info("响应中未找到dpi字段");
             }
 
-            if (response.contains("\"kb\"")) {
-                int start = response.indexOf("\"kb\"") + 5;
-                int end = response.indexOf(",", start);
-                if (end == -1) end = response.indexOf("}", start);
-                String value = response.substring(start, end).trim();
-                logger.info("提取到kb值: " + value);
-                result.setKb(Integer.parseInt(value));
+            if (jsonNode.has("kb")) {
+                int kb = jsonNode.get("kb").asInt();
+                logger.info("提取到kb值: " + kb);
+                result.setKb(kb);
                 logger.info("文件大小(KB)解析成功: " + result.getKb());
             } else {
                 logger.info("响应中未找到kb字段");
             }
 
-            if (response.contains("\"quality\"")) {
-                int start = response.indexOf("\"quality\"") + 10;
-                int end = response.indexOf(",", start);
-                if (end == -1) end = response.indexOf("}", start);
-                String value = response.substring(start, end).trim();
-                logger.info("提取到quality值: " + value);
-                result.setQuality(Integer.parseInt(value));
+            if (jsonNode.has("quality")) {
+                int quality = jsonNode.get("quality").asInt();
+                logger.info("提取到quality值: " + quality);
+                result.setQuality(quality);
                 logger.info("图像质量解析成功: " + result.getQuality());
             }
 
-            if (response.contains("\"bit_depth\"")) {
-                int start = response.indexOf("\"bit_depth\"") + 12;
-                int end = response.indexOf(",", start);
-                if (end == -1) end = response.indexOf("}", start);
-                String value = response.substring(start, end).trim();
-                logger.info("提取到bit_depth值: " + value);
-                result.setBitDepth(Integer.parseInt(value));
+            if (jsonNode.has("bit_depth")) {
+                int bitDepth = jsonNode.get("bit_depth").asInt();
+                logger.info("提取到bit_depth值: " + bitDepth);
+                result.setBitDepth(bitDepth);
                 logger.info("位深度解析成功: " + result.getBitDepth());
+            } else {
+                logger.warn("响应中未找到bit_depth字段，这可能导致位深度检查失败");
             }
 
-            if (response.contains("\"expected_page_size\"")) {
-                int start = response.indexOf("\"expected_page_size\"") + 20;
-                int end = response.indexOf(",", start);
-                if (end == -1) end = response.indexOf("}", start);
-                String value = response.substring(start, end).trim();
-                logger.info("提取到expected_page_size值: " + value);
-                result.setExpectedPageSize(Integer.parseInt(value));
-                logger.info("预期篇幅解析成功: " + result.getExpectedPageSize());
-            }
-
-            if (response.contains("\"actual_page_size\"")) {
-                int start = response.indexOf("\"actual_page_size\"") + 18;
-                int end = response.indexOf(",", start);
-                if (end == -1) end = response.indexOf("}", start);
-                String value = response.substring(start, end).trim();
-                logger.info("提取到actual_page_size值: " + value);
-                result.setActualPageSize(Integer.parseInt(value));
-                logger.info("实际篇幅解析成功: " + result.getActualPageSize());
+            if (jsonNode.has("page_size")) {
+                String pageSize = jsonNode.get("page_size").asText();
+                logger.info("提取到page_size值: " + pageSize);
+                result.setPageSize(pageSize);
+                logger.info("篇幅解析成功: " + result.getPageSize());
             }
 
             boolean stainFound = false;
-            if (response.contains("\"stain\"")) {
+            if (jsonNode.has("stain")) {
                 stainFound = true;
                 logger.info("检测到stain字段，开始解析污点坐标");
-                parseStainOrHoleCoordinates(response, "stain", result);
+                parseStainOrHoleCoordinates(jsonNode, "stain", result);
                 logger.info("污点解析完成，检测到" + result.getStainLocations().size() + "个污点");
             }
             logger.info("响应中是否包含stain字段: " + stainFound);
 
             boolean holeFound = false;
-            if (response.contains("\"hole\"")) {
+            if (jsonNode.has("hole")) {
                 holeFound = true;
                 logger.info("检测到hole字段，开始解析装订孔坐标");
-                parseStainOrHoleCoordinates(response, "hole", result);
+                parseStainOrHoleCoordinates(jsonNode, "hole", result);
                 logger.info("装订孔解析完成，检测到" + result.getHoleLocations().size() + "个装订孔");
             }
             logger.info("响应中是否包含hole字段: " + holeFound);
 
             boolean edgeFound = false;
-            if (response.contains("\"edge_remove\"") || response.contains("\"edge\"")) {
+            if (jsonNode.has("edge_remove") || jsonNode.has("edge")) {
                 edgeFound = true;
                 logger.info("检测到edge_remove字段，开始解析黑边坐标");
-                parseStainOrHoleCoordinates(response, "edge_remove", result);
+                parseStainOrHoleCoordinates(jsonNode, "edge_remove", result);
                 result.setHasEdgeRemove(result.getEdgeLocations() != null && !result.getEdgeLocations().isEmpty());
                 logger.info("黑边解析完成，检测到" + result.getEdgeLocations().size() + "个黑边位置, hasEdgeRemove: " + result.hasEdgeRemove());
             }
@@ -540,58 +533,26 @@ public class ContentChecker {
         }
     }
 
-    private void parseStainOrHoleCoordinates(String response, String fieldName, AiCheckResult result) {
+    private void parseStainOrHoleCoordinates(JsonNode jsonNode, String fieldName, AiCheckResult result) {
         try {
-            String fieldPattern = "\"" + fieldName + "\"";
-            int fieldIndex = response.indexOf(fieldPattern);
-            if (fieldIndex == -1) {
-                logger.info("响应中未找到" + fieldName + "字段");
+            JsonNode fieldNode = jsonNode.get(fieldName);
+            if (fieldNode == null || !fieldNode.isArray()) {
+                logger.info("响应中未找到" + fieldName + "字段或不是数组");
                 return;
             }
-
-            int arrayStart = response.indexOf("[", fieldIndex);
-            if (arrayStart == -1) {
-                logger.info(fieldName + "未找到数组开始符");
-                return;
-            }
-
-            int depth = 1;
-            int arrayEnd = arrayStart + 1;
-            while (depth > 0 && arrayEnd < response.length()) {
-                char c = response.charAt(arrayEnd);
-                if (c == '[') depth++;
-                else if (c == ']') depth--;
-                arrayEnd++;
-            }
-            if (depth != 0) {
-                logger.info(fieldName + "数组括号不匹配");
-                return;
-            }
-
-            String coordsArray = response.substring(arrayStart, arrayEnd);
-            coordsArray = coordsArray.replaceAll("\\s+", "");
 
             List<int[]> locations = new ArrayList<>();
-
-            if (coordsArray.startsWith("[[") && coordsArray.endsWith("]]")) {
-                coordsArray = coordsArray.substring(2, coordsArray.length() - 2);
-                String[] coordGroups = coordsArray.split("\\]\\,");
-                for (String group : coordGroups) {
-                    group = group.replaceAll("[\\[\\]]", "").trim();
-                    if (!group.isEmpty()) {
-                        String[] coords = group.split(",");
-                        if (coords.length >= 4) {
-                            try {
-                                int x = (int) Double.parseDouble(coords[0].trim());
-                                int y = (int) Double.parseDouble(coords[1].trim());
-                                int width = (int) Double.parseDouble(coords[2].trim());
-                                int height = (int) Double.parseDouble(coords[3].trim());
-                                locations.add(new int[]{x, y, width, height});
-                                logger.info("解析到" + fieldName + "坐标: [" + x + ", " + y + ", " + width + ", " + height + "]");
-                            } catch (NumberFormatException e) {
-                                logger.warn(fieldName + "坐标解析失败: " + group);
-                            }
-                        }
+            for (JsonNode coordNode : fieldNode) {
+                if (coordNode.isArray() && coordNode.size() >= 4) {
+                    try {
+                        int x = coordNode.get(0).asInt();
+                        int y = coordNode.get(1).asInt();
+                        int width = coordNode.get(2).asInt();
+                        int height = coordNode.get(3).asInt();
+                        locations.add(new int[]{x, y, width, height});
+                        logger.info("解析到" + fieldName + "坐标: [" + x + ", " + y + ", " + width + ", " + height + "]");
+                    } catch (Exception e) {
+                        logger.warn(fieldName + "坐标解析失败: " + coordNode.toString());
                     }
                 }
             }
@@ -1324,18 +1285,14 @@ public class ContentChecker {
                 ImageCheckItem dpiItem = imageRule.getItemByCode("dpi");
                 if (dpiItem != null && dpiItem.isEnabled()) {
                     Object minDpiObj = dpiItem.getParameter("minDpi", Object.class);
-                    if (minDpiObj != null) {
-                        int minDpi = Integer.parseInt(minDpiObj.toString());
-                        if (aiResult.getDpi() < minDpi) {
-                            CheckError error = new CheckError();
-                            error.setErrorType("dpi");
-                            error.setMessage("Low DPI detected: " + imageFile.getName() + ", DPI: " + aiResult.getDpi() + " (minimum: " + minDpi + ")");
-                            error.setColumn("resource");
-                            error.setValue(resourcePath);
-                            error.setExtractedValue(String.valueOf(aiResult.getDpi()));
-                            errors.add(error);
-                        }
-                    }
+                    int minDpi = minDpiObj != null ? Integer.parseInt(minDpiObj.toString()) : 300;
+                    CheckError error = new CheckError();
+                    error.setErrorType("dpi");
+                    error.setMessage("Low DPI detected: " + imageFile.getName() + ", DPI: " + aiResult.getDpi() + " (minimum: " + minDpi + ")");
+                    error.setColumn("resource");
+                    error.setValue(resourcePath);
+                    error.setExtractedValue(String.valueOf(aiResult.getDpi()));
+                    errors.add(error);
                 }
             }
         }
@@ -1346,42 +1303,76 @@ public class ContentChecker {
                 ImageCheckItem kbItem = imageRule.getItemByCode("file-size");
                 if (kbItem != null && kbItem.isEnabled()) {
                     Object minKbObj = kbItem.getParameter("minKb", Object.class);
-                    if (minKbObj != null) {
-                        int minKb = Integer.parseInt(minKbObj.toString());
-                        if (aiResult.getKb() < minKb) {
-                            CheckError error = new CheckError();
-                            error.setErrorType("file-size");
-                            error.setMessage("File size too small: " + imageFile.getName() + ", Size: " + aiResult.getKb() + "KB (minimum: " + minKb + "KB)");
-                            error.setColumn("resource");
-                            error.setValue(resourcePath);
-                            error.setExtractedValue(String.valueOf(aiResult.getKb()));
-                            errors.add(error);
-                        }
-                    }
+                    Object maxKbObj = kbItem.getParameter("maxKb", Object.class);
+                    int minKb = minKbObj != null ? Integer.parseInt(minKbObj.toString()) : 10;
+                    int maxKb = maxKbObj != null ? Integer.parseInt(maxKbObj.toString()) : 10000;
+                    String sizeMessage = aiResult.getKb() < minKb ? "File size too small" : "File size too large";
+                    CheckError error = new CheckError();
+                    error.setErrorType("file-size");
+                    error.setMessage(sizeMessage + ": " + imageFile.getName() + ", Size: " + aiResult.getKb() + "KB (expected: " + minKb + "-" + maxKb + "KB)");
+                    error.setColumn("resource");
+                    error.setValue(resourcePath);
+                    error.setExtractedValue(String.valueOf(aiResult.getKb()));
+                    errors.add(error);
                 }
             }
         }
 
-        if (aiResult.getExpectedPageSize() != null && aiResult.getActualPageSize() != null) {
-            int expectedPageSize = aiResult.getExpectedPageSize();
-            int actualPageSize = aiResult.getActualPageSize();
+        if (aiResult.getQuality() != null && aiResult.getQuality() > 0) {
+            ImageQualityRule imageRule = rules.getImageQualityRule();
+            if (imageRule != null) {
+                ImageCheckItem qualityItem = imageRule.getItemByCode("quality");
+                if (qualityItem != null && qualityItem.isEnabled()) {
+                    Object minQualityObj = qualityItem.getParameter("minQuality", Object.class);
+                    int minQuality = minQualityObj != null ? Integer.parseInt(minQualityObj.toString()) : 80;
+                    CheckError error = new CheckError();
+                    error.setErrorType("quality");
+                    error.setMessage("Low JPEG quality detected: " + imageFile.getName() + ", Quality: " + aiResult.getQuality() + " (minimum: " + minQuality + ")");
+                    error.setColumn("resource");
+                    error.setValue(resourcePath);
+                    error.setExtractedValue(String.valueOf(aiResult.getQuality()));
+                    errors.add(error);
+                }
+            }
+        }
+
+        if (aiResult.getBitDepth() != null && aiResult.getBitDepth() > 0) {
+            ImageQualityRule imageRule = rules.getImageQualityRule();
+            if (imageRule != null) {
+                ImageCheckItem bitDepthItem = imageRule.getItemByCode("bit_depth");
+                if (bitDepthItem != null && bitDepthItem.isEnabled()) {
+                    Object minBitDepthObj = bitDepthItem.getParameter("minBitDepth", Object.class);
+                    int minBitDepth = minBitDepthObj != null ? Integer.parseInt(minBitDepthObj.toString()) : 24;
+                    CheckError error = new CheckError();
+                    error.setErrorType("bit_depth");
+                    error.setMessage("Low bit depth detected: " + imageFile.getName() + ", Bit depth: " + aiResult.getBitDepth() + " (minimum: " + minBitDepth + ")");
+                    error.setColumn("resource");
+                    error.setValue(resourcePath);
+                    error.setExtractedValue(String.valueOf(aiResult.getBitDepth()));
+                    errors.add(error);
+                }
+            }
+        }
+
+        if (aiResult.getPageSize() != null) {
+            String pageSize = aiResult.getPageSize();
             
-            logger.info("篇幅统计检查 - expectedPageSize: " + expectedPageSize + ", actualPageSize: " + actualPageSize);
+            logger.info("篇幅统计检查 - pageSize: " + pageSize);
             
-            if (actualPageSize != expectedPageSize) {
+            if ("CUSTOM".equals(pageSize)) {
                 CheckError error = new CheckError();
                 error.setErrorType("page_size");
-                error.setMessage("Page size mismatch: " + imageFile.getName() + ", Expected: " + expectedPageSize + ", Actual: " + actualPageSize);
+                error.setMessage("Page size mismatch: " + imageFile.getName() + ", Actual: 尺寸无匹配");
                 error.setColumn("resource");
                 error.setValue(resourcePath);
-                error.setExtractedValue(String.valueOf(actualPageSize));
+                error.setExtractedValue("尺寸无匹配");
                 errors.add(error);
                 logger.info("添加篇幅统计错误 - type: " + error.getErrorType() + ", message: " + error.getMessage());
             } else {
-                logger.info("篇幅统计检查通过 - 页数匹配: " + actualPageSize);
+                logger.info("篇幅统计检查通过 - 页面尺寸: " + pageSize);
             }
         } else {
-            logger.info("篇幅统计参数缺失 - expectedPageSize: " + aiResult.getExpectedPageSize() + ", actualPageSize: " + aiResult.getActualPageSize());
+            logger.info("篇幅统计参数缺失 - pageSize: " + aiResult.getPageSize());
         }
 
         logger.info("convertToCheckErrors完成，总错误数: " + errors.size());

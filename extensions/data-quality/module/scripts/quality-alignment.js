@@ -1691,8 +1691,8 @@ QualityAlignment._renderResultsTab = function() {
   $('<option value="repeatimage">' + $.i18n('data-quality-extension/duplicate-check') + '</option>').appendTo(imageGroup);
   $('<option value="houseAngle">' + $.i18n('data-quality-extension/text-direction-check') + '</option>').appendTo(imageGroup);
   $('<option value="bias">' + $.i18n('data-quality-extension/skew-check') + '</option>').appendTo(imageGroup);
-  $('<option value="edgeRemove">' + $.i18n('data-quality-extension/edge-check') + '</option>').appendTo(imageGroup);
-  $('<option value="stainValue">' + $.i18n('data-quality-extension/stain-check') + '</option>').appendTo(imageGroup);
+  $('<option value="edge">' + $.i18n('data-quality-extension/edge-check') + '</option>').appendTo(imageGroup);
+  $('<option value="stain">' + $.i18n('data-quality-extension/stain-check') + '</option>').appendTo(imageGroup);
   $('<option value="hole">' + $.i18n('data-quality-extension/hole-check') + '</option>').appendTo(imageGroup);
   
   $('<option value="counting">' + $.i18n('data-quality-extension/count-stats-check') + '</option>').appendTo(imageGroup);
@@ -1704,6 +1704,7 @@ QualityAlignment._renderResultsTab = function() {
   
   $('<option value="dpi">' + $.i18n('data-quality-extension/dpi-check') + '</option>').appendTo(imageGroup);
   $('<option value="kb">' + $.i18n('data-quality-extension/kb-check') + '</option>').appendTo(imageGroup);
+  $('<option value="bit_depth">' + $.i18n('data-quality-extension/bit-depth-check') + '</option>').appendTo(imageGroup);
   
   $('<option value="reImageName">' + $.i18n('data-quality-extension/image-name-check') + '</option>').appendTo(imageGroup);
   $('<option value="reImagePath">' + $.i18n('data-quality-extension/image-path-check') + '</option>').appendTo(imageGroup);
@@ -1831,35 +1832,7 @@ QualityAlignment._setupKeyboardNavigation = function() {
     // Determine target index based on key pressed
     var targetIndex = -1;
     
-    if (keyCode === 38) { // Up arrow
-      e.preventDefault();
-      if (currentIndex === -1) {
-        // No highlighted row, go to last resource error
-        for (var i = totalErrors - 1; i >= 0; i--) {
-          if (errors[i].hiddenFileName) {
-            targetIndex = i;
-            break;
-          }
-        }
-      } else {
-        // Move to previous resource error
-        targetIndex = findNextResourceError(currentIndex, -1);
-      }
-    } else if (keyCode === 40) { // Down arrow
-      e.preventDefault();
-      if (currentIndex === -1) {
-        // No highlighted row, go to first resource error
-        for (var i = 0; i < totalErrors; i++) {
-          if (errors[i].hiddenFileName) {
-            targetIndex = i;
-            break;
-          }
-        }
-      } else {
-        // Move to next resource error
-        targetIndex = findNextResourceError(currentIndex, 1);
-      }
-    } else if (keyCode === 37) { // Left arrow
+    if (keyCode === 37) { // Left arrow
       e.preventDefault();
       if (currentIndex === -1) {
         // No highlighted row, go to first resource error
@@ -1905,8 +1878,20 @@ QualityAlignment._setupKeyboardNavigation = function() {
       var targetRow = $('.errors-table tbody tr').eq(targetIndex % pageSize);
       targetRow.addClass('highlighted');
       
-      // Scroll to the target row
-      targetRow[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Scroll to the target row within the table container
+      var container = self._resultsTableContainer;
+      var containerHeight = container.height();
+      var rowTop = targetRow.position().top;
+      var rowHeight = targetRow.outerHeight();
+      var scrollTop = container.scrollTop();
+      
+      // Calculate the desired scroll position to center the row
+      var targetScrollTop = scrollTop + rowTop - (containerHeight / 2) + (rowHeight / 2);
+      
+      // Scroll the container instead of the whole page
+      container.animate({
+        scrollTop: targetScrollTop
+      }, 200);
       
       // Trigger click event on the target row
       targetRow.click();
@@ -1956,6 +1941,7 @@ QualityAlignment._renderErrorsTable = function() {
   var table = $('<table class="errors-table"></table>').appendTo(container);
   var thead = $('<thead></thead>').appendTo(table);
   var headerRow = $('<tr></tr>').appendTo(thead);
+  $('<th></th>').text('序号').appendTo(headerRow);
   $('<th></th>').text($.i18n('data-quality-extension/row-number')).appendTo(headerRow);
   $('<th></th>').text($.i18n('data-quality-extension/column-name')).appendTo(headerRow);
   $('<th></th>').text($.i18n('data-quality-extension/current-value')).appendTo(headerRow);
@@ -1973,57 +1959,102 @@ QualityAlignment._renderErrorsTable = function() {
         'doc': 'Word', 'docx': 'Word',
         'xls': 'Excel', 'xlsx': 'Excel',
         'ppt': 'PowerPoint', 'pptx': 'PowerPoint',
-        'tif': '图像', 'tiff': '图像'
-      };
+        'tif': '图像', 'tiff': '图像'};
     
-    var endIndex = Math.min(startIndex + pageSize, errors.length);
+  var endIndex = Math.min(startIndex + pageSize, errors.length);
 
-    for (var i = startIndex; i < endIndex; i++) {
+  for (var i = startIndex; i < endIndex; i++) {
       var error = errors[i];
       var row = $('<tr></tr>').appendTo(tbody);
       row.data('error', error);
-      row.data('errorIndex', i); // Store the actual error index
-      $('<td></td>').text(error.rowIndex + 1).appendTo(row);
+      row.data('errorIndex', i);
+      $('<td class="index-cell"></td>').text(i + 1).appendTo(row);
+      $('<td class="row-cell"></td>').text(error.rowIndex + 1).appendTo(row);
       var columnDisplay = error.column;
       var isSequentialError = error.errorType === 'file_sequential' || error.errorType === 'folder_sequential' ||
           error.errorType === 'file_sequence' || error.errorType === 'folder_sequence';
       var isFileCountError = error.errorType === 'file_count' || error.errorType === 'folder_count';
+      var columnTitle = null;
+      var valueTitle = null;
+      var MAX_DISPLAY_LENGTH = 30;
       
-      if (error.category === 'resource') {
+      if (error.category === 'image_quality') {
+        if (error.hiddenFileName) {
+          var fileName = error.hiddenFileName.split(/[\\/]/).pop();
+          if (fileName) {
+            if (fileName.length > MAX_DISPLAY_LENGTH) {
+              columnDisplay = '...' + fileName.slice(-MAX_DISPLAY_LENGTH);
+              columnTitle = fileName;
+            } else {
+              columnDisplay = fileName;
+            }
+          }
+        }
+        if (error.value) {
+          if (error.value.length > MAX_DISPLAY_LENGTH) {
+            valueTitle = error.value;
+          }
+        }
+      } else if (error.category === 'resource') {
         if (isFileCountError) {
           columnDisplay = '页数';
         } else if (isSequentialError) {
-          columnDisplay = '顺序检查';
+          if (error.column) {
+            if (error.column.length > MAX_DISPLAY_LENGTH) {
+              columnDisplay = '...' + error.column.slice(-MAX_DISPLAY_LENGTH);
+              columnTitle = error.column;
+            } else {
+              columnDisplay = error.column;
+            }
+          }
         } else if (error.value) {
-          var ext = error.value.split('.').pop().toLowerCase();
-          if (ext && ext.length <= 10 && !ext.includes('\\') && !ext.includes('/')) {
-            columnDisplay = resourceTypeMap[ext] || ext.toUpperCase();
+          var fileName = error.value.split(/[\\/]/).pop();
+          if (fileName) {
+            if (fileName.length > MAX_DISPLAY_LENGTH) {
+              columnDisplay = '...' + fileName.slice(-MAX_DISPLAY_LENGTH);
+              columnTitle = fileName;
+            } else {
+              columnDisplay = fileName;
+            }
           }
         }
+      } else if (error.category === 'content') {
       }
-      $('<td></td>').text(columnDisplay || '(空)').appendTo(row);
-      $('<td></td>').text(error.value || '(空)').appendTo(row);
+      
+      var columnCell = $('<td></td>').text(columnDisplay || '(空)').appendTo(row);
+      if (columnTitle) {
+        columnCell.attr('title', columnTitle);
+      }
+      
+      var valueDisplay = error.value || '(空)';
+      if (valueTitle) {
+        valueDisplay = '...' + error.value.slice(-MAX_DISPLAY_LENGTH);
+      }
+      var valueCell = $('<td></td>').text(valueDisplay).appendTo(row);
+      if (valueTitle) {
+        valueCell.attr('title', valueTitle);
+      }
       $('<td></td>').text(this._getErrorTypeLabel(error.errorType)).appendTo(row);
       $('<td></td>').text(this._formatErrorMessage(error)).appendTo(row);
 
-    // Click to handle error navigation
-    row.css('cursor', 'pointer').on('click', function() {
-      // Remove existing highlights (only from tbody)
-      $('.errors-table tbody tr').removeClass('highlighted');
-      // Highlight current row
-      $(this).addClass('highlighted');
-      
-      var clickedError = $(this).data('error');
-      var rowIndex = clickedError.rowIndex;
-      
-      console.log('[QualityAlignment] Row clicked:', {
-        rowIndex: rowIndex,
-        errorType: clickedError.errorType,
-        errorValue: clickedError.value,
-        locationX: clickedError.locationX,
-        locationY: clickedError.locationY,
-        column: clickedError.column
-      });
+      // Click to handle error navigation
+      row.css('cursor', 'pointer').on('click', function() {
+        // Remove existing highlights (only from tbody)
+        $('.errors-table tbody tr').removeClass('highlighted');
+        // Highlight current row
+        $(this).addClass('highlighted');
+        
+        var clickedError = $(this).data('error');
+        var rowIndex = clickedError.rowIndex;
+        
+        console.log('[QualityAlignment] Row clicked:', {
+          rowIndex: rowIndex,
+          errorType: clickedError.errorType,
+          errorValue: clickedError.value,
+          locationX: clickedError.locationX,
+          locationY: clickedError.locationY,
+          column: clickedError.column
+        });
       
       // Check if this is an image error with location data
       var isImageError = QualityAlignment._isImageError(clickedError);
@@ -2031,7 +2062,7 @@ QualityAlignment._renderErrorsTable = function() {
       
       console.log('[QualityAlignment] isImageError:', isImageError, 'hasLocationData:', hasLocationData);
       
-      if (isImageError && hasLocationData) {
+      if (isImageError) {
         // Open image preview with annotations
         console.log('[QualityAlignment] Opening image preview with annotations');
         QualityAlignment._openImagePreviewWithAnnotations(clickedError, rowIndex);
@@ -2107,7 +2138,8 @@ QualityAlignment._getErrorTypeLabel = function(errorType) {
     'image_quality': $.i18n('data-quality-extension/image-quality-check-tab'),
     'skew': $.i18n('data-quality-extension/skew-check'),
     'stain': $.i18n('data-quality-extension/stain-check'),
-    'edge': $.i18n('data-quality-extension/edge-check')
+    'edge': $.i18n('data-quality-extension/edge-check'),
+    'bit_depth': $.i18n('data-quality-extension/bit-depth-check')
   };
   return labels[errorType] || errorType;
 };
@@ -2188,6 +2220,10 @@ QualityAlignment._formatErrorMessage = function(error) {
     return $.i18n('data-quality-extension/error-msg-file-name-invalid');
   }
 
+  // if (errorType === 'bit_depth') {
+  //   return $.i18n('data-quality-extension/bit-depth-check');
+  // }
+
   if (errorType === 'content_mismatch') {
     var contentMatch = message.match(/similarity (\d+)%.*threshold (\d+)%/i);
     if (contentMatch) {
@@ -2199,7 +2235,7 @@ QualityAlignment._formatErrorMessage = function(error) {
 
   if (error.category === 'image_quality' || errorType === 'blank' || errorType === 'skew' ||
       errorType === 'stain' || errorType === 'hole' || errorType === 'edge' ||
-      errorType === 'dpi' || errorType === 'kb' ||
+      errorType === 'dpi' || errorType === 'kb' || errorType === 'bit_depth' ||
       errorType === 'damage' || errorType === 'format' || errorType === 'repeatimage' ||
       errorType === 'houseAngle' || errorType === 'bias' || errorType === 'edgeRemove' ||
       errorType === 'stainValue' || errorType === 'counting' || errorType === 'pageSize' ||
@@ -2288,6 +2324,13 @@ QualityAlignment._formatErrorMessage = function(error) {
       }
       return message;
     }
+    if (errorType === 'bit_depth') {
+      var bitDepthMatch = message.match(/Bit depth: (\d+).*minimum: (\d+)/);
+      if (bitDepthMatch) {
+        return '位深度过低: ' + bitDepthMatch[1] + ', 最低要求: ' + bitDepthMatch[2];
+      }
+      return message;
+    }
   }
 
   // Return original message if no translation found
@@ -2371,11 +2414,11 @@ QualityAlignment._renderPieChart = function(container, data) {
   }
 
   // Create canvas for pie chart
-  var canvas = $('<canvas class="quality-pie-chart" width="200" height="200"></canvas>')
+  var canvas = $('<canvas class="quality-pie-chart" width="150" height="150"></canvas>')
     .appendTo(container);
 
   var ctx = canvas[0].getContext('2d');
-  var centerX = 100, centerY = 100, radius = 80;
+  var centerX = 75, centerY = 75, radius = 50;
 
   // Colors for each category
   var colors = {
@@ -3436,7 +3479,8 @@ QualityAlignment._isImageError = function(error) {
   
   var imageErrorTypes = [
     'damage', 'blank', 'format', 'repeatimage', 'houseAngle', 'bias', 
-    'edgeRemove', 'stainValue', 'hole', 'skew', 'edge', 'stain'
+    'edgeRemove', 'stainValue', 'hole', 'skew', 'edge', 'stain',
+    'dpi', 'file-size', 'kb', 'quality', 'bit_depth'
   ];
   
   return imageErrorTypes.indexOf(errorType) >= 0 || 
@@ -3475,10 +3519,27 @@ QualityAlignment._openImagePreviewWithAnnotations = function(error, rowIndex) {
   var resourceErrors = this._lastCheckResult && this._lastCheckResult.errors 
     ? this._lastCheckResult.errors.filter(function(err) {
         console.log('[QualityAlignment] Filtering error:', err.rowIndex, err.column, err.locationX, err.locationY, err.hiddenFileName);
+        console.log('[QualityAlignment] Target error - rowIndex:', error.rowIndex, 'column:', error.column, 'hiddenFileName:', error.hiddenFileName);
+        
         var matchRowCol = err.rowIndex === error.rowIndex && err.column === error.column;
-        var matchHiddenFile = error.hiddenFileName ? err.hiddenFileName === error.hiddenFileName : true;
-        return matchRowCol && matchHiddenFile &&
-               (err.locationX !== undefined || err.locationY !== undefined || (err.details && err.details.locations));
+        console.log('[QualityAlignment] matchRowCol check - err.rowIndex:', err.rowIndex, '=== error.rowIndex:', error.rowIndex, '=', err.rowIndex === error.rowIndex);
+        console.log('[QualityAlignment] matchRowCol check - err.column:', err.column, '=== error.column:', error.column, '=', err.column === error.column);
+        
+        var matchHiddenFile = true;
+        if (error.hiddenFileName) {
+          if (err.hiddenFileName) {
+            matchHiddenFile = err.hiddenFileName === error.hiddenFileName;
+            console.log('[QualityAlignment] matchHiddenFile - err.hiddenFileName:', err.hiddenFileName, '=== error.hiddenFileName:', error.hiddenFileName, '=', matchHiddenFile);
+          } else {
+            matchHiddenFile = false;
+            console.log('[QualityAlignment] matchHiddenFile - err.hiddenFileName is null, setting to false');
+          }
+        } else {
+          console.log('[QualityAlignment] matchHiddenFile - error.hiddenFileName is null, setting to true');
+        }
+        
+        console.log('[QualityAlignment] Final - matchRowCol:', matchRowCol, 'matchHiddenFile:', matchHiddenFile, 'will include:', matchRowCol && matchHiddenFile);
+        return matchRowCol && matchHiddenFile;
       })
     : [];
   
@@ -3507,18 +3568,42 @@ QualityAlignment._openImagePreviewWithAnnotations = function(error, rowIndex) {
         }
       });
     } else {
-      expandedAnnotations.push(err);
+      console.log('[QualityAlignment] Non-aggregated error, adding directly - errorType:', err.errorType, 'locationX:', err.locationX, 'locationY:', err.locationY);
+      expandedAnnotations.push({
+        rowIndex: err.rowIndex,
+        column: err.column,
+        hiddenFileName: err.hiddenFileName,
+        value: err.value,
+        errorType: err.errorType,
+        message: err.message,
+        locationX: err.locationX,
+        locationY: err.locationY,
+        locationWidth: err.locationWidth,
+        locationHeight: err.locationHeight,
+        extractedValue: err.extractedValue
+      });
     }
   });
   
   resourceErrors = expandedAnnotations;
   console.log('[QualityAlignment] Found', resourceErrors.length, 'resource errors after expansion');
   
+  try {
+    console.log('[QualityAlignment] resourceErrors 详细信息:', JSON.stringify(resourceErrors, null, 2));
+  } catch (e) {
+    console.error('[QualityAlignment] JSON.stringify 失败:', e);
+    console.log('[QualityAlignment] resourceErrors 数量:', resourceErrors.length);
+    resourceErrors.forEach(function(err, idx) {
+      console.log('[QualityAlignment] Error', idx, '- errorType:', err.errorType, 'message:', err.message);
+    });
+  }
+  
   if (typeof FilePreviewDialog !== 'undefined') {
     console.log('[QualityAlignment] Calling FilePreviewDialog.showWithAnnotations');
     FilePreviewDialog.showWithAnnotations(resourcePath, resourceErrors);
   } else if (typeof ImageAnnotation !== 'undefined') {
     console.log('[QualityAlignment] Calling ImageAnnotation.showImageWithAnnotations');
+    console.log('[QualityAlignment] 传递给 ImageAnnotation.showImageWithAnnotations 的 resourceErrors:', JSON.stringify(resourceErrors, null, 2));
     ImageAnnotation.showImageWithAnnotations(resourcePath, resourceErrors);
   } else {
     console.error('[QualityAlignment] Preview modules not loaded');

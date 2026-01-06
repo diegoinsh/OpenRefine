@@ -84,31 +84,47 @@ public class QuantityImageChecker implements ImageChecker {
                     logger.info("开始统计文件夹: {}", resourcePath);
                     countFilesInFolder(folder, statistics);
                     logger.info("文件夹统计完成: {}", resourcePath);
+                } else {
+                    logger.info("文件夹不存在或不是目录: {}", resourcePath);
                 }
             }
         }
 
-        logger.info("数量统计完成 - 文件夹: {}, 总文件: {}, 图片文件: {}, 其他文件: {}", 
+        logger.info("数量统计完成 - 文件夹: {}, 总文件: {}, 图片文件: {}, 其他文件: {}, 空白页: {}, 空文件夹: {}", 
                    statistics.getTotalFolders(), statistics.getTotalFiles(), 
-                   statistics.getImageFiles(), statistics.getOtherFiles());
+                   statistics.getImageFiles(), statistics.getOtherFiles(),
+                   statistics.getBlankPages(), statistics.getEmptyFolders());
+        logger.info("页面尺寸分布: {}", statistics.getPageSizeDistribution());
         return statistics;
     }
 
     private void countFilesInFolder(File folder, FileStatistics statistics) {
         File[] items = folder.listFiles();
-        if (items == null) return;
+        if (items == null) {
+            statistics.incrementEmptyFolders(1);
+            return;
+        }
+
+        int folderFileCount = 0;
+        int folderImageCount = 0;
 
         for (File item : items) {
             if (item.isDirectory()) {
                 countFilesInFolder(item, statistics);
             } else if (item.isFile()) {
+                folderFileCount++;
                 statistics.incrementFiles(1);
                 if (isImageFile(item)) {
+                    folderImageCount++;
                     statistics.incrementImageFiles(1);
                 } else {
                     statistics.incrementOtherFiles(1);
                 }
             }
+        }
+
+        if (folderFileCount == 0) {
+            statistics.incrementEmptyFolders(1);
         }
     }
 

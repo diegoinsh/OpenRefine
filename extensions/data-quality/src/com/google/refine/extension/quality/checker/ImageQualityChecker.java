@@ -276,13 +276,18 @@ public class ImageQualityChecker {
             List<Row> allRows = project.rows;
             FileStatistics statistics = quantityChecker.checkStatistics(project, allRows, imageRule, resourceConfig);
             result.setFileStatistics(statistics);
-            logger.info("数量统计完成 - 文件夹: {}, 总文件: {}, 图片文件: {}, 其他文件: {}", 
+            logger.info("数量统计完成 - 文件夹: {}, 总文件: {}, 图片文件: {}, 其他文件: {}, 空白页: {}, 空文件夹: {}", 
                        statistics.getTotalFolders(), statistics.getTotalFiles(), 
-                       statistics.getImageFiles(), statistics.getOtherFiles());
+                       statistics.getImageFiles(), statistics.getOtherFiles(),
+                       statistics.getBlankPages(), statistics.getEmptyFolders());
         } else {
             logger.info("数量统计未启用");
         }
         logger.info("=== 数量统计结束 ===");
+        
+        logger.info("=== 开始执行空白页和页面尺寸统计 ===");
+        collectBlankPageAndPageSizeStatistics(result, project, resourceConfig, imageRule);
+        logger.info("=== 空白页和页面尺寸统计结束 ===");
         
         result.complete();
 
@@ -375,8 +380,16 @@ public class ImageQualityChecker {
                         params.setDpi(Integer.parseInt(dpiValue.toString()));
                     }
                     break;
-                case "file-size":
+                case "kb":
                     params.setCheckKb(true);
+                    Object minKbValue = item.getParameter("minKb", Object.class);
+                    if (minKbValue != null) {
+                        params.setSetKb(Integer.parseInt(minKbValue.toString()));
+                    }
+                    Object maxKbValue = item.getParameter("maxKb", Object.class);
+                    if (maxKbValue != null) {
+                        params.setMaxKb(Integer.parseInt(maxKbValue.toString()));
+                    }
                     break;
                 case "format":
                     params.setCheckFormat(true);
@@ -386,6 +399,7 @@ public class ImageQualityChecker {
                     }
                     break;
                 case "blank-page":
+                case "blank":
                     params.setCheckBlank(true);
                     break;
                 case "skew":
@@ -423,7 +437,12 @@ public class ImageQualityChecker {
                     }
                     break;
                 case "bit_depth":
+                case "minBitDepth":
                     params.setCheckBitDepth(true);
+                    Object minBitDepthValue = item.getParameter("minBitDepth", Object.class);
+                    if (minBitDepthValue != null) {
+                        params.setMinBitDepth(Integer.parseInt(minBitDepthValue.toString()));
+                    }
                     break;
                 case "quality":
                     params.setCheckQuality(true);
@@ -583,20 +602,16 @@ public class ImageQualityChecker {
                 ImageCheckItem dpiItem = imageRule.getItemByCode("dpi");
                 if (dpiItem != null && dpiItem.isEnabled()) {
                     Object minDpiObj = dpiItem.getParameter("minDpi", Object.class);
-                    if (minDpiObj != null) {
-                        int minDpi = Integer.parseInt(minDpiObj.toString());
-                        if (aiResult.getDpi() < minDpi) {
-                            CheckError error = new CheckError();
-                            error.setErrorType("dpi");
-                            error.setCategory("image_quality");
-                            error.setMessage("Low DPI detected: " + imageFile.getName() + ", DPI: " + aiResult.getDpi() + " (minimum: " + minDpi + ")");
-                            error.setColumn("resource");
-                            error.setValue(resourcePath);
-                            error.setExtractedValue(String.valueOf(aiResult.getDpi()));
-                            error.setHiddenFileName(imageFile.getName());
-                            errors.add(error);
-                        }
-                    }
+                    int minDpi = minDpiObj != null ? Integer.parseInt(minDpiObj.toString()) : 300;
+                    CheckError error = new CheckError();
+                    error.setErrorType("dpi");
+                    error.setCategory("image_quality");
+                    error.setMessage("Low DPI detected: " + imageFile.getName() + ", DPI: " + aiResult.getDpi() + " (minimum: " + minDpi + ")");
+                    error.setColumn("resource");
+                    error.setValue(resourcePath);
+                    error.setExtractedValue(String.valueOf(aiResult.getDpi()));
+                    error.setHiddenFileName(imageFile.getName());
+                    errors.add(error);
                 }
             }
         }
@@ -606,24 +621,141 @@ public class ImageQualityChecker {
                 ImageCheckItem kbItem = imageRule.getItemByCode("file-size");
                 if (kbItem != null && kbItem.isEnabled()) {
                     Object minKbObj = kbItem.getParameter("minKb", Object.class);
-                    if (minKbObj != null) {
-                        int minKb = Integer.parseInt(minKbObj.toString());
-                        if (aiResult.getKb() < minKb) {
-                            CheckError error = new CheckError();
-                            error.setErrorType("kb");
-                            error.setCategory("image_quality");
-                            error.setMessage("File size too small: " + imageFile.getName() + ", Size: " + aiResult.getKb() + "KB (minimum: " + minKb + "KB)");
-                            error.setColumn("resource");
-                            error.setValue(resourcePath);
-                            error.setExtractedValue(String.valueOf(aiResult.getKb()));
-                            error.setHiddenFileName(imageFile.getName());
-                            errors.add(error);
-                        }
-                    }
+                    Object maxKbObj = kbItem.getParameter("maxKb", Object.class);
+                    int minKb = minKbObj != null ? Integer.parseInt(minKbObj.toString()) : 10;
+                    int maxKb = maxKbObj != null ? Integer.parseInt(maxKbObj.toString()) : 10000;
+                    String sizeMessage = aiResult.getKb() < minKb ? "File size too small" : "File size too large";
+                    CheckError error = new CheckError();
+                    error.setErrorType("file-size");
+                    error.setCategory("image_quality");
+                    error.setMessage(sizeMessage + ": " + imageFile.getName() + ", Size: " + aiResult.getKb() + "KB (expected: " + minKb + "-" + maxKb + "KB)");
+                    error.setColumn("resource");
+                    error.setValue(resourcePath);
+                    error.setExtractedValue(String.valueOf(aiResult.getKb()));
+                    error.setHiddenFileName(imageFile.getName());
+                    errors.add(error);
+                }
+            }
+        }
+
+        if (aiResult.getQuality() != null && aiResult.getQuality() > 0) {
+            if (imageRule != null) {
+                ImageCheckItem qualityItem = imageRule.getItemByCode("quality");
+                if (qualityItem != null && qualityItem.isEnabled()) {
+                    Object minQualityObj = qualityItem.getParameter("minQuality", Object.class);
+                    int minQuality = minQualityObj != null ? Integer.parseInt(minQualityObj.toString()) : 80;
+                    CheckError error = new CheckError();
+                    error.setErrorType("quality");
+                    error.setCategory("image_quality");
+                    error.setMessage("Low JPEG quality detected: " + imageFile.getName() + ", Quality: " + aiResult.getQuality() + " (minimum: " + minQuality + ")");
+                    error.setColumn("resource");
+                    error.setValue(resourcePath);
+                    error.setExtractedValue(String.valueOf(aiResult.getQuality()));
+                    error.setHiddenFileName(imageFile.getName());
+                    errors.add(error);
+                }
+            }
+        }
+
+        if (aiResult.getBitDepth() != null && aiResult.getBitDepth() > 0) {
+            if (imageRule != null) {
+                ImageCheckItem bitDepthItem = imageRule.getItemByCode("bit_depth");
+                if (bitDepthItem != null && bitDepthItem.isEnabled()) {
+                    Object minBitDepthObj = bitDepthItem.getParameter("minBitDepth", Object.class);
+                    int minBitDepth = minBitDepthObj != null ? Integer.parseInt(minBitDepthObj.toString()) : 24;
+                    CheckError error = new CheckError();
+                    error.setErrorType("bit_depth");
+                    error.setCategory("image_quality");
+                    error.setMessage("Low bit depth detected: " + imageFile.getName() + ", Bit depth: " + aiResult.getBitDepth() + " (minimum: " + minBitDepth + ")");
+                    error.setColumn("resource");
+                    error.setValue(resourcePath);
+                    error.setExtractedValue(String.valueOf(aiResult.getBitDepth()));
+                    error.setHiddenFileName(imageFile.getName());
+                    errors.add(error);
                 }
             }
         }
 
         return errors;
+    }
+
+    private void collectBlankPageAndPageSizeStatistics(CheckResult result, Project project, 
+            ResourceCheckConfig resourceConfig, ImageQualityRule imageRule) {
+        if (result.getFileStatistics() == null) {
+            result.setFileStatistics(new FileStatistics());
+        }
+
+        FileStatistics statistics = result.getFileStatistics();
+        Map<String, Integer> columnIndexMap = new HashMap<>();
+        for (Column col : project.columnModel.columns) {
+            columnIndexMap.put(col.getName(), col.getCellIndex());
+        }
+
+        String separator = "/";
+        if (resourceConfig != null) {
+            separator = resourceConfig.getSeparator();
+            if (separator == null || separator.isEmpty()) {
+                separator = File.separator;
+            }
+        }
+
+        ContentChecker contentChecker = new ContentChecker(project, rules, aimpEndpoint, interfaceMode);
+        contentChecker.setTask(task);
+
+        for (int rowIndex = 0; rowIndex < project.rows.size(); rowIndex++) {
+            Row row = project.rows.get(rowIndex);
+            String resourcePath = buildResourcePath(row, columnIndexMap, resourceConfig, separator);
+
+            if (resourcePath == null || resourcePath.isEmpty()) {
+                continue;
+            }
+
+            File folder = new File(resourcePath);
+            if (!folder.exists() || !folder.isDirectory()) {
+                continue;
+            }
+
+            File[] imageFiles = folder.listFiles((dir, name) -> {
+                String lowerName = name.toLowerCase();
+                return lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg") ||
+                       lowerName.endsWith(".png") || lowerName.endsWith(".tif") ||
+                       lowerName.endsWith(".tiff") || lowerName.endsWith(".bmp") ||
+                       lowerName.endsWith(".gif") || lowerName.endsWith(".webp");
+            });
+
+            if (imageFiles == null || imageFiles.length == 0) {
+                continue;
+            }
+
+            AiCheckParams params = buildCheckParams(imageRule);
+            params.setCheckBlank(true);
+            params.setCheckPageSize(true);
+
+            for (File imageFile : imageFiles) {
+                try {
+                    AiCheckResult aiResult = contentChecker.checkImage(imageFile, params);
+
+                    if (aiResult.isBlank()) {
+                        statistics.incrementBlankPages(1);
+                    }
+
+                    String pageSize = determinePageSize(aiResult);
+                    statistics.addPageSize(pageSize);
+                } catch (Exception e) {
+                    logger.warn("Failed to check image for statistics: " + imageFile.getName(), e);
+                }
+            }
+        }
+    }
+
+    private String determinePageSize(AiCheckResult aiResult) {
+        String pageSize = aiResult.getPageSize();
+        if (pageSize == null || pageSize.isEmpty()) {
+            return "UNKNOWN";
+        }
+        if ("CUSTOM".equals(pageSize)) {
+            return "尺寸无匹配";
+        }
+        return pageSize;
     }
 }

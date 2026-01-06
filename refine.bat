@@ -272,6 +272,9 @@ pushd main\webapp
 call npm install || exit /b 1
 popd
 set MVN_ACTION=compile test-compile dependency:build-classpath
+echo Building extensions...
+call "%MVN%" package -DskipTests -f extensions || exit /b 1
+echo Extensions built successfully.
 :endif
 
 if ""%ACTION%"" == ""test"" set MVN_ACTION=test dependency:build-classpath

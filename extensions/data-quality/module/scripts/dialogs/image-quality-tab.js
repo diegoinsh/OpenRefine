@@ -47,7 +47,7 @@ var ImageQualityTab = {
       maxKb: 10000
     },
     bit_depth: {
-      minBitDepth: 24
+      minBitDepth: 8
     },
     quality: {
       minQuality: 80
@@ -661,7 +661,7 @@ ImageQualityTab._createParamParts = function(itemCode, paramKey, paramValue) {
       input = $('<input type="number" class="quality-text-input" data-param-key="' + paramKey + '">').val(paramValue);
       break;
     default:
-      input = $('<input type="text" class="quality-text-input" data-param-key="' + paramKey + '">').val(paramValue);
+      input = $('<input type="number" class="quality-text-input" data-param-key="' + paramKey + '">').val(paramValue);
   }
 
   input.data('itemCode', itemCode);

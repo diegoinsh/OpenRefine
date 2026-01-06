@@ -48,7 +48,7 @@ public class AiCheckParams {
 
     private int tolerance = 0;
 
-    private int minBitDepth = 24;
+    private int minBitDepth = 8;
 
     public boolean isCheckBlank() {
         return checkBlank;
