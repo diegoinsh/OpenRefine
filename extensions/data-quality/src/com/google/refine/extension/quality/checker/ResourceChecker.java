@@ -130,6 +130,22 @@ public class ResourceChecker {
                 File[] files = resourceDir.listFiles();
                 List<File> fileList = files != null ? Arrays.asList(files) : new ArrayList<>();
 
+                // Empty folder check
+                if (config.getFolderChecks().isEmptyFolder()) {
+                    boolean hasImageFiles = false;
+                    for (File f : fileList) {
+                        if (f.isFile() && isImageFile(f.getName())) {
+                            hasImageFiles = true;
+                            break;
+                        }
+                    }
+                    if (!hasImageFiles) {
+                        result.addError(new CheckError(rowIndex, "resource_path", resourcePath,
+                            "empty_folder", "Empty folder: " + resourcePath));
+                        rowPassed = false;
+                    }
+                }
+
                 // File count check
                 if (config.getFileChecks().isCountMatch()) {
                     String countColumn = config.getFileChecks().getCountColumn();
@@ -165,7 +181,7 @@ public class ResourceChecker {
                 if (config.getFileChecks().isSequential()) {
                     List<String> seqErrors = checkSequential(fileList);
                     for (String err : seqErrors) {
-                        result.addError(new CheckError(rowIndex, resourcePath, "", "file_sequential", err));
+                        result.addError(new CheckError(rowIndex, "resource_path", resourcePath, "file_sequential", err));
                         rowPassed = false;
                     }
                 }
@@ -297,5 +313,14 @@ public class ResourceChecker {
         }
 
         return errors;
+    }
+
+    private boolean isImageFile(String fileName) {
+        String lower = fileName.toLowerCase();
+        return lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
+               lower.endsWith(".tif") || lower.endsWith(".tiff") ||
+               lower.endsWith(".png") || lower.endsWith(".bmp") ||
+               lower.endsWith(".gif") || lower.endsWith(".webp") ||
+               lower.endsWith(".pdf") || lower.endsWith(".ofd");
     }
 }

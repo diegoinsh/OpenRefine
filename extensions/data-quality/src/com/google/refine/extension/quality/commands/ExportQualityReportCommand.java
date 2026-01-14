@@ -203,13 +203,21 @@ public class ExportQualityReportCommand extends Command {
                 String column = error.path("column").asText("");
                 String message = error.path("message").asText("");
                 String value = error.path("value").asText("");
+                String hiddenFileName = error.path("hiddenFileName").asText("");
+                String category = error.path("category").asText("");
 
                 row.createCell(0).setCellValue(error.path("rowIndex").asInt(0) + 1);
-                row.createCell(1).setCellValue(getColumnDisplay(column, errorType, value));
-                row.createCell(2).setCellValue(value.isEmpty() ? "(空)" : value);
+                row.createCell(1).setCellValue(getColumnDisplay(column, errorType, value, hiddenFileName, category));
+                String valueDisplay = value.isEmpty() ? "(空)" : value;
+                if ("empty_folder".equals(errorType) || "file_sequential".equals(errorType) ||
+                    "folder_sequential".equals(errorType) || "file_sequence".equals(errorType) ||
+                    "folder_sequence".equals(errorType)) {
+                    valueDisplay = "(空)";
+                }
+                row.createCell(2).setCellValue(valueDisplay);
                 row.createCell(3).setCellValue(getErrorTypeLabel(errorType));
                 row.createCell(4).setCellValue(translateErrorMessage(message, errorType));
-                row.createCell(5).setCellValue(getCategoryLabel(error.path("category").asText("")));
+                row.createCell(5).setCellValue(getCategoryLabel(category));
             }
         }
 
@@ -342,21 +350,26 @@ public class ExportQualityReportCommand extends Command {
     private String getErrorTypeLabel(String errorType) {
         if (errorType == null || errorType.isEmpty()) return "(空)";
         switch (errorType) {
+            case "repeat_image": return "重复图片检测";
+            case "edgeRemove": return "黑边检测";
+            case "damage": return "破损文件检测";
             case "non_empty": return "非空检查";
             case "unique": return "唯一性检查";
             case "regex": return "格式检查";
+            case "date_format": return "日期格式检查";
             case "value_list": return "值列表检查";
             case "file_count": return "文件数量检查";
             case "file_sequential": return "文件序号连续";
             case "file_sequence": return "文件序号连续";
             case "folder_existence": return "文件夹存在检查";
-            case "folder_sequential": return "文件夹顺序连续";
-            case "folder_sequence": return "文件夹顺序连续";
+            case "folder_sequential": return "文件夹序号连续";
+            case "folder_sequence": return "文件夹序号连续";
             case "content_match": return "内容匹配检查";
             case "content_mismatch": return "内容不匹配";
             case "content_warning": return "内容相似度偏低";
+            case "houseAngle": return "图像角度检测";
             case "blank": return "空白页检测";
-            case "skew": return "图像倾斜检测";
+            case "bias": return "图像倾斜检测";
             case "stain": return "污点检测";
             case "hole": return "装订孔检测";
             case "dpi": return "分辨率检测";
@@ -364,6 +377,8 @@ public class ExportQualityReportCommand extends Command {
             case "quality": return "JPEG质量检测";
             case "bit_depth": return "位深度检测";
             case "edge": return "黑边检测";
+            case "illegal_file": return "非法归档文件检测";
+            case "empty_folder": return "空文件夹检查";
             default: return errorType;
         }
     }
@@ -412,6 +427,16 @@ public class ExportQualityReportCommand extends Command {
             String pattern = message.substring("Does not match pattern:".length()).trim();
             return "不匹配格式：" + pattern;
         }
+        // Value does not match pattern
+        if (message.startsWith("Value does not match pattern:")) {
+            String pattern = message.substring("Value does not match pattern:".length()).trim();
+            return "不匹配格式：" + pattern;
+        }
+        // Value does not match date format
+        if (message.startsWith("Value does not match date format:")) {
+            String format = message.substring("Value does not match date format:".length()).trim();
+            return "日期格式错误：" + format;
+        }
 
         // Image quality errors - blank page
         if (message.startsWith("Blank page detected:")) {
@@ -459,27 +484,37 @@ public class ExportQualityReportCommand extends Command {
             return "检测到黑边: " + desc;
         }
 
+        // Empty folder
+        if (message.startsWith("Empty folder:")) {
+            String path = message.substring("Empty folder:".length()).trim();
+            return "空文件夹：" + path;
+        }
+
         return message;
     }
 
     /**
      * Get column display value - return resource type based on file extension for resource errors.
      */
-    private String getColumnDisplay(String column, String errorType, String value) {
-        if (column == null || column.isEmpty()) {
-            // For resource check errors, try to extract resource type from value (file path)
-            if (value != null && !value.isEmpty()) {
-                String ext = getFileExtension(value);
-                String resourceType = getResourceType(ext);
-                if (resourceType != null) {
-                    return resourceType;
-                }
-            }
-            return "(空)";
+    private String getColumnDisplay(String column, String errorType, String value, String hiddenFileName, String category) {
+        // For image quality errors, show full file name
+        if ("image_quality".equals(category) && hiddenFileName != null && !hiddenFileName.isEmpty()) {
+            return hiddenFileName;
         }
-        // For resource check errors, column might be a path, show resource type based on value
+        // For empty folder error, show full path
+        if ("empty_folder".equals(errorType) && value != null && !value.isEmpty()) {
+            return value;
+        }
+        // For file_sequential and folder_sequential errors, show full path
         if ("file_sequential".equals(errorType) || "folder_sequential".equals(errorType) ||
             "file_sequence".equals(errorType) || "folder_sequence".equals(errorType)) {
+            if (value != null && !value.isEmpty()) {
+                return value;
+            }
+            return column;
+        }
+        if (column == null || column.isEmpty()) {
+            // For resource check errors, try to extract resource type from value (file path)
             if (value != null && !value.isEmpty()) {
                 String ext = getFileExtension(value);
                 String resourceType = getResourceType(ext);
@@ -569,7 +604,7 @@ public class ExportQualityReportCommand extends Command {
             return "content";
         }
         if (errorType.contains("image") || errorType.contains("Image") ||
-            errorType.equals("blank") || errorType.equals("skew") || 
+            errorType.equals("blank") || errorType.equals("bias") || 
             errorType.equals("stain") || errorType.equals("hole") ||
             errorType.equals("dpi") || errorType.equals("kb") || 
             errorType.equals("quality") || errorType.equals("bit_depth") ||

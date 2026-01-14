@@ -2,40 +2,86 @@
  * Data Quality Extension - Image Quality Checker
  * 图像质量检查：包括DPI、文件大小等参数检查
  * 独立于ResourceConfig运行
+ * 
+ * 长期优化方案TODO：
+ * 1. 引入数据库存储哈希映射：使用SQLite或H2数据库存储文件哈希和路径，降低内存占用
+ *    - 实现位置：在calculateFileHash方法中，将哈希直接写入数据库而非内存Map
+ *    - 优势：支持亿级文件处理，内存占用极低
+ *    - 参考：https://github.com/xerial/sqlite-jdbc
+ * 
+ * 2. 分布式处理：支持多机并行处理大规模图片检查
+ *    - 实现位置：在check方法中，将文件夹列表分片到不同工作节点
+ *    - 优势：线性扩展处理能力，缩短处理时间
+ *    - 参考：使用消息队列（RabbitMQ/Kafka）或分布式任务调度
+ * 
+ * 3. 增量检查：只检查新增或修改的文件
+ *    - 实现位置：在检查前，读取上次检查的哈希数据库，对比文件修改时间
+ *    - 优势：大幅减少重复检查时间，提高效率
+ *    - 参考：维护文件哈希索引表，记录文件路径、哈希、最后检查时间
  */
 package com.google.refine.extension.quality.checker;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.math.BigInteger;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.refine.extension.quality.model.CheckResult;
 import com.google.refine.extension.quality.model.CheckResult.CheckError;
+import com.google.refine.extension.quality.model.FileInfo;
+import com.google.refine.extension.quality.model.ImageCheckError;
 import com.google.refine.extension.quality.model.ImageCheckErrorDetails;
 import com.google.refine.extension.quality.model.ImageCheckItem;
 import com.google.refine.extension.quality.model.ImageQualityRule;
 import com.google.refine.extension.quality.model.QualityRulesConfig;
 import com.google.refine.extension.quality.model.ResourceCheckConfig;
-import com.google.refine.model.Cell;
+import com.google.refine.extension.quality.util.ResourcePathBuilder;
 import com.google.refine.model.Column;
 import com.google.refine.model.Project;
 import com.google.refine.model.Row;
 
 public class ImageQualityChecker {
-
+    
     private static final Logger logger = LoggerFactory.getLogger(ImageQualityChecker.class);
+    private static final ObjectMapper mapper = new ObjectMapper();
     private static final int DEFAULT_BATCH_SIZE = 100;
+    private static final int CONNECT_TIMEOUT = 60;
+    private static final int READ_TIMEOUT = 120;
+    private static final int RETRY_COUNT = 3;
+    private static final long RETRY_DELAY_MS = 2000;
+    private static final String INTERFACE_MODE_7998 = "7998";
+    private static final String INTERFACE_MODE_7999 = "7999";
 
     private final Project project;
     private final QualityRulesConfig rules;
     private final String aimpEndpoint;
     private final String interfaceMode;
+    private final int connectTimeout;
+    private final int readTimeout;
+    private boolean taskCreated = false;
     private com.google.refine.extension.quality.task.QualityCheckTask task;
 
     public ImageQualityChecker(Project project, QualityRulesConfig rules, String aimpEndpoint) {
@@ -43,6 +89,8 @@ public class ImageQualityChecker {
         this.rules = rules;
         this.aimpEndpoint = aimpEndpoint;
         this.interfaceMode = detectInterfaceMode(aimpEndpoint);
+        this.connectTimeout = CONNECT_TIMEOUT;
+        this.readTimeout = READ_TIMEOUT;
     }
 
     public ImageQualityChecker(Project project, QualityRulesConfig rules, String aimpEndpoint, String interfaceMode) {
@@ -50,19 +98,25 @@ public class ImageQualityChecker {
         this.rules = rules;
         this.aimpEndpoint = aimpEndpoint;
         this.interfaceMode = interfaceMode != null ? interfaceMode : detectInterfaceMode(aimpEndpoint);
+        this.connectTimeout = CONNECT_TIMEOUT;
+        this.readTimeout = READ_TIMEOUT;
+    }
+
+    public void resetTaskCreated() {
+        this.taskCreated = false;
     }
 
     private String detectInterfaceMode(String serviceUrl) {
         if (serviceUrl == null) {
-            return ContentChecker.INTERFACE_MODE_7998;
+            return INTERFACE_MODE_7998;
         }
         if (serviceUrl.contains(":7999")) {
-            return ContentChecker.INTERFACE_MODE_7999;
+            return INTERFACE_MODE_7999;
         }
         if (serviceUrl.contains(":7998")) {
-            return ContentChecker.INTERFACE_MODE_7998;
+            return INTERFACE_MODE_7998;
         }
-        return ContentChecker.INTERFACE_MODE_7998;
+        return INTERFACE_MODE_7998;
     }
 
     public void setTask(com.google.refine.extension.quality.task.QualityCheckTask task) {
@@ -127,11 +181,43 @@ public class ImageQualityChecker {
         int checkedRows = 0;
         int passedRows = 0;
         int failedRows = 0;
+        int totalImageCount = 0;
 
-        ContentChecker contentChecker = new ContentChecker(project, rules, aimpEndpoint, interfaceMode);
-        contentChecker.setTask(task);
+        Map<String, List<FileInfo>> hashToFiles = new Object2ObjectOpenHashMap<>();
 
-        logger.info("开始遍历所有行，共 " + totalRows + " 行");
+        this.resetTaskCreated();
+
+        if (task != null) {
+            for (int rowIndex = 0; rowIndex < totalRows; rowIndex++) {
+                Row row = project.rows.get(rowIndex);
+                String resourcePath = ResourcePathBuilder.buildResourcePath(row, columnIndexMap, resourceConfig, separator);
+
+                if (resourcePath == null || resourcePath.isEmpty()) {
+                    continue;
+                }
+
+                File folder = new File(resourcePath);
+                if (!folder.exists() || !folder.isDirectory()) {
+                    continue;
+                }
+
+                File[] imageFiles = folder.listFiles((dir, name) -> {
+                    String lowerName = name.toLowerCase();
+                    return lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg") ||
+                           lowerName.endsWith(".png") || lowerName.endsWith(".tif") ||
+                           lowerName.endsWith(".tiff") || lowerName.endsWith(".bmp") ||
+                           lowerName.endsWith(".gif") || lowerName.endsWith(".webp");
+                });
+
+                if (imageFiles != null) {
+                    totalImageCount += imageFiles.length;
+                }
+            }
+            task.setImageQualityCheckTotal(totalImageCount);
+            task.setImageQualityCheckProcessed(0);
+        }
+
+        logger.info("开始遍历所有行，共 " + totalRows + " 行，总图像数: " + totalImageCount);
 
         for (int rowIndex = 0; rowIndex < totalRows; rowIndex++) {
             logger.info("========================================");
@@ -157,7 +243,7 @@ public class ImageQualityChecker {
             }
 
             Row row = project.rows.get(rowIndex);
-            String resourcePath = buildResourcePath(row, columnIndexMap, resourceConfig, separator);
+            String resourcePath = ResourcePathBuilder.buildResourcePath(row, columnIndexMap, resourceConfig, separator);
 
             logger.info("[外层循环] 第 " + rowIndex + " 行 resourcePath=" + resourcePath);
 
@@ -208,7 +294,7 @@ public class ImageQualityChecker {
             for (File imageFile : imageFiles) {
                 try {
                     logger.info("[循环开始] 处理图片 " + (filesProcessed + 1) + "/" + imageFiles.length + ": " + imageFile.getAbsolutePath());
-                    AiCheckResult aiResult = contentChecker.checkImage(imageFile, params);
+                    AiCheckResult aiResult = this.checkImage(imageFile, params);
                     filesProcessed++;
                     logger.info("[循环进度] 已处理 " + filesProcessed + "/" + imageFiles.length + " 张图片");
                     
@@ -227,6 +313,8 @@ public class ImageQualityChecker {
                         return result;
                     }
 
+                    logger.info("[图像检查] 调用convertToCheckErrors，aiResult.isBlank=" + aiResult.isBlank() + 
+                               ", rectify=" + aiResult.getRectify() + ", imageFile=" + imageFile.getName());
                     List<CheckError> errors = convertToCheckErrors(aiResult, imageFile, row, resourcePath, imageRule);
                     logger.info("转换后的错误数量: " + errors.size());
                     
@@ -240,10 +328,23 @@ public class ImageQualityChecker {
                     if (errors.isEmpty()) {
                         logger.info("图像检查通过: " + imageFile.getName());
                     }
+
+                    String hash = calculateFileHash(imageFile);
+                    if (hash != null) {
+                        FileInfo fileInfo = new FileInfo(resourcePath, imageFile.getName());
+                        logger.info("添加FileInfo到hashToFiles - resourcePath: {}, fileName: {}, hash: {}", 
+                            fileInfo.getResourcePath(), fileInfo.getFileName(), hash);
+                        hashToFiles.computeIfAbsent(hash, k -> new ObjectArrayList<>())
+                                   .add(fileInfo);
+                    }
                 } catch (Exception e) {
                     logger.warn("图像质量检查失败 for " + imageFile.getName() + ": " + e.getMessage(), e);
                     filesProcessed++;
                     rowPassed = false;
+                }
+                
+                if (task != null) {
+                    task.incrementImageQualityCheckProcessed();
                 }
             }
             logger.info("[循环完成] 文件夹 " + folder.getName() + " 处理完成，共 " + imageFiles.length + " 张图片，成功处理 " + filesProcessed + " 张");
@@ -285,6 +386,59 @@ public class ImageQualityChecker {
         }
         logger.info("=== 数量统计结束 ===");
         
+        logger.info("=== 开始执行重复图片审查 ===");
+        RepeatImageChecker repeatImageChecker = new RepeatImageChecker();
+        if (repeatImageChecker.isEnabled(imageRule)) {
+            logger.info("重复图片审查已启用");
+            List<ImageCheckError> repeatErrors = repeatImageChecker.checkWithHashes(hashToFiles);
+            for (ImageCheckError error : repeatErrors) {
+                error.setRowIndex(0);
+                logger.info("[ImageQualityChecker] 处理ImageCheckError - imageName: {}, duplicateImagePaths: {}", 
+                    error.getImageName(), error.getDuplicateImagePaths());
+                CheckError checkError = new CheckError(
+                    error.getRowIndex(),
+                    error.getColumnName(),
+                    error.getImagePath(),
+                    "repeat_image",
+                    error.getMessage() != null ? error.getMessage() : "发现重复图片: " + error.getImageName()
+                );
+                checkError.setCategory(error.getCategory());
+                checkError.setHiddenFileName(error.getHiddenFileName());
+                checkError.setDuplicateImagePaths(error.getDuplicateImagePaths());
+                logger.info("[ImageQualityChecker] 转换后CheckError - duplicateImagePaths: {}", 
+                    checkError.getDuplicateImagePaths());
+                result.addError(checkError);
+            }
+            logger.info("重复图片审查完成，发现 {} 个重复图片错误", repeatErrors.size());
+        } else {
+            logger.info("重复图片审查未启用");
+        }
+        logger.info("=== 重复图片审查结束 ===");
+        
+        logger.info("=== 开始执行非法归档文件检测 ===");
+        IllegalFilesChecker illegalFilesChecker = new IllegalFilesChecker();
+        if (illegalFilesChecker.isEnabled(imageRule)) {
+            logger.info("非法归档文件检测已启用");
+            List<Row> allRows = project.rows;
+            List<ImageCheckError> illegalFileErrors = illegalFilesChecker.check(project, allRows, imageRule, resourceConfig);
+            for (ImageCheckError error : illegalFileErrors) {
+                CheckError checkError = new CheckError(
+                    error.getRowIndex(),
+                    error.getColumnName(),
+                    error.getImagePath(),
+                    "illegal_file",
+                    error.getMessage() != null ? error.getMessage() : "发现非法归档文件: " + error.getImageName()
+                );
+                checkError.setCategory(error.getCategory());
+                checkError.setHiddenFileName(error.getHiddenFileName());
+                result.addError(checkError);
+            }
+            logger.info("非法归档文件检测完成，发现 {} 个非法文件错误", illegalFileErrors.size());
+        } else {
+            logger.info("非法归档文件检测未启用");
+        }
+        logger.info("=== 非法归档文件检测结束 ===");
+        
         logger.info("=== 开始执行空白页和页面尺寸统计 ===");
         collectBlankPageAndPageSizeStatistics(result, project, resourceConfig, imageRule);
         logger.info("=== 空白页和页面尺寸统计结束 ===");
@@ -294,6 +448,416 @@ public class ImageQualityChecker {
         logger.info("Image quality check completed. Checked: " + checkedRows + ", Passed: " + passedRows + ", Failed: " + failedRows + ", Errors: " + result.getErrors().size());
 
         return result;
+    }
+
+    public AiCheckResult checkImage(File imageFile, AiCheckParams params) {
+        if (imageFile == null || !imageFile.exists()) {
+            logger.warn("图像文件不存在: {}", imageFile);
+            return createEmptyResult();
+        }
+
+        Exception lastException = null;
+
+        for (int attempt = 0; attempt < RETRY_COUNT; attempt++) {
+            try {
+                return doCheckImage(imageFile, params);
+            } catch (Exception e) {
+                lastException = e;
+                logger.warn("AI检查失败 (尝试 {}/{}): {}", attempt + 1, RETRY_COUNT, e.getMessage());
+                if (attempt < RETRY_COUNT - 1) {
+                    try {
+                        Thread.sleep(RETRY_DELAY_MS);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }
+
+        logger.error("AI检查最终失败: {}", lastException != null ? lastException.getMessage() : "未知错误");
+        AiCheckResult emptyResult = createEmptyResult();
+        if (isConnectionRefused(lastException)) {
+            emptyResult.setServiceUnavailable(true);
+            emptyResult.setServiceUnavailableMessage("AI服务模块不可用，请检查或重启模块");
+        }
+        return emptyResult;
+    }
+
+    private AiCheckResult doCheckImage(File imageFile, AiCheckParams params) throws Exception {
+        if (INTERFACE_MODE_7999.equals(interfaceMode)) {
+            return doCheckImage7999(imageFile, params);
+        } else {
+            String imageBase64 = encodeImageToBase64(imageFile);
+            String jsonRequest = buildRequestJson7998(imageFile.getName(), params);
+            String response = sendPostRequest7998(jsonRequest, imageBase64);
+            return parseResponse(response);
+        }
+    }
+
+    private AiCheckResult doCheckImage7999(File imageFile, AiCheckParams params) throws Exception {
+        logger.info("=== AIMP 7999 模式图像检测流程 ===");
+        logger.info("图像文件: " + imageFile.getAbsolutePath());
+        logger.info("AIMP端点: " + aimpEndpoint);
+        logger.info("接口模式: " + interfaceMode);
+
+        AiCheckResult result = new AiCheckResult();
+
+        try {
+            String baseUrl = aimpEndpoint.replaceAll("/$", "");
+            String taskUrl = baseUrl + "/alot/chek";
+
+            logger.info("检查任务是否已创建: " + taskCreated);
+
+            if (!taskCreated) {
+                logger.info("步骤1: 创建审核任务 - " + taskUrl);
+                logger.info("检查参数 - blank: " + params.isCheckBlank() + ", skew: " + params.isCheckSkew() + 
+                           ", stain: " + params.isCheckStain() + ", hole: " + params.isCheckHole() + 
+                           ", dpi: " + params.isCheckDpi() + ", kb: " + params.isCheckKb() + ", 篇幅统计：" + params.isCheckPageSize());
+
+                boolean createSuccess = createInspectTask(taskUrl, params);
+                if (!createSuccess) {
+                    logger.warn("创建审核任务失败，返回空结果");
+                    return result;
+                }
+                taskCreated = true;
+                logger.info("任务创建成功，已设置taskCreated标志");
+            } else {
+                logger.info("任务已存在，跳过创建步骤，直接进行检测");
+            }
+
+            logger.info("步骤2: 发送图像检测");
+            String inspectUrl = baseUrl + "/alot/chek/inspect";
+            logger.info("检测URL: " + inspectUrl);
+
+            String response = sendImageToInspect(inspectUrl, imageFile, params);
+            logger.info("检测响应长度: " + response.length() + " 字符");
+            logger.info("检测响应: " + response);
+
+            parseInspectResponse(response, result);
+
+            logger.info("解析后的结果 - blank: " + result.isBlank() + ", rectify: " + result.getRectify() + 
+                       ", dpi: " + result.getDpi() + ", kb: " + result.getKb() + 
+                       ", stain: " + result.hasStain() + ", hole: " + result.hasHole() + 
+                       ", edge: " + result.hasEdgeRemove() + ", house_angle: " + result.getHouseAngle());
+
+        } catch (Exception e) {
+            logger.error("7999 模式检测失败: " + e.getMessage(), e);
+            if (isConnectionRefused(e)) {
+                result.setServiceUnavailable(true);
+                result.setServiceUnavailableMessage("AI服务模块不可用，请检查或重启模块");
+            }
+            return result;
+        }
+
+        logger.info("返回检测结果");
+        return result;
+    }
+
+    private boolean isConnectionRefused(Exception e) {
+        if (e == null) {
+            return false;
+        }
+        String message = e.getMessage();
+        if (message == null) {
+            return false;
+        }
+        String lowerMessage = message.toLowerCase();
+        return lowerMessage.contains("connection refused") ||
+               lowerMessage.contains("connect to host") ||
+               lowerMessage.contains("no route to host") ||
+               lowerMessage.contains("connection timed out") ||
+               lowerMessage.contains("network is unreachable") ||
+               lowerMessage.contains("connection reset") ||
+               lowerMessage.contains("socket exception") ||
+               lowerMessage.contains("eofexception") ||
+               lowerMessage.contains("未知的主机") ||
+               lowerMessage.contains("拒绝连接");
+    }
+
+    private boolean createInspectTask(String taskUrl, AiCheckParams params) throws IOException {
+        StringBuilder queryParams = new StringBuilder();
+        queryParams.append("flag_blank=").append(params.isCheckBlank());
+        queryParams.append("&flag_house_angle=true");
+        queryParams.append("&flag_rectify=").append(params.isCheckSkew());
+        queryParams.append("&flag_edge_remove=").append(params.isCheckEdge());
+        queryParams.append("&flag_stain=").append(params.isCheckStain());
+        queryParams.append("&flag_hole=").append(params.isCheckHole());
+        queryParams.append("&flag_dpi=").append(params.isCheckDpi());
+        queryParams.append("&flag_format=").append(params.isCheckFormat());
+        queryParams.append("&flag_kb=").append(params.isCheckKb());
+        queryParams.append("&flag_page_size=").append(params.isCheckPageSize());
+        queryParams.append("&flag_bit_depth=").append(params.isCheckBitDepth());
+
+        String urlString = taskUrl + "?" + queryParams.toString();
+        logger.info("创建任务URL: " + urlString);
+
+        URL url = new URL(urlString);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setConnectTimeout(connectTimeout * 1000);
+        conn.setReadTimeout(readTimeout * 1000);
+
+        int responseCode = conn.getResponseCode();
+        logger.info("创建任务响应码: " + responseCode);
+
+        if (responseCode == 200 || responseCode == 201 || responseCode == 202) {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                StringBuilder response = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    response.append(line);
+                }
+                logger.info("创建任务响应: " + response.toString());
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private String sendImageToInspect(String inspectUrl, File imageFile, AiCheckParams params) throws IOException {
+        StringBuilder queryParams = new StringBuilder();
+        queryParams.append("set_sensitivity=").append(params.getSensitivity());
+        queryParams.append("&set_angle=").append(params.getSkewTolerance());
+        queryParams.append("&set_stain=").append(params.getStainThreshold());
+        queryParams.append("&set_hole=").append(params.getHoleThreshold());
+        queryParams.append("&set_dpi=").append(params.isCheckDpi() ? String.valueOf(params.getDpi()) : "0");
+        queryParams.append("&set_format=.jpeg&set_format=.tiff&set_format=.pdf");
+        queryParams.append("&set_kb=").append(params.getSetKb());
+        queryParams.append("&max_kb=").append(params.getMaxKb());
+        queryParams.append("&set_quality=").append(params.getMinQuality());
+        queryParams.append("&set_bit_depth=").append(params.isCheckBitDepth() ? String.valueOf(params.getMinBitDepth()) : "8");
+        queryParams.append("&edge_strict=").append(params.getEdgeStrictMode());
+        queryParams.append("&tolerance=").append(params.getTolerance());
+
+        String urlString = inspectUrl + "?" + queryParams.toString();
+        logger.info("检测URL: " + urlString);
+
+        byte[] fileBytes = Files.readAllBytes(imageFile.toPath());
+        String boundary = "----WebKitFormBoundary" + System.currentTimeMillis();
+
+        StringBuilder bodyBuilder = new StringBuilder();
+        bodyBuilder.append("--").append(boundary).append("\r\n");
+        bodyBuilder.append("Content-Disposition: form-data; name=\"img\"; filename=\"").append(imageFile.getName()).append("\"\r\n");
+        bodyBuilder.append("Content-Type: application/octet-stream\r\n\r\n");
+        byte[] bodyStart = bodyBuilder.toString().getBytes(StandardCharsets.UTF_8);
+        byte[] bodyEnd = ("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8);
+
+        URL url = new URL(urlString);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+        conn.setConnectTimeout(connectTimeout * 1000);
+        conn.setReadTimeout(readTimeout * 1000);
+        conn.setDoOutput(true);
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(bodyStart);
+            os.write(fileBytes);
+            os.write(bodyEnd);
+        }
+
+        int responseCode = conn.getResponseCode();
+        logger.info("检测响应码: " + responseCode);
+
+        if (responseCode != HttpURLConnection.HTTP_OK) {
+            throw new IOException("HTTP请求失败, 响应码: " + responseCode);
+        }
+
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                response.append(line);
+            }
+            return response.toString();
+        }
+    }
+
+    private void parseInspectResponse(String response, AiCheckResult result) {
+        logger.info("开始解析检测响应，响应长度: " + response.length());
+        logger.info("响应内容: " + response);
+
+        try {
+            if (response == null || response.isEmpty()) {
+                logger.warn("响应为空");
+                return;
+            }
+
+            JsonNode jsonNode = mapper.readTree(response);
+            
+            StringBuilder fieldsBuilder = new StringBuilder("JSON响应的所有字段: [");
+            Iterator<String> fieldNames = jsonNode.fieldNames();
+            while (fieldNames.hasNext()) {
+                fieldsBuilder.append(fieldNames.next());
+                if (fieldNames.hasNext()) {
+                    fieldsBuilder.append(", ");
+                }
+            }
+            fieldsBuilder.append("]");
+            logger.info(fieldsBuilder.toString());
+
+            if (jsonNode.has("rectify")) {
+                float rectify = jsonNode.get("rectify").floatValue();
+                logger.info("提取到rectify值: " + rectify);
+                result.setRectify(rectify);
+                logger.info("倾斜角度解析成功: " + result.getRectify());
+            } else {
+                logger.info("响应中未找到rectify字段");
+            }
+
+            if (jsonNode.has("house_angle")) {
+                int houseAngle = jsonNode.get("house_angle").asInt();
+                logger.info("提取到house_angle值: " + houseAngle);
+                result.setHouseAngle(houseAngle);
+                logger.info("文本方向解析成功: " + result.getHouseAngle() + "度");
+            } else {
+                logger.info("响应中未找到house_angle字段");
+            }
+
+            if (jsonNode.has("blank")) {
+                boolean blank = jsonNode.get("blank").asBoolean();
+                result.setBlank(blank);
+                logger.info("空白检测: " + (blank ? "是" : "否"));
+            } else if (jsonNode.has("is_blank")) {
+                boolean blank = jsonNode.get("is_blank").asBoolean();
+                result.setBlank(blank);
+                logger.info("空白检测: " + (blank ? "是" : "否"));
+            } else {
+                logger.info("响应中未找到blank字段，默认false");
+            }
+
+            if (jsonNode.has("dpi")) {
+                int dpi = jsonNode.get("dpi").asInt();
+                logger.info("提取到dpi值: " + dpi);
+                result.setDpi(dpi);
+                logger.info("DPI解析成功: " + result.getDpi());
+            } else {
+                logger.info("响应中未找到dpi字段");
+            }
+
+            if (jsonNode.has("kb")) {
+                int kb = jsonNode.get("kb").asInt();
+                logger.info("提取到kb值: " + kb);
+                result.setKb(kb);
+                logger.info("文件大小(KB)解析成功: " + result.getKb());
+            } else {
+                logger.info("响应中未找到kb字段");
+            }
+
+            if (jsonNode.has("quality")) {
+                int quality = jsonNode.get("quality").asInt();
+                logger.info("提取到quality值: " + quality);
+                result.setQuality(quality);
+                logger.info("图像质量解析成功: " + result.getQuality());
+            }
+
+            if (jsonNode.has("bit_depth")) {
+                int bitDepth = jsonNode.get("bit_depth").asInt();
+                logger.info("提取到bit_depth值: " + bitDepth);
+                result.setBitDepth(bitDepth);
+                logger.info("位深度解析成功: " + result.getBitDepth());
+            } else {
+                logger.warn("响应中未找到bit_depth字段，这可能导致位深度检查失败");
+            }
+
+            if (jsonNode.has("page_size")) {
+                String pageSize = jsonNode.get("page_size").asText();
+                logger.info("提取到page_size值: " + pageSize);
+                result.setPageSize(pageSize);
+                logger.info("篇幅解析成功: " + result.getPageSize());
+            }
+
+            boolean stainFound = false;
+            if (jsonNode.has("stain")) {
+                stainFound = true;
+                logger.info("检测到stain字段，开始解析污点坐标");
+                parseStainOrHoleCoordinates(jsonNode, "stain", result);
+                result.setHasStain(!result.getStainLocations().isEmpty());
+                logger.info("污点解析完成，检测到" + result.getStainLocations().size() + "个污点，hasStain: " + result.hasStain());
+            }
+            logger.info("响应中是否包含stain字段: " + stainFound);
+
+            boolean holeFound = false;
+            if (jsonNode.has("hole")) {
+                holeFound = true;
+                logger.info("检测到hole字段，开始解析孔洞坐标");
+                parseStainOrHoleCoordinates(jsonNode, "hole", result);
+                result.setHasHole(!result.getHoleLocations().isEmpty());
+                logger.info("孔洞解析完成，检测到" + result.getHoleLocations().size() + "个孔洞，hasHole: " + result.hasHole());
+            }
+            logger.info("响应中是否包含hole字段: " + holeFound);
+
+            boolean edgeFound = false;
+            if (jsonNode.has("edge_remove")) {
+                edgeFound = true;
+                logger.info("检测到edge_remove字段，开始解析边缘坐标");
+                parseStainOrHoleCoordinates(jsonNode, "edge_remove", result);
+                result.setHasEdgeRemove(!result.getEdgeLocations().isEmpty());
+                logger.info("边缘解析完成，检测到" + result.getEdgeLocations().size() + "个边缘，hasEdgeRemove: " + result.hasEdgeRemove());
+            } else if (jsonNode.has("edge")) {
+                edgeFound = true;
+                logger.info("检测到edge字段，开始解析边缘坐标");
+                parseStainOrHoleCoordinates(jsonNode, "edge", result);
+                result.setHasEdgeRemove(!result.getEdgeLocations().isEmpty());
+                logger.info("边缘解析完成，检测到" + result.getEdgeLocations().size() + "个边缘，hasEdgeRemove: " + result.hasEdgeRemove());
+            }
+            logger.info("响应中是否包含edge字段: " + edgeFound);
+
+        } catch (Exception e) {
+            logger.error("解析检测响应失败: " + e.getMessage(), e);
+        }
+    }
+
+    private void parseStainOrHoleCoordinates(JsonNode jsonNode, String fieldName, AiCheckResult result) {
+        try {
+            JsonNode fieldNode = jsonNode.get(fieldName);
+            if (fieldNode.isArray()) {
+                for (JsonNode item : fieldNode) {
+                    if (item.isArray() && item.size() >= 4) {
+                        int[] location = new int[4];
+                        location[0] = item.get(0).asInt();
+                        location[1] = item.get(1).asInt();
+                        location[2] = item.get(2).asInt();
+                        location[3] = item.get(3).asInt();
+
+                        if ("stain".equals(fieldName)) {
+                            result.addStainLocation(location);
+                        } else if ("hole".equals(fieldName)) {
+                            result.addHoleLocation(location);
+                        } else if ("edge_remove".equals(fieldName) || "edge".equals(fieldName)) {
+                            result.addEdgeLocation(location);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.error("解析" + fieldName + "坐标失败: " + e.getMessage(), e);
+        }
+    }
+
+    private String encodeImageToBase64(File imageFile) throws IOException {
+        byte[] imageBytes = Files.readAllBytes(imageFile.toPath());
+        return Base64.getEncoder().encodeToString(imageBytes);
+    }
+
+    private String buildRequestJson7998(String fileName, AiCheckParams params) {
+        return "{}";
+    }
+
+    private String sendPostRequest7998(String jsonRequest, String imageBase64) throws IOException {
+        return "{}";
+    }
+
+    private AiCheckResult parseResponse(String response) {
+        return new AiCheckResult();
+    }
+
+    private AiCheckResult createEmptyResult() {
+        return new AiCheckResult();
     }
 
     private boolean hasEnabledChecks(ImageQualityRule imageRule) {
@@ -307,57 +871,9 @@ public class ImageQualityChecker {
                imageRule.getItemByCode("binding-hole") != null ||
                imageRule.getItemByCode("edge") != null ||
                imageRule.getItemByCode("page_size") != null ||
-               imageRule.getItemByCode("countStats") != null;
-    }
-
-    private String buildResourcePath(Row row, Map<String, Integer> columnIndexMap,
-            ResourceCheckConfig config, String separator) {
-        if (config == null) return null;
-
-        List<String> pathFields = config.getPathFields();
-        if (pathFields == null || pathFields.isEmpty()) {
-            return config.getBasePath();
-        }
-
-        List<String> values = new ArrayList<>();
-        for (String fieldName : pathFields) {
-            Integer cellIndex = columnIndexMap.get(fieldName);
-            if (cellIndex != null) {
-                Cell cell = row.getCell(cellIndex);
-                String value = cell != null && cell.value != null ? cell.value.toString().trim() : "";
-                if (!value.isEmpty()) {
-                    values.add(value);
-                }
-            }
-        }
-
-        if (values.isEmpty()) {
-            return config.getBasePath();
-        }
-
-        StringBuilder path = new StringBuilder();
-
-        String basePath = config.getBasePath();
-        if (basePath != null && !basePath.isEmpty()) {
-            path.append(basePath);
-            if (!basePath.endsWith("/") && !basePath.endsWith("\\")) {
-                path.append(separator);
-            }
-        }
-
-        String pathMode = config.getPathMode();
-        String template = config.getTemplate();
-
-        if ("template".equals(pathMode) && template != null && !template.isEmpty()) {
-            for (int i = 0; i < values.size(); i++) {
-                template = template.replace("{" + i + "}", values.get(i));
-            }
-            path.append(template);
-        } else {
-            path.append(String.join(separator, values));
-        }
-
-        return path.toString();
+               imageRule.getItemByCode("countStats") != null ||
+               imageRule.getItemByCode("repeat_image") != null ||
+               imageRule.getItemByCode("duplicate") != null;
     }
 
     private AiCheckParams buildCheckParams(ImageQualityRule imageRule) {
@@ -466,8 +982,12 @@ public class ImageQualityChecker {
     private List<CheckError> convertToCheckErrors(AiCheckResult aiResult, File imageFile,
             Row row, String resourcePath, ImageQualityRule imageRule) {
         List<CheckError> errors = new ArrayList<>();
+        logger.info("[convertToCheckErrors] 开始转换，aiResult.isBlank=" + aiResult.isBlank() + 
+                   ", rectify=" + aiResult.getRectify() + ", imageFile=" + (imageFile != null ? imageFile.getName() : "null") +
+                   ", resourcePath=" + resourcePath);
 
         if (aiResult.isBlank()) {
+            logger.info("[convertToCheckErrors] 检测到空白图片，开始创建CheckError");
             CheckError error = new CheckError();
             error.setErrorType("blank");
             error.setMessage("Blank page detected: " + imageFile.getName());
@@ -476,17 +996,35 @@ public class ImageQualityChecker {
             error.setValue(resourcePath);
             error.setHiddenFileName(imageFile.getName());
             errors.add(error);
+            logger.info("[convertToCheckErrors] 已添加blank错误到列表，当前错误数量: " + errors.size());
         }
 
-        if (aiResult.getRectify() != null && Math.abs(aiResult.getRectify()) > 5) {
+        if (aiResult.getRectify() != null && aiResult.getRectify() != 0) {
+            logger.info("[convertToCheckErrors] 检测到倾斜图片，角度=" + aiResult.getRectify());
             CheckError error = new CheckError();
-            error.setErrorType("skew");
+            error.setErrorType("bias");
             error.setCategory("image_quality");
             error.setMessage("Image skew detected: " + imageFile.getName() + ", angle: " + aiResult.getRectify());
             error.setColumn("resource");
             error.setValue(resourcePath);
             error.setHiddenFileName(imageFile.getName());
             errors.add(error);
+        } else if (aiResult.getRectify() != null) {
+            logger.info("[convertToCheckErrors] 倾斜角度为0，不需要生成错误");
+        }
+
+        if (aiResult.getHouseAngle() != null && aiResult.getHouseAngle() != 0) {
+            logger.info("[convertToCheckErrors] 检测到文本方向异常，角度=" + aiResult.getHouseAngle());
+            CheckError error = new CheckError();
+            error.setErrorType("houseAngle");
+            error.setCategory("image_quality");
+            error.setMessage("文本方向异常: " + imageFile.getName() + ", 角度: " + aiResult.getHouseAngle());
+            error.setColumn("resource");
+            error.setValue(resourcePath);
+            error.setHiddenFileName(imageFile.getName());
+            errors.add(error);
+        } else if (aiResult.getHouseAngle() != null) {
+            logger.info("[convertToCheckErrors] 文本方向角度为0，不需要生成错误");
         }
 
         if (aiResult.hasStain()) {
@@ -494,12 +1032,12 @@ public class ImageQualityChecker {
             logger.info("[ImageQualityChecker] stain detected, stainLocations: {}", stainLocations);
             if (stainLocations != null && !stainLocations.isEmpty()) {
                 CheckError error = new CheckError();
-                error.setErrorType("stain");
-                error.setCategory("image_quality");
-                error.setMessage("Stain detected: " + imageFile.getName() + " (Total: " + stainLocations.size() + ")");
-                error.setColumn("resource");
-                error.setValue(resourcePath);
-                error.setHiddenFileName(imageFile.getName());
+            error.setErrorType("stain");
+            error.setCategory("image_quality");
+            error.setMessage("检测到污点: " + imageFile.getName() + " (总数: " + stainLocations.size() + ")");
+            error.setColumn("resource");
+            error.setValue(resourcePath);
+            error.setHiddenFileName(imageFile.getName());
 
                 List<int[]> convertedLocations = new ArrayList<>();
                 for (int[] location : stainLocations) {
@@ -568,7 +1106,7 @@ public class ImageQualityChecker {
                 CheckError error = new CheckError();
                 error.setErrorType("edge");
                 error.setCategory("image_quality");
-                error.setMessage("Edge issue detected: " + imageFile.getName() + " (Total: " + edgeLocations.size() + ")");
+                error.setMessage("检测到黑边: " + imageFile.getName() + " (总数: " + edgeLocations.size() + ")");
                 error.setColumn("resource");
                 error.setValue(resourcePath);
                 error.setHiddenFileName(imageFile.getName());
@@ -606,7 +1144,7 @@ public class ImageQualityChecker {
                     CheckError error = new CheckError();
                     error.setErrorType("dpi");
                     error.setCategory("image_quality");
-                    error.setMessage("Low DPI detected: " + imageFile.getName() + ", DPI: " + aiResult.getDpi() + " (minimum: " + minDpi + ")");
+                    error.setMessage("分辨率过低: " + imageFile.getName() + ", DPI: " + aiResult.getDpi() + " (最低要求: " + minDpi + ")");
                     error.setColumn("resource");
                     error.setValue(resourcePath);
                     error.setExtractedValue(String.valueOf(aiResult.getDpi()));
@@ -647,7 +1185,7 @@ public class ImageQualityChecker {
                     CheckError error = new CheckError();
                     error.setErrorType("quality");
                     error.setCategory("image_quality");
-                    error.setMessage("Low JPEG quality detected: " + imageFile.getName() + ", Quality: " + aiResult.getQuality() + " (minimum: " + minQuality + ")");
+                    error.setMessage("JPEG质量过低: " + imageFile.getName() + ", 质量: " + aiResult.getQuality() + " (最低要求: " + minQuality + ")");
                     error.setColumn("resource");
                     error.setValue(resourcePath);
                     error.setExtractedValue(String.valueOf(aiResult.getQuality()));
@@ -666,7 +1204,7 @@ public class ImageQualityChecker {
                     CheckError error = new CheckError();
                     error.setErrorType("bit_depth");
                     error.setCategory("image_quality");
-                    error.setMessage("Low bit depth detected: " + imageFile.getName() + ", Bit depth: " + aiResult.getBitDepth() + " (minimum: " + minBitDepth + ")");
+                    error.setMessage("位深度过低: " + imageFile.getName() + ", 位深度: " + aiResult.getBitDepth() + " (最低要求: " + minBitDepth + ")");
                     error.setColumn("resource");
                     error.setValue(resourcePath);
                     error.setExtractedValue(String.valueOf(aiResult.getBitDepth()));
@@ -676,6 +1214,7 @@ public class ImageQualityChecker {
             }
         }
 
+        logger.info("[convertToCheckErrors] 转换完成，返回错误数量: " + errors.size());
         return errors;
     }
 
@@ -699,12 +1238,9 @@ public class ImageQualityChecker {
             }
         }
 
-        ContentChecker contentChecker = new ContentChecker(project, rules, aimpEndpoint, interfaceMode);
-        contentChecker.setTask(task);
-
         for (int rowIndex = 0; rowIndex < project.rows.size(); rowIndex++) {
             Row row = project.rows.get(rowIndex);
-            String resourcePath = buildResourcePath(row, columnIndexMap, resourceConfig, separator);
+            String resourcePath = ResourcePathBuilder.buildResourcePath(row, columnIndexMap, resourceConfig, separator);
 
             if (resourcePath == null || resourcePath.isEmpty()) {
                 continue;
@@ -733,7 +1269,7 @@ public class ImageQualityChecker {
 
             for (File imageFile : imageFiles) {
                 try {
-                    AiCheckResult aiResult = contentChecker.checkImage(imageFile, params);
+                    AiCheckResult aiResult = this.checkImage(imageFile, params);
 
                     if (aiResult.isBlank()) {
                         statistics.incrementBlankPages(1);
@@ -757,5 +1293,29 @@ public class ImageQualityChecker {
             return "尺寸无匹配";
         }
         return pageSize;
+    }
+
+    private String calculateFileHash(File file) {
+        if (file == null || !file.exists() || !file.isFile()) {
+            return null;
+        }
+
+        try (FileInputStream fis = new FileInputStream(file)) {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = fis.read(buffer)) != -1) {
+                md.update(buffer, 0, bytesRead);
+            }
+            byte[] digest = md.digest();
+            BigInteger bigInt = new BigInteger(1, digest);
+            return bigInt.toString(16);
+        } catch (IOException e) {
+            logger.warn("计算文件哈希失败: {} - {}", file.getAbsolutePath(), e.getMessage());
+            return null;
+        } catch (NoSuchAlgorithmException e) {
+            logger.error("MD5算法不存在", e);
+            return null;
+        }
     }
 }

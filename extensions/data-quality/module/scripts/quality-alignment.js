@@ -52,7 +52,7 @@ var QualityAlignment = {
  * Get the appropriate API endpoint for a check type based on interface mode
  * @param {string} serviceUrl - Base service URL
  * @param {string} interfaceMode - '7998' or '7999'
- * @param {string} checkType - Type of check (blank, stain, edge, hole, skew, dpi, bitdepth)
+ * @param {string} checkType - Type of check (blank, stain, edge, hole, bias, dpi, bitdepth)
  * @returns {string} - Full API endpoint URL
  */
 QualityAlignment._getApiEndpoint = function(serviceUrl, interfaceMode, checkType) {
@@ -66,7 +66,7 @@ QualityAlignment._getApiEndpoint = function(serviceUrl, interfaceMode, checkType
       'stain': '/stain',
       'edge': '/edge',
       'hole': '/house',
-      'skew': '/rectify',
+      'bias': '/rectify',
       'dpi': '/dpi',
       'bitdepth': '/bitdepth',
       'quality': '/jpeg/quality'
@@ -796,20 +796,26 @@ QualityAlignment._renderResourceCheckTab = function() {
 
   var folderSection = $('<div class="quality-config-section"></div>').appendTo(container);
 
-  this._renderCheckbox(folderSection, 'folder-existence', $.i18n('data-quality-extension/folder-existence'),
+  var folderExistenceRow = this._renderCheckbox(folderSection, 'folder-existence', $.i18n('data-quality-extension/folder-existence'),
     this._resourceConfig.folderChecks.existence, function(v) { self._resourceConfig.folderChecks.existence = v; });
+  $('<span></span>').text($.i18n('data-quality-extension/folder-existence-comment')).appendTo(folderExistenceRow);
 
-  this._renderCheckbox(folderSection, 'data-existence', $.i18n('data-quality-extension/data-existence'),
+  var dataExistenceRow = this._renderCheckbox(folderSection, 'data-existence', $.i18n('data-quality-extension/data-existence'),
     this._resourceConfig.folderChecks.dataExistence, function(v) { self._resourceConfig.folderChecks.dataExistence = v; });
+  $('<span></span>').text($.i18n('data-quality-extension/data-existence-comment')).appendTo(dataExistenceRow);
 
   var nameFormatRow = this._renderCheckboxWithInput(folderSection, 'folder-name-format',
     $.i18n('data-quality-extension/folder-name-format'), !!this._resourceConfig.folderChecks.nameFormat,
     this._resourceConfig.folderChecks.nameFormat,
     function(checked) { if (!checked) self._resourceConfig.folderChecks.nameFormat = ''; },
-    function(val) { self._resourceConfig.folderChecks.nameFormat = val; });
+    function(val) { self._resourceConfig.folderChecks.nameFormat = val; }, true);
 
   this._renderCheckbox(folderSection, 'folder-sequential', $.i18n('data-quality-extension/folder-sequential'),
     this._resourceConfig.folderChecks.sequential, function(v) { self._resourceConfig.folderChecks.sequential = v; });
+
+  var emptyFolderRow = this._renderCheckbox(folderSection, 'folder-empty-folder', $.i18n('data-quality-extension/empty-folders-check'),
+    this._resourceConfig.folderChecks.emptyFolder, function(v) { self._resourceConfig.folderChecks.emptyFolder = v; });
+  $('<span></span>').text($.i18n('data-quality-extension/empty-folders-check-comment')).appendTo(emptyFolderRow);
 
   // File level checks
   $('<p class="quality-section-title"></p>')
@@ -821,10 +827,10 @@ QualityAlignment._renderResourceCheckTab = function() {
   var countRow = $('<div class="quality-checkbox-row"></div>').appendTo(fileSection);
   $('<label></label>')
     .html('<input type="checkbox" id="check-file-count" ' + (this._resourceConfig.fileChecks.countMatch ? 'checked' : '') + '> '
-      + $.i18n('data-quality-extension/file-count-match') + ': ' + $.i18n('data-quality-extension/count-column') + ' ')
+      + $.i18n('data-quality-extension/file-count-match'))
     .appendTo(countRow);
-
-  this._countColumnSelect = $('<select class="quality-inline-select"></select>').appendTo(countRow);
+  var span = $('<span></span>').text($.i18n('data-quality-extension/count-column')).appendTo(countRow);
+  this._countColumnSelect = $('<select class="quality-text-input"></select>').appendTo(span);
   $('<option value=""></option>').text('-- ' + $.i18n('data-quality-extension/select-column') + ' --').appendTo(this._countColumnSelect);
   columns.forEach(function(col) {
     $('<option></option>').val(col.name).text(col.name).appendTo(self._countColumnSelect);
@@ -840,7 +846,7 @@ QualityAlignment._renderResourceCheckTab = function() {
     $.i18n('data-quality-extension/file-name-format'), !!this._resourceConfig.fileChecks.nameFormat,
     this._resourceConfig.fileChecks.nameFormat,
     function(checked) { if (!checked) self._resourceConfig.fileChecks.nameFormat = ''; },
-    function(val) { self._resourceConfig.fileChecks.nameFormat = val; });
+    function(val) { self._resourceConfig.fileChecks.nameFormat = val; }, true);
 
   this._renderCheckbox(fileSection, 'file-sequential', $.i18n('data-quality-extension/file-sequential'),
     this._resourceConfig.fileChecks.sequential, function(v) { self._resourceConfig.fileChecks.sequential = v; });
@@ -857,6 +863,15 @@ QualityAlignment._renderImageQualityTab = function() {
   // Load image quality tab HTML
   var frame = $(DOM.loadHTML('data-quality', 'scripts/dialogs/image-quality-tab.html'));
   container.html(frame);
+
+  // Process data-i18n attributes for translation
+  container.find('[data-i18n]').each(function() {
+    var key = $(this).attr('data-i18n');
+    var text = $.i18n(key);
+    if (text) {
+      $(this).text(text);
+    }
+  });
 
   // Initialize the ImageQualityTab module
   if (typeof ImageQualityTab !== 'undefined') {
@@ -884,16 +899,32 @@ QualityAlignment._renderCheckbox = function(container, id, label, checked, onCha
 /**
  * Helper: render a checkbox with text input
  */
-QualityAlignment._renderCheckboxWithInput = function(container, id, label, checked, inputValue, onCheckChange, onInputChange) {
+QualityAlignment._renderCheckboxWithInput = function(container, id, label, checked, inputValue, onCheckChange, onInputChange, onRegexEdit) {
   var row = $('<div class="quality-checkbox-row"></div>').appendTo(container);
   var checkbox = $('<input type="checkbox" id="check-' + id + '">')
     .prop('checked', checked)
     .on('change', function() { onCheckChange($(this).prop('checked')); });
-  $('<label></label>').append(checkbox).append(' ' + label + ': ').appendTo(row);
-  $('<input type="text" class="quality-text-input">')
+  $('<label></label>').append(checkbox).append(' ' + label).appendTo(row);
+  var span = $('<span></span>').text($.i18n('data-quality-extension/regex-pattern')).appendTo(row);
+  var input = $('<input type="text" class="quality-text-input">')
     .val(inputValue)
     .on('change', function() { onInputChange($(this).val()); })
-    .appendTo(row);
+    .appendTo(span);
+  
+  if (onRegexEdit) {
+    $('<button class="button regex-editor-button"></button>')
+      .text($.i18n('data-quality-extension/regex-editor-button'))
+      .on('click', function() {
+        RegexEditorDialog.show({
+          pattern: input.val(),
+          onApply: function(pattern) {
+            input.val(pattern).trigger('change');
+          }
+        });
+      })
+      .appendTo(row);
+  }
+  
   return row;
 };
 
@@ -977,7 +1008,7 @@ QualityAlignment._showPathConfigDialog = function() {
 
   // Left: Field list
   var fieldListRow = $('<tr></tr>').appendTo(mainTableInner);
-  var leftTd = $('<td width="100%"></td>').appendTo(fieldListRow);
+  var leftTd = $('<td width="30%" class="path-config-td"></td>').appendTo(fieldListRow);
   var fieldListContainer = $('<div class="path-config-fields"></div>').appendTo(leftTd);
   var fieldList = $('<ul class="path-field-list"></ul>').appendTo(fieldListContainer);
 
@@ -1017,7 +1048,7 @@ QualityAlignment._showPathConfigDialog = function() {
 
   // Right: Path options (moved below field list)
   var pathOptionsRow = $('<tr></tr>').appendTo(mainTableInner);
-  var pathOptionsTd = $('<td width="100%"></td>').appendTo(pathOptionsRow);
+  var pathOptionsTd = $('<td width="70%"></td>').appendTo(fieldListRow);
   var optionsPane = $('<div class="path-config-options"></div>').appendTo(pathOptionsTd);
   var optionsTable = $('<div class="grid-layout layout-normal"><table role="presentation"></table></div>').appendTo(optionsPane);
   var optionsTableInner = optionsTable.find('table');
@@ -1588,7 +1619,7 @@ QualityAlignment._renderResultsTab = function() {
     // Format: non_empty, regex, date_format, value_list, unique
     // Resource: folder_existence, file_count, file_name_format, file_sequential
     // Content: content_mismatch, content_warning
-    // Image: image_quality (blank, skew, stain, hole, dpi, kb, edge)
+    // Image: image_quality (blank, bias, stain, hole, dpi, kb, edge)
     result.errors.forEach(function(err) {
       var errType = err.errorType || err.category || '';
       // Format errors
@@ -1609,8 +1640,10 @@ QualityAlignment._renderResultsTab = function() {
       }
       // Image quality errors
       else if (errType === 'image_quality' || errType.indexOf('image') >= 0 ||
-               errType === 'blank' || errType === 'skew' || errType === 'stain' ||
-               errType === 'hole' || errType === 'dpi' || errType === 'kb' || errType === 'edge') {
+               errType === 'blank' || errType === 'bias' || errType === 'stain' ||
+               errType === 'hole' || errType === 'dpi' || errType === 'kb' || errType === 'edge' ||
+               errType === 'bit_depth' || errType === 'file-size' || errType === 'quality' ||
+               errType === 'stainValue' || errType === 'edgeRemove' || errType === 'repeat_image') {
         imageErrors++;
       }
     });
@@ -1688,16 +1721,16 @@ QualityAlignment._renderResultsTab = function() {
   $('<option value="damage">' + $.i18n('data-quality-extension/damage-check') + '</option>').appendTo(imageGroup);
   $('<option value="blank">' + $.i18n('data-quality-extension/blank-check') + '</option>').appendTo(imageGroup);
   $('<option value="format">' + $.i18n('data-quality-extension/format-check') + '</option>').appendTo(imageGroup);
-  $('<option value="repeatimage">' + $.i18n('data-quality-extension/duplicate-check') + '</option>').appendTo(imageGroup);
+  $('<option value="repeat_image">' + $.i18n('data-quality-extension/repeat-image-check') + '</option>').appendTo(imageGroup);
   $('<option value="houseAngle">' + $.i18n('data-quality-extension/text-direction-check') + '</option>').appendTo(imageGroup);
   $('<option value="bias">' + $.i18n('data-quality-extension/skew-check') + '</option>').appendTo(imageGroup);
   $('<option value="edge">' + $.i18n('data-quality-extension/edge-check') + '</option>').appendTo(imageGroup);
   $('<option value="stain">' + $.i18n('data-quality-extension/stain-check') + '</option>').appendTo(imageGroup);
   $('<option value="hole">' + $.i18n('data-quality-extension/hole-check') + '</option>').appendTo(imageGroup);
+  $('<option value="illegal_file">' + $.i18n('data-quality-extension/illegal-files-check') + '</option>').appendTo(imageGroup);
   
   $('<option value="counting">' + $.i18n('data-quality-extension/count-stats-check') + '</option>').appendTo(imageGroup);
   $('<option value="pageSize">' + $.i18n('data-quality-extension/page-stats-check') + '</option>').appendTo(imageGroup);
-  $('<option value="blankFilesCheck">' + $.i18n('data-quality-extension/empty-folders-check') + '</option>').appendTo(imageGroup);
   
   $('<option value="pieceContinuous">' + $.i18n('data-quality-extension/sequence-check') + '</option>').appendTo(imageGroup);
   $('<option value="continuity">' + $.i18n('data-quality-extension/page-sequence-check') + '</option>').appendTo(imageGroup);
@@ -1974,6 +2007,7 @@ QualityAlignment._renderErrorsTable = function() {
       var isSequentialError = error.errorType === 'file_sequential' || error.errorType === 'folder_sequential' ||
           error.errorType === 'file_sequence' || error.errorType === 'folder_sequence';
       var isFileCountError = error.errorType === 'file_count' || error.errorType === 'folder_count';
+      var isEmptyFolderError = error.errorType === 'empty_folder';
       var columnTitle = null;
       var valueTitle = null;
       var MAX_DISPLAY_LENGTH = 30;
@@ -1991,20 +2025,68 @@ QualityAlignment._renderErrorsTable = function() {
           }
         }
         if (error.value) {
-          if (error.value.length > MAX_DISPLAY_LENGTH) {
-            valueTitle = error.value;
+          var pathParts = error.value.split(/[\\/]/).filter(function(p) { return p; });
+          if (pathParts.length >= 2) {
+            var lastTwoParts = pathParts.slice(-2).join('\\');
+            if (lastTwoParts.length > MAX_DISPLAY_LENGTH) {
+              valueDisplay = '...' + lastTwoParts.slice(-MAX_DISPLAY_LENGTH);
+              valueTitle = lastTwoParts;
+            } else {
+              valueDisplay = lastTwoParts;
+            }
+          } else if (pathParts.length === 1) {
+            var folderName = pathParts[0];
+            if (folderName.length > MAX_DISPLAY_LENGTH) {
+              valueDisplay = '...' + folderName.slice(-MAX_DISPLAY_LENGTH);
+              valueTitle = folderName;
+            } else {
+              valueDisplay = folderName;
+            }
           }
         }
       } else if (error.category === 'resource') {
-        if (isFileCountError) {
-          columnDisplay = '页数';
-        } else if (isSequentialError) {
-          if (error.column) {
-            if (error.column.length > MAX_DISPLAY_LENGTH) {
-              columnDisplay = '...' + error.column.slice(-MAX_DISPLAY_LENGTH);
-              columnTitle = error.column;
-            } else {
-              columnDisplay = error.column;
+        if (isEmptyFolderError) {
+          if (error.value) {
+            var pathParts = error.value.split(/[\\/]/).filter(function(p) { return p; });
+            if (pathParts.length >= 2) {
+              var lastTwoParts = pathParts.slice(-2).join('\\');
+              if (lastTwoParts.length > MAX_DISPLAY_LENGTH) {
+                columnDisplay = '...' + lastTwoParts.slice(-MAX_DISPLAY_LENGTH);
+                columnTitle = lastTwoParts;
+              } else {
+                columnDisplay = lastTwoParts;
+              }
+            } else if (pathParts.length === 1) {
+              var fileName = pathParts[0];
+              if (fileName.length > MAX_DISPLAY_LENGTH) {
+                columnDisplay = '...' + fileName.slice(-MAX_DISPLAY_LENGTH);
+                columnTitle = fileName;
+              } else {
+                columnDisplay = fileName;
+              }
+            }
+          }
+        } else if (isFileCountError) {
+            columnDisplay = '页数';
+          } else if (isSequentialError) {
+          if (error.value) {
+            var pathParts = error.value.split(/[\\/]/).filter(function(p) { return p; });
+            if (pathParts.length >= 2) {
+              var lastTwoParts = pathParts.slice(-2).join('\\');
+              if (lastTwoParts.length > MAX_DISPLAY_LENGTH) {
+                columnDisplay = '...' + lastTwoParts.slice(-MAX_DISPLAY_LENGTH);
+                columnTitle = lastTwoParts;
+              } else {
+                columnDisplay = lastTwoParts;
+              }
+            } else if (pathParts.length === 1) {
+              var fileName = pathParts[0];
+              if (fileName.length > MAX_DISPLAY_LENGTH) {
+                columnDisplay = '...' + fileName.slice(-MAX_DISPLAY_LENGTH);
+                columnTitle = fileName;
+              } else {
+                columnDisplay = fileName;
+              }
             }
           }
         } else if (error.value) {
@@ -2030,12 +2112,23 @@ QualityAlignment._renderErrorsTable = function() {
       if (valueTitle) {
         valueDisplay = '...' + error.value.slice(-MAX_DISPLAY_LENGTH);
       }
+      if (isEmptyFolderError || isSequentialError) {
+        valueDisplay = '(空)';
+      }
       var valueCell = $('<td></td>').text(valueDisplay).appendTo(row);
       if (valueTitle) {
         valueCell.attr('title', valueTitle);
       }
       $('<td></td>').text(this._getErrorTypeLabel(error.errorType)).appendTo(row);
-      $('<td></td>').text(this._formatErrorMessage(error)).appendTo(row);
+      
+      // Debug: Log formatted message for repeat_image errors
+      var formattedMessage = this._formatErrorMessage(error);
+      if (error.errorType === 'repeat_image') {
+        console.log('[QualityAlignment] Repeat image error formatted message:', formattedMessage);
+        console.log('[QualityAlignment] duplicateImagePaths:', error.duplicateImagePaths);
+      }
+      
+      $('<td></td>').html(formattedMessage).appendTo(row);
 
       // Click to handle error navigation
       row.css('cursor', 'pointer').on('click', function() {
@@ -2112,20 +2205,20 @@ QualityAlignment._getErrorTypeLabel = function(errorType) {
     'damage': $.i18n('data-quality-extension/damage-check'),
     'blank': $.i18n('data-quality-extension/blank-check'),
     'format': $.i18n('data-quality-extension/format-check'),
-    'repeatimage': $.i18n('data-quality-extension/duplicate-check'),
+    'repeat_image': $.i18n('data-quality-extension/repeat-image-check'),
     'houseAngle': $.i18n('data-quality-extension/text-direction-check'),
-    'bias': $.i18n('data-quality-extension/skew-check'),
+    'bias': $.i18n('data-quality-extension/bias-check'),
     'edgeRemove': $.i18n('data-quality-extension/edge-check'),
     'stainValue': $.i18n('data-quality-extension/stain-check'),
     'hole': $.i18n('data-quality-extension/hole-check'),
     // Image quality checks - INTEGRITY category
     'counting': $.i18n('data-quality-extension/count-stats-check'),
     'pageSize': $.i18n('data-quality-extension/page-stats-check'),
-    'blankFilesCheck': $.i18n('data-quality-extension/empty-folders-check'),
     // Image quality checks - UNIQUENESS category
     'pieceContinuous': $.i18n('data-quality-extension/sequence-check'),
     'continuity': $.i18n('data-quality-extension/page-sequence-check'),
     // Image quality checks - SECURITY category
+    'illegal_file': $.i18n('data-quality-extension/illegal-files-check'),
     'dpi': $.i18n('data-quality-extension/dpi-check'),
     'kb': $.i18n('data-quality-extension/kb-check'),
     // Image quality checks - OTHERS category
@@ -2134,9 +2227,9 @@ QualityAlignment._getErrorTypeLabel = function(errorType) {
     'reImagePathRoot': $.i18n('data-quality-extension/image-path-regex-check'),
     'quality': $.i18n('data-quality-extension/quality-check'),
     'pdfImageUniformity': $.i18n('data-quality-extension/pdf-image-uniformity-check'),
+    // Resource checks - FOLDER category
+    'empty_folder': $.i18n('data-quality-extension/empty-folders-check'),
     // Legacy mappings
-    'image_quality': $.i18n('data-quality-extension/image-quality-check-tab'),
-    'skew': $.i18n('data-quality-extension/skew-check'),
     'stain': $.i18n('data-quality-extension/stain-check'),
     'edge': $.i18n('data-quality-extension/edge-check'),
     'bit_depth': $.i18n('data-quality-extension/bit-depth-check')
@@ -2220,6 +2313,14 @@ QualityAlignment._formatErrorMessage = function(error) {
     return $.i18n('data-quality-extension/error-msg-file-name-invalid');
   }
 
+  if (errorType === 'empty_folder') {
+    var folderMatch = message.match(/Empty folder: (.+)/);
+    if (folderMatch) {
+      return '空文件夹：' + folderMatch[1];
+    }
+    return '空文件夹：' + (message || '');
+  }
+
   // if (errorType === 'bit_depth') {
   //   return $.i18n('data-quality-extension/bit-depth-check');
   // }
@@ -2233,13 +2334,13 @@ QualityAlignment._formatErrorMessage = function(error) {
     }
   }
 
-  if (error.category === 'image_quality' || errorType === 'blank' || errorType === 'skew' ||
+  if (error.category === 'image_quality' || errorType === 'blank' ||
       errorType === 'stain' || errorType === 'hole' || errorType === 'edge' ||
       errorType === 'dpi' || errorType === 'kb' || errorType === 'bit_depth' ||
-      errorType === 'damage' || errorType === 'format' || errorType === 'repeatimage' ||
+      errorType === 'damage' || errorType === 'format' || errorType === 'repeat_image' ||
       errorType === 'houseAngle' || errorType === 'bias' || errorType === 'edgeRemove' ||
       errorType === 'stainValue' || errorType === 'counting' || errorType === 'pageSize' ||
-      errorType === 'blankFilesCheck' || errorType === 'pieceContinuous' ||
+      errorType === 'pieceContinuous' ||
       errorType === 'continuity' || errorType === 'reImageName' || errorType === 'reImagePath' ||
       errorType === 'reImagePathRoot' || errorType === 'quality' || errorType === 'pdfImageUniformity') {
     if (errorType === 'damage') {
@@ -2248,15 +2349,24 @@ QualityAlignment._formatErrorMessage = function(error) {
     if (errorType === 'format') {
       return '格式检查失败: ' + (message || '');
     }
-    if (errorType === 'repeatimage') {
+    if (errorType === 'repeat_image') {
+      if (error.duplicateImagePaths && Array.isArray(error.duplicateImagePaths) && error.duplicateImagePaths.length > 0) {
+        var pathList = error.duplicateImagePaths.join('\n');
+        var displayMessage = message || '发现重复图片';
+        console.log('[QualityAlignment] Creating span with title:', pathList.substring(0, 100) + '...');
+        var span = $('<span></span>').text(displayMessage).attr('title', pathList).css('cursor', 'help');
+        var result = $('<div></div>').append(span).html();
+        console.log('[QualityAlignment] Generated HTML:', result);
+        return result;
+      }
       return '检测到重复图片: ' + (message || '');
     }
     if (errorType === 'houseAngle') {
       return '文本方向异常: ' + (message || '');
     }
-    if (errorType === 'bias' || errorType === 'skew') {
-      var skewMatch = message.match(/angle: ([-]?\d+)/);
-      return '检测到图像倾斜' + (skewMatch ? ', 角度: ' + skewMatch[1] + '°' : '');
+    if (errorType === 'bias') {
+      var biasMatch = message.match(/angle: ([-]?\d+(?:\.\d+)?)/);
+      return '检测到图像倾斜' + (biasMatch ? ', 角度: ' + biasMatch[1] + '°' : '');
     }
     if (errorType === 'edgeRemove' || errorType === 'edge') {
       var edgeMatch = message.match(/Edge issue detected: (\S+)/);
@@ -2285,9 +2395,6 @@ QualityAlignment._formatErrorMessage = function(error) {
     }
     if (errorType === 'pageSize') {
       return '篇幅检查异常: ' + (message || '');
-    }
-    if (errorType === 'blankFilesCheck') {
-      return '检测到空文件: ' + (message || '');
     }
     if (errorType === 'pieceContinuous') {
       return '件号连续性检查失败: ' + (message || '');
@@ -2692,7 +2799,19 @@ QualityAlignment._addFormatRule = function() {
 
   var regexRow = $('<div></div>').appendTo(checksContainer);
   $('<label><input type="checkbox" id="rule-regex-check"> ' + $.i18n('data-quality-extension/check-regex') + ': </label>').appendTo(regexRow);
-  var regexInput = $('<input type="text" id="rule-regex-value" size="30">').appendTo(regexRow);
+  var regexInput = $('<input type="text" id="rule-regex-value">').appendTo(regexRow);
+  $('<button class="button regex-editor-button"></button>')
+    .attr('title', $.i18n('data-quality-extension/regex-editor-button'))
+    .text('...')
+    .on('click', function() {
+      RegexEditorDialog.show({
+        pattern: regexInput.val(),
+        onApply: function(pattern) {
+          regexInput.val(pattern).trigger('change');
+        }
+      });
+    })
+    .appendTo(regexRow);
 
   var dateRow = $('<div class="dialog-date-section"></div>').appendTo(checksContainer);
   $('<label><input type="checkbox" id="rule-date-check"> ' + $.i18n('data-quality-extension/check-date-format') + ': </label>').appendTo(dateRow);
@@ -2831,8 +2950,20 @@ QualityAlignment._editFormatRule = function(columnName) {
   var regexRow = $('<div></div>').appendTo(checksContainer);
   $('<label><input type="checkbox" id="rule-regex-check" ' + (rule.regex ? 'checked' : '') + '> '
     + $.i18n('data-quality-extension/check-regex') + ': </label>').appendTo(regexRow);
-  var regexInput = $('<input type="text" id="rule-regex-value" size="30">').val(rule.regex).appendTo(regexRow);
-
+  var regexInput = $('<input type="text" id="rule-regex-value">').val(rule.regex || '').appendTo(regexRow);
+  $('<button class="button regex-editor-button"></button>')
+    .attr('title', $.i18n('data-quality-extension/regex-editor-button'))
+    .text('...')
+    .on('click', function() {
+      RegexEditorDialog.show({
+        pattern: regexInput.val(),
+        onApply: function(pattern) {
+          regexInput.val(pattern).trigger('change');
+        }
+      });
+    })
+    .appendTo(regexRow);
+  
   var dateRow = $('<div class="dialog-date-section"></div>').appendTo(checksContainer);
   $('<label><input type="checkbox" id="rule-date-check" ' + (rule.dateFormat ? 'checked' : '') + '> '
     + $.i18n('data-quality-extension/check-date-format') + ': </label>').appendTo(dateRow);
@@ -3281,7 +3412,7 @@ QualityAlignment._getDefaultResourceConfig = function() {
     pathMode: 'separator',
     separator: '',
     template: '',
-    folderChecks: { existence: true, dataExistence: true, nameFormat: '', sequential: true },
+    folderChecks: { existence: true, dataExistence: true, nameFormat: '', sequential: true, emptyFolder: true },
     fileChecks: { countMatch: true, countColumn: '', nameFormat: '', sequential: true }
   };
 };
@@ -3478,8 +3609,8 @@ QualityAlignment._isImageError = function(error) {
   var errorType = error.errorType;
   
   var imageErrorTypes = [
-    'damage', 'blank', 'format', 'repeatimage', 'houseAngle', 'bias', 
-    'edgeRemove', 'stainValue', 'hole', 'skew', 'edge', 'stain',
+    'damage', 'blank', 'format', 'repeat_image', 'houseAngle', 'bias', 
+    'edgeRemove', 'stainValue', 'hole', 'edge', 'stain',
     'dpi', 'file-size', 'kb', 'quality', 'bit_depth'
   ];
   

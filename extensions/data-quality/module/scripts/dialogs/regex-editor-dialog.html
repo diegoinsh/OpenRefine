@@ -1,0 +1,131 @@
+<div class="dialog-frame" style="width: 900px;">
+  <div class="dialog-header" bind="dialogHeader"></div>
+  <div class="dialog-body" bind="dialogBody">
+    <div id="regex-editor-tabs" class="refine-tabs">
+      <ul>
+        <li><a href="#regex-editor-tabs-presets" bind="or_dialog_presets"></a></li>
+        <li><a href="#regex-editor-tabs-custom" bind="or_dialog_custom"></a></li>
+        <li><a href="#regex-editor-tabs-preview" bind="or_dialog_preview"></a></li>
+      </ul>
+
+      <div id="regex-editor-tabs-presets">
+        <div class="regex-preset-section">
+          <div class="regex-preset-search">
+            <input type="text" class="lightweight" bind="presetSearchInput" />
+          </div>
+          <div class="regex-preset-layout">
+            <div class="regex-preset-left">
+              <div class="regex-generated-section" bind="generatedSection">
+                <div class="regex-generated-header" bind="or_dialog_generatedHeader"></div>
+                <div class="regex-generated-list" bind="generatedList"></div>
+              </div>
+              <div class="regex-preset-categories">
+                <div class="regex-preset-category">
+                  <h4 bind="or_dialog_categoryArchiveNumber"></h4>
+                  <div class="regex-preset-list" bind="archiveNumberPresetList"></div>
+                </div>
+                <div class="regex-preset-category">
+                  <h4 bind="or_dialog_categoryDocumentNumber"></h4>
+                  <div class="regex-preset-list" bind="documentNumberPresetList"></div>
+                </div>
+                <div class="regex-preset-category">
+                  <h4 bind="or_dialog_categoryDate"></h4>
+                  <div class="regex-preset-list" bind="datePresetList"></div>
+                </div>
+                <div class="regex-preset-category">
+                  <h4 bind="or_dialog_categoryPath"></h4>
+                  <div class="regex-preset-list" bind="pathPresetList"></div>
+                </div>
+                <div class="regex-preset-category">
+                  <h4 bind="or_dialog_categoryArchiveField"></h4>
+                  <div class="regex-preset-list" bind="archiveFieldPresetList"></div>
+                </div>
+                <div class="regex-preset-category">
+                  <h4 bind="or_dialog_categoryArchiveFormat"></h4>
+                  <div class="regex-preset-list" bind="archiveFormatPresetList"></div>
+                </div>
+              </div>
+            </div>
+            <div class="regex-preset-right">
+              <div class="regex-builder-panel">
+                <div class="regex-builder-header" bind="or_dialog_compositeBuilder"></div>
+                <div class="regex-builder-search">
+                  <input type="text" class="lightweight" bind="subItemSearchInput" placeholder="" />
+                </div>
+                <div class="regex-builder-subitems" bind="subItemList"></div>
+                <div class="regex-builder-preview">
+                  <label bind="or_dialog_regexPattern"></label>
+                  <input type="text" class="lightweight regex-pattern-input" bind="compositePatternInput" spellcheck="false" readonly />
+                </div>
+                <div class="regex-builder-actions">
+                  <button class="button button-small" bind="clearCompositeButton">清除</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="regex-editor-tabs-custom">
+        <div class="regex-custom-section">
+          <table role="presentation" class="grid-layout layout-normal">
+            <tr>
+              <td colspan="2">
+                <label bind="or_dialog_regexPattern"></label>
+                <input type="text" class="lightweight regex-pattern-input" bind="regexPatternInput" spellcheck="false" />
+              </td>
+            </tr>
+            <tr>
+              <td width="50%">
+                <label bind="or_dialog_flags"></label>
+                <div class="regex-flags">
+                  <label><input type="checkbox" bind="flagGCheck" id="$regex-flag-g" /><span bind="or_dialog_flagG"></span></label>
+                  <label><input type="checkbox" bind="flagICheck" id="$regex-flag-i" /><span bind="or_dialog_flagI"></span></label>
+                  <label><input type="checkbox" bind="flagMCheck" id="$regex-flag-m" /><span bind="or_dialog_flagM"></span></label>
+                </div>
+              </td>
+              <td width="50%"></td>
+            </tr>
+            <tr>
+              <td colspan="2">
+                <div class="regex-help-links">
+                  <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_Expressions" target="_blank" bind="or_dialog_regexHelp"></a>
+                  <a href="#" bind="or_dialog_commonPatterns"></a>
+                </div>
+              </td>
+            </tr>
+          </table>
+        </div>
+      </div>
+
+      <div id="regex-editor-tabs-preview">
+        <div class="regex-preview-section">
+          <table role="presentation" class="grid-layout layout-normal">
+            <tr>
+              <td colspan="2">
+                <label bind="or_dialog_testInput"></label>
+                <textarea class="regex-test-input" bind="testInput"></textarea>
+              </td>
+            </tr>
+            <tr>
+              <td colspan="2">
+                <button class="button" bind="testButton"></button>
+              </td>
+            </tr>
+            <tr>
+              <td colspan="2">
+                <div class="regex-test-results" bind="testResults">
+                  <div class="regex-result-placeholder" bind="or_dialog_enterTestInput"></div>
+                </div>
+              </td>
+            </tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="dialog-footer" bind="dialogFooter">
+    <button class="button" bind="cancelButton"></button>
+    <button class="button button-primary" bind="applyButton"></button>
+  </div>
+</div>

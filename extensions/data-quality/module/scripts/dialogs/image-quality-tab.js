@@ -32,7 +32,8 @@ var ImageQualityTab = {
     { code: 'hole', name: 'hole-check' },
     { code: 'skew', name: 'skew-check' },
     { code: 'edge', name: 'edge-check' },
-    { code: 'page_size', name: 'page-size-check' }
+    { code: 'page_size', name: 'page-size-check' },
+    { code: 'repeat_image', name: 'repeat-image-check' }
   ],
 
   _defaultParams: {
@@ -66,7 +67,7 @@ var ImageQualityTab = {
     edge: {
       checkMode: 'standard'
     },
-    duplicate: {
+    repeat_image: {
       enabled: false
     },
     sequence: {
@@ -82,9 +83,6 @@ var ImageQualityTab = {
       enabled: false
     },
     countStats: {
-      enabled: false
-    },
-    emptyFolders: {
       enabled: false
     },
     page_size: {
@@ -113,13 +111,12 @@ var ImageQualityTab = {
     'hole': 'hole-check',
     'skew': 'skew-check',
     'edge': 'edge-check',
-    'duplicate': 'duplicate-check',
+    'repeat_image': 'repeat-image-check',
     'sequence': 'sequence-check',
     'pageSequence': 'page-sequence-check',
     'textDirection': 'text-direction-check',
     'illegalFiles': 'illegal-files-check',
     'countStats': 'count-stats-check',
-    'emptyFolders': 'empty-folders-check',
     'page_size': 'page-stats-check'
   },
 
@@ -366,7 +363,7 @@ ImageQualityTab._initCheckStandard = function() {
             type: 'UNIQUENESS',
             enabled: true,
             items: [
-              { itemCode: 'duplicate', enabled: true, parameters: {} }
+              { itemCode: 'repeat_image', enabled: true, parameters: {} }
             ]
           },
           {
@@ -374,7 +371,6 @@ ImageQualityTab._initCheckStandard = function() {
             enabled: true,
             items: [
               { itemCode: 'countStats', enabled: true, parameters: {} },
-              { itemCode: 'emptyFolders', enabled: true, parameters: {} },
               { itemCode: 'page_size', enabled: true, parameters: {} }
             ]
           }
@@ -406,7 +402,7 @@ ImageQualityTab._initCheckStandard = function() {
             type: 'UNIQUENESS',
             enabled: true,
             items: [
-              { itemCode: 'duplicate', enabled: true, parameters: {} }
+              { itemCode: 'repeat_image', enabled: true, parameters: {} }
             ]
           },
           {
@@ -429,7 +425,6 @@ ImageQualityTab._initCheckStandard = function() {
             enabled: true,
             items: [
               { itemCode: 'countStats', enabled: true, parameters: {} },
-              { itemCode: 'emptyFolders', enabled: true, parameters: {} },
               { itemCode: 'page_size', enabled: true, parameters: {} }
             ]
           }
@@ -463,7 +458,7 @@ ImageQualityTab._initCheckStandard = function() {
             type: 'UNIQUENESS',
             enabled: true,
             items: [
-              { itemCode: 'duplicate', enabled: true, parameters: {} }
+              { itemCode: 'repeat_image', enabled: true, parameters: {} }
             ]
           },
           {
@@ -487,7 +482,6 @@ ImageQualityTab._initCheckStandard = function() {
             enabled: true,
             items: [
               { itemCode: 'countStats', enabled: true, parameters: {} },
-              { itemCode: 'emptyFolders', enabled: true, parameters: {} },
               { itemCode: 'page_size', enabled: true, parameters: {} }
             ]
           }
@@ -535,13 +529,13 @@ ImageQualityTab._createCategoryPanel = function(categoryCode, categoryNameKey) {
 ImageQualityTab._getItemsByCategory = function(categoryCode) {
     var items = [];
     var mapping = {
-      'authenticity': ['duplicate'],
+      'authenticity': ['repeat_image'],
       'integrity': ['sequence', 'pageSequence'],
       'usability': ['quality', 'textDirection', 'blank', 'stain', 'hole', 'skew', 'edge'],
       'security': ['illegalFiles'],
       'technical': ['dpi', 'kb', 'bit_depth'],
       'storage': ['format'],
-      'others': ['countStats', 'emptyFolders', 'page_size']
+      'others': ['countStats', 'page_size']
     };
 
     var categoryItems = mapping[categoryCode] || [];
@@ -595,7 +589,7 @@ ImageQualityTab._createParamParts = function(itemCode, paramKey, paramValue) {
   
   // Special handling for format check allowed formats - use checkboxes
   if (itemCode === 'format' && paramKey === 'allowedFormats') {
-    var labelText = $('<span></span>').text(' ' + $.i18n('data-quality-extension/' + this._paramNames[paramKey] || paramKey) + ': ');
+    var labelText = $('<span></span>').text(' ' + $.i18n('data-quality-extension/' + this._paramNames[paramKey] || paramKey) );
     paramContainer.append(labelText);
     
     // Required formats: jpg, tif, pdf, ofd and their variants
@@ -617,7 +611,7 @@ ImageQualityTab._createParamParts = function(itemCode, paramKey, paramValue) {
   }
   
   // Regular parameter handling for other cases
-  var labelText = $('<span></span>').text(' ' + $.i18n('data-quality-extension/' + this._paramNames[paramKey] || paramKey) + ': ');
+  var labelText = $('<span></span>').text(' ' + $.i18n('data-quality-extension/' + this._paramNames[paramKey] || paramKey) );
   paramContainer.append(labelText);
   
   var input;
@@ -869,7 +863,7 @@ ImageQualityTab._collectRuleFromUI = function() {
 ImageQualityTab._getItemCategory = function(itemCode) {
   var categoryMap = {
     // Authenticity
-    'duplicate': 'authenticity',
+    'repeat_image': 'authenticity',
     
     // Integrity
     'sequence': 'integrity',
@@ -896,7 +890,6 @@ ImageQualityTab._getItemCategory = function(itemCode) {
     
     // Others
     'countStats': 'others',
-    'emptyFolders': 'others',
     'page_size': 'others'
   };
   return categoryMap[itemCode] || 'others';
@@ -926,7 +919,7 @@ ImageQualityTab._saveRule = function() {
         self._elmts.saveRuleButton.removeClass('unsaved');
         alert($.i18n('data-quality-extension/rule-saved'));
       } else {
-        alert($.i18n('data-quality-extension/save-failed') + ': ' + (data.message || $.i18n('data-quality-extension/unknown-error')));
+        alert($.i18n('data-quality-extension/save-failed')  + (data.message || $.i18n('data-quality-extension/unknown-error')));
       }
     },
     "json"
@@ -951,11 +944,11 @@ ImageQualityTab._runCheck = function() {
         alert($.i18n('data-quality-extension/check-completed') + ' ' + (data.result.errorCount || 0) + ' ' + $.i18n('data-quality-extension/issues-found'));
         self._elmts.viewResultsButton.show();
       } else {
-        alert($.i18n('data-quality-extension/check-failed') + ': ' + (data.message || $.i18n('data-quality-extension/unknown-error')));
+        alert($.i18n('data-quality-extension/check-failed')  + (data.message || $.i18n('data-quality-extension/unknown-error')));
       }
     },
     error: function() {
-      alert($.i18n('data-quality-extension/check-failed') + ': ' + $.i18n('data-quality-extension/network-error'));
+      alert($.i18n('data-quality-extension/check-failed')  + $.i18n('data-quality-extension/network-error'));
     }
   });
 };

@@ -52,6 +52,7 @@ public class ImageQualityRule implements Serializable, OverlayModel {
 
     public ImageQualityRule() {
         this.categories = new ArrayList<>();
+        this.resourceConfig = new ResourceCheckConfig();
         this.customSettings = new HashMap<>();
         this.enabled = true;
         this.standard = ImageCheckStandard.DEFAULT.getCode();
@@ -78,7 +79,7 @@ public class ImageQualityRule implements Serializable, OverlayModel {
         this.standard = standard != null ? standard : ImageCheckStandard.DEFAULT.getCode();
         this.enabled = enabled != null ? enabled : true;
         this.categories = categories != null ? categories : new ArrayList<>();
-        this.resourceConfig = resourceConfig;
+        this.resourceConfig = resourceConfig != null ? resourceConfig : new ResourceCheckConfig();
         this.customSettings = customSettings != null ? customSettings : new HashMap<>();
         this.createdAt = createdAt != null ? createdAt : System.currentTimeMillis();
         this.updatedAt = updatedAt != null ? updatedAt : System.currentTimeMillis();

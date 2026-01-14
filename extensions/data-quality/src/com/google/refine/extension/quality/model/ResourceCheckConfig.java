@@ -101,6 +101,9 @@ public class ResourceCheckConfig {
         @JsonProperty("sequential")
         private boolean sequential = true;
 
+        @JsonProperty("emptyFolder")
+        private boolean emptyFolder = true;
+
         public FolderChecks() {}
 
         @JsonCreator
@@ -108,11 +111,13 @@ public class ResourceCheckConfig {
                 @JsonProperty("existence") boolean existence,
                 @JsonProperty("dataExistence") boolean dataExistence,
                 @JsonProperty("nameFormat") String nameFormat,
-                @JsonProperty("sequential") boolean sequential) {
+                @JsonProperty("sequential") boolean sequential,
+                @JsonProperty("emptyFolder") boolean emptyFolder) {
             this.existence = existence;
             this.dataExistence = dataExistence;
             this.nameFormat = nameFormat != null ? nameFormat : "";
             this.sequential = sequential;
+            this.emptyFolder = emptyFolder;
         }
 
         public boolean isExistence() { return existence; }
@@ -123,6 +128,8 @@ public class ResourceCheckConfig {
         public void setNameFormat(String nameFormat) { this.nameFormat = nameFormat; }
         public boolean isSequential() { return sequential; }
         public void setSequential(boolean sequential) { this.sequential = sequential; }
+        public boolean isEmptyFolder() { return emptyFolder; }
+        public void setEmptyFolder(boolean emptyFolder) { this.emptyFolder = emptyFolder; }
     }
 
     /**
