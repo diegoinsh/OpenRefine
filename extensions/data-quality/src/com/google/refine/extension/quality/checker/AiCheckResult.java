@@ -21,6 +21,7 @@ public class AiCheckResult {
     private Boolean hasSkew;
     private Integer skewAngle;
     private Integer bitDepth;
+    private Integer houseAngle;
     private String pageSize;
     
     // 位置坐标数据 [x, y, width, height]
@@ -133,6 +134,14 @@ public class AiCheckResult {
         this.bitDepth = bitDepth;
     }
 
+    public Integer getHouseAngle() {
+        return houseAngle;
+    }
+
+    public void setHouseAngle(Integer houseAngle) {
+        this.houseAngle = houseAngle;
+    }
+
     public String getPageSize() {
         return pageSize;
     }
@@ -145,7 +154,7 @@ public class AiCheckResult {
         return !blank && rectify == null && !hasEdgeRemove && !hasStain && !hasHole
                && dpi == null && kb == null && quality == null && format == null
                && !hasSkew() && skewAngle == null && bitDepth == null
-               && pageSize == null;
+               && houseAngle == null && pageSize == null;
     }
 
     public List<int[]> getStainLocations() {

@@ -68,12 +68,33 @@ RunCheckDialog.prototype._startCheck = function() {
     aimpServiceUrl = QualityAlignment._aimpConfig.serviceUrl;
   }
 
-  // Check if content check is enabled (has AIMP URL and content rules)
-  var hasContentCheck = aimpServiceUrl && QualityAlignment._rules &&
-    QualityAlignment._rules.contentRules && QualityAlignment._rules.contentRules.length > 0;
+  // Check if content check is enabled (has content rules)
+  var hasContentCheck = QualityAlignment._contentRules && 
+    QualityAlignment._contentRules.length > 0;
 
-  // Use async mode if content check is enabled (for progress tracking)
-  var useAsync = hasContentCheck;
+  // Check if image quality check is enabled (has image quality rule with enabled checks)
+  var hasImageQualityCheck = false;
+  if (QualityAlignment._imageQualityRule) {
+    var rule = QualityAlignment._imageQualityRule;
+    hasImageQualityCheck = (
+      rule.enableUsability || rule.enableIntegrity || 
+      rule.enableUniqueness || rule.enableSecurity || 
+      rule.enableOther
+    );
+  }
+
+  // Use async mode if any check is enabled (for progress tracking)
+  // AI service URL will be passed to backend; if empty, AI checks will be skipped but progress still works
+  var useAsync = hasContentCheck || hasImageQualityCheck;
+
+  console.log('[RunCheckDialog] 调试信息:');
+  console.log('[RunCheckDialog] aimpServiceUrl:', aimpServiceUrl);
+  console.log('[RunCheckDialog] _contentRules:', QualityAlignment._contentRules);
+  console.log('[RunCheckDialog] _contentRules.length:', QualityAlignment._contentRules ? QualityAlignment._contentRules.length : 'N/A');
+  console.log('[RunCheckDialog] _imageQualityRule:', QualityAlignment._imageQualityRule);
+  console.log('[RunCheckDialog] hasContentCheck:', hasContentCheck);
+  console.log('[RunCheckDialog] hasImageQualityCheck:', hasImageQualityCheck);
+  console.log('[RunCheckDialog] useAsync:', useAsync);
 
   // Call backend API to run check
   Refine.postCSRF(
@@ -84,6 +105,7 @@ RunCheckDialog.prototype._startCheck = function() {
       async: useAsync ? 'true' : 'false'
     },
     function(response) {
+      console.log('[RunCheckDialog] 后端响应:', response);
       if (response.code === "ok") {
         if (response.async && response.taskId) {
           // Async mode: start polling for progress
@@ -192,6 +214,8 @@ RunCheckDialog.prototype._updateButtonStates = function() {
 RunCheckDialog.prototype._startProgressPolling = function() {
   var self = this;
 
+  console.log('[RunCheckDialog] 启动进度轮询，taskId:', this._taskId);
+
   // Poll every 500ms
   this._pollInterval = setInterval(function() {
     self._pollProgress();
@@ -209,9 +233,12 @@ RunCheckDialog.prototype._pollProgress = function() {
   var self = this;
 
   if (!this._taskId || !this._isRunning) {
+    console.log('[RunCheckDialog] 轮询终止: taskId=', this._taskId, 'isRunning=', this._isRunning);
     this._stopProgressPolling();
     return;
   }
+
+  console.log('[RunCheckDialog] 轮询中... taskId:', this._taskId);
 
   $.ajax({
     url: "command/data-quality/get-check-progress",
@@ -219,6 +246,7 @@ RunCheckDialog.prototype._pollProgress = function() {
     data: { taskId: this._taskId },
     dataType: "json",
     success: function(response) {
+      console.log('[RunCheckDialog] 轮询响应:', response);
       if (response.code === "ok") {
         self._updateProgress(response);
 

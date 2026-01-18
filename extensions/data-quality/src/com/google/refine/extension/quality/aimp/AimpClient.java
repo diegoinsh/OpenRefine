@@ -112,37 +112,50 @@ public class AimpClient {
 
     /**
      * Test connection to AIMP service
+     * Supports both /health and /docs endpoints
+     * Returns true if either endpoint is accessible
      */
     public boolean testConnection() {
+        HttpURLConnection conn = null;
         try {
-            String healthUrl = getHealthCheckUrl();
-            URL url = new URL(healthUrl);
-            logger.info("Testing AIMP connection: " + url.toString() + " (mode: " + interfaceMode + ")");
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(5000);
-            conn.setReadTimeout(5000);
+            String baseUrl = serviceUrl.endsWith("/") ? serviceUrl.substring(0, serviceUrl.length() - 1) : serviceUrl;
 
-            int responseCode = conn.getResponseCode();
-            logger.info("AIMP health check response code: " + responseCode);
+            String[] endpoints = {"/health", "/docs"};
+            for (String endpoint : endpoints) {
+                String testUrl = baseUrl + endpoint;
+                try {
+                    URL url = new URL(testUrl);
+                    logger.info("Testing AIMP connection: " + url.toString() + " (mode: " + interfaceMode + ")");
+                    conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("GET");
+                    conn.setConnectTimeout(5000);
+                    conn.setReadTimeout(5000);
 
-            if (responseCode == 200) {
-                return true;
+                    int responseCode = conn.getResponseCode();
+                    logger.info("AIMP health check response code (" + testUrl + "): " + responseCode);
+
+                    if (responseCode == 200) {
+                        return true;
+                    }
+                } catch (Exception e) {
+                    logger.debug("Endpoint {} failed: {}", endpoint, e.getMessage());
+                } finally {
+                    if (conn != null) {
+                        conn.disconnect();
+                        conn = null;
+                    }
+                }
             }
 
-            if (INTERFACE_MODE_7999.equals(interfaceMode)) {
-                logger.info("Trying 7998 mode fallback...");
-                String oldMode = interfaceMode;
-                interfaceMode = INTERFACE_MODE_7998;
-                boolean result = testConnection();
-                interfaceMode = oldMode;
-                return result;
-            }
-
+            logger.warn("AIMP connection test failed for all endpoints");
             return false;
         } catch (Exception e) {
             logger.warn("AIMP connection test failed: " + e.getMessage());
             return false;
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
         }
     }
 

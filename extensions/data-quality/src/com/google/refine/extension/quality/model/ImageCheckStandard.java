@@ -60,6 +60,7 @@ public enum ImageCheckStandard {
         params.put("piece_continuous", createPieceContinuousParams());
         params.put("page_continuous", createPageContinuousParams());
         params.put("pdf_image_uniformity", createPdfImageUniformityParams());
+        params.put("illegal_files", createIllegalFilesParams());
 
         return params;
     }
@@ -204,6 +205,13 @@ public enum ImageCheckStandard {
     private static Map<String, Object> createPdfImageUniformityParams() {
         Map<String, Object> params = new HashMap<>();
         params.put("enabled", true);
+        return params;
+    }
+    
+    private static Map<String, Object> createIllegalFilesParams() {
+        Map<String, Object> params = new HashMap<>();
+        params.put("enabled", true);
+        params.put("allowedFormats", new String[]{"JPEG", "JPG", "TIFF", "TIF", "PDF", "OFD"});
         return params;
     }
 

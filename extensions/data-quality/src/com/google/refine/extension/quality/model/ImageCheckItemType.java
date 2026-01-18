@@ -18,9 +18,6 @@ public enum ImageCheckItemType {
     @JsonProperty("quantity")
     数量统计("quantity", "数量统计", ImageCheckCategoryType.完整性),
     
-    @JsonProperty("empty_folder")
-    空文件夹检查("empty_folder", "空文件夹检查", ImageCheckCategoryType.完整性),
-    
     @JsonProperty("piece_continuous")
     件号连续性检查("piece_continuous", "件号连续性检查", ImageCheckCategoryType.完整性),
     
@@ -56,7 +53,7 @@ public enum ImageCheckItemType {
     装订孔检测("hole", "装订孔检测", ImageCheckCategoryType.可用性),
     
     @JsonProperty("dpi")
-    DPI检查("dpi", "DPI检查", ImageCheckCategoryType.可用性),
+    分辨率检查("dpi", "分辨率检查", ImageCheckCategoryType.可用性),
     
     @JsonProperty("kb")
     KB值检查("kb", "KB值检查", ImageCheckCategoryType.可用性),
@@ -67,12 +64,9 @@ public enum ImageCheckItemType {
     @JsonProperty("bit_depth")
     位深度检查("bit_depth", "位深度检查", ImageCheckCategoryType.可用性),
     
-    @JsonProperty("resolution")
-    分辨率检查("resolution", "分辨率检查", ImageCheckCategoryType.可用性),
-    
     // 安全性类别
-    // 目前没有明确属于安全性的检查项，可以根据实际需求添加
-    // 例如：病毒检查、加密检查等
+    @JsonProperty("illegal_files")
+    非法归档文件检测("illegal_files", "非法归档文件检测", ImageCheckCategoryType.安全性),
     ;
     
     private final String code;

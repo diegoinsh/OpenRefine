@@ -6,7 +6,7 @@
 console.log('[Quality] quality-cell-renderer.js 脚本加载');
 class QualityCellRenderer {
   render(rowIndex, cellIndex, cell, cellUI) {
-    console.log('[QualityCellRenderer.render] 被调用, rowIndex:', rowIndex, 'cellIndex:', cellIndex);
+    // console.log('[QualityCellRenderer.render] 被调用, rowIndex:', rowIndex, 'cellIndex:', cellIndex);
     
     // 快速检查：是否有错误需要显示
     if (typeof QualityAlignment === 'undefined' || !QualityAlignment._cellErrorMap) {
@@ -23,7 +23,7 @@ class QualityCellRenderer {
     var errorKey = rowIndex + '_' + columnName;
     var errors = QualityAlignment._cellErrorMap[errorKey];
 
-    console.log('[QualityCellRenderer.render] errorKey:', errorKey, 'errors:', errors ? errors.length : 0);
+    // console.log('[QualityCellRenderer.render] errorKey:', errorKey, 'errors:', errors ? errors.length : 0);
 
     if (!errors || errors.length === 0) {
       return;
@@ -233,11 +233,17 @@ class QualityCellRenderer {
         var folderPath = errorWithHiddenFile.value || '';
         var fileName = errorWithHiddenFile.hiddenFileName;
         
+        console.log('[Quality-Path] 构建完整路径:');
+        console.log('  folderPath (value):', folderPath);
+        console.log('  fileName (hiddenFileName):', fileName);
+        
         if (folderPath) {
           fullPath = folderPath + '/' + fileName;
         } else {
           fullPath = fileName;
         }
+        
+        console.log('  fullPath:', fullPath);
         
         // Collect location errors from all errors with same hiddenFileName
         locationErrors = errors.filter(function(err) {

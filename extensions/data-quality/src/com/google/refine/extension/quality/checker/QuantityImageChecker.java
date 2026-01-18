@@ -73,7 +73,7 @@ public class QuantityImageChecker implements ImageChecker {
         logger.info("开始遍历行数据");
         for (int i = 0; i < rows.size(); i++) {
             Row row = rows.get(i);
-            logger.info("处理第 {} 行", i);
+            // logger.info("处理第 {} 行", i);
             String resourcePath = extractResourcePath(row, resourceConfig, columnIndexMap);
             logger.info("提取到的资源路径: {}", resourcePath);
             if (resourcePath != null) {

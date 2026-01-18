@@ -1628,8 +1628,9 @@ QualityAlignment._renderResultsTab = function() {
         formatErrors++;
       }
       // Resource errors
-      else if (errType === 'folder_existence' || errType === 'file_count' ||
+      else if (errType === 'data_existence' || errType === 'folder_existence' || errType === 'file_count' ||
                errType === 'file_name_format' || errType === 'file_sequential' ||
+               errType === 'empty_folder' || errType === 'folder_sequential' || errType === 'folder_name_format' ||
                errType.indexOf('folder') >= 0 || errType.indexOf('file') >= 0) {
         resourceErrors++;
       }
@@ -1643,7 +1644,10 @@ QualityAlignment._renderResultsTab = function() {
                errType === 'blank' || errType === 'bias' || errType === 'stain' ||
                errType === 'hole' || errType === 'dpi' || errType === 'kb' || errType === 'edge' ||
                errType === 'bit_depth' || errType === 'file-size' || errType === 'quality' ||
-               errType === 'stainValue' || errType === 'edgeRemove' || errType === 'repeat_image') {
+               errType === 'stainValue' || errType === 'edgeRemove' || errType === 'repeat_image' ||
+               errType === 'damage' || errType === 'format' || errType === 'houseAngle' ||
+               errType === 'counting' || errType === 'pageSize' || errType === 'continuity' ||
+               errType === 'illegal_file' || errType === 'security_check' || errType === 'pdfImageUniformity') {
         imageErrors++;
       }
     });
@@ -1711,10 +1715,14 @@ QualityAlignment._renderResultsTab = function() {
   $('<option value="value_list">' + $.i18n('data-quality-extension/check-value-list') + '</option>').appendTo(formatGroup);
 
   var resourceGroup = $('<optgroup label="' + $.i18n('data-quality-extension/resource-check-tab') + '"></optgroup>').appendTo(typeFilter);
+  $('<option value="data_existence">' + $.i18n('data-quality-extension/data-existence') + '</option>').appendTo(resourceGroup);
   $('<option value="folder_existence">' + $.i18n('data-quality-extension/folder-existence') + '</option>').appendTo(resourceGroup);
+  $('<option value="folder_name_format">' + $.i18n('data-quality-extension/folder-name-format') + '</option>').appendTo(resourceGroup);
+  $('<option value="folder_sequential">' + $.i18n('data-quality-extension/folder-sequential') + '</option>').appendTo(resourceGroup);
   $('<option value="file_count">' + $.i18n('data-quality-extension/file-count-match') + '</option>').appendTo(resourceGroup);
   $('<option value="file_name_format">' + $.i18n('data-quality-extension/file-name-format') + '</option>').appendTo(resourceGroup);
   $('<option value="file_sequential">' + $.i18n('data-quality-extension/file-sequential') + '</option>').appendTo(resourceGroup);
+  $('<option value="empty_folder">' + $.i18n('data-quality-extension/empty-folders-check') + '</option>').appendTo(resourceGroup);
 
   var imageGroup = $('<optgroup label="' + $.i18n('data-quality-extension/image-quality-check-tab') + '"></optgroup>').appendTo(typeFilter);
   
@@ -1728,20 +1736,17 @@ QualityAlignment._renderResultsTab = function() {
   $('<option value="stain">' + $.i18n('data-quality-extension/stain-check') + '</option>').appendTo(imageGroup);
   $('<option value="hole">' + $.i18n('data-quality-extension/hole-check') + '</option>').appendTo(imageGroup);
   $('<option value="illegal_file">' + $.i18n('data-quality-extension/illegal-files-check') + '</option>').appendTo(imageGroup);
+  $('<option value="security_check">' + $.i18n('data-quality-extension/antivirus-check') + '</option>').appendTo(imageGroup);
   
   $('<option value="counting">' + $.i18n('data-quality-extension/count-stats-check') + '</option>').appendTo(imageGroup);
   $('<option value="pageSize">' + $.i18n('data-quality-extension/page-stats-check') + '</option>').appendTo(imageGroup);
   
-  $('<option value="pieceContinuous">' + $.i18n('data-quality-extension/sequence-check') + '</option>').appendTo(imageGroup);
   $('<option value="continuity">' + $.i18n('data-quality-extension/page-sequence-check') + '</option>').appendTo(imageGroup);
   
   $('<option value="dpi">' + $.i18n('data-quality-extension/dpi-check') + '</option>').appendTo(imageGroup);
   $('<option value="kb">' + $.i18n('data-quality-extension/kb-check') + '</option>').appendTo(imageGroup);
   $('<option value="bit_depth">' + $.i18n('data-quality-extension/bit-depth-check') + '</option>').appendTo(imageGroup);
   
-  $('<option value="reImageName">' + $.i18n('data-quality-extension/image-name-check') + '</option>').appendTo(imageGroup);
-  $('<option value="reImagePath">' + $.i18n('data-quality-extension/image-path-check') + '</option>').appendTo(imageGroup);
-  $('<option value="reImagePathRoot">' + $.i18n('data-quality-extension/image-path-regex-check') + '</option>').appendTo(imageGroup);
   $('<option value="quality">' + $.i18n('data-quality-extension/quality-check') + '</option>').appendTo(imageGroup);
   $('<option value="pdfImageUniformity">' + $.i18n('data-quality-extension/pdf-image-uniformity-check') + '</option>').appendTo(imageGroup);
 
@@ -2068,7 +2073,35 @@ QualityAlignment._renderErrorsTable = function() {
           }
         } else if (isFileCountError) {
             columnDisplay = '页数';
-          } else if (isSequentialError) {
+        } else if (error.errorType === 'data_existence') {
+            if (error.value) {
+                var pathParts = error.value.split(/[\\/]/).filter(function(p) { return p; });
+                if (pathParts.length >= 2) {
+                    var lastTwoParts = pathParts.slice(-2).join('\\');
+                    if (lastTwoParts.length > MAX_DISPLAY_LENGTH) {
+                        columnDisplay = '...' + lastTwoParts.slice(-MAX_DISPLAY_LENGTH);
+                        columnTitle = lastTwoParts;
+                    } else {
+                        columnDisplay = lastTwoParts;
+                    }
+                } else if (pathParts.length === 1) {
+                    var folderName = pathParts[0];
+                    if (folderName.length > MAX_DISPLAY_LENGTH) {
+                        columnDisplay = '...' + folderName.slice(-MAX_DISPLAY_LENGTH);
+                        columnTitle = folderName;
+                    } else {
+                        columnDisplay = folderName;
+                    }
+                }
+                // Value shows full path with truncation and hover
+                if (error.value.length > MAX_DISPLAY_LENGTH) {
+                    valueDisplay = '...' + error.value.slice(-MAX_DISPLAY_LENGTH);
+                    valueTitle = error.value;
+                } else {
+                    valueDisplay = error.value;
+                }
+            }
+        } else if (isSequentialError) {
           if (error.value) {
             var pathParts = error.value.split(/[\\/]/).filter(function(p) { return p; });
             if (pathParts.length >= 2) {
@@ -2219,6 +2252,7 @@ QualityAlignment._getErrorTypeLabel = function(errorType) {
     'continuity': $.i18n('data-quality-extension/page-sequence-check'),
     // Image quality checks - SECURITY category
     'illegal_file': $.i18n('data-quality-extension/illegal-files-check'),
+    'security_check': $.i18n('data-quality-extension/antivirus-check'),
     'dpi': $.i18n('data-quality-extension/dpi-check'),
     'kb': $.i18n('data-quality-extension/kb-check'),
     // Image quality checks - OTHERS category
@@ -2229,6 +2263,7 @@ QualityAlignment._getErrorTypeLabel = function(errorType) {
     'pdfImageUniformity': $.i18n('data-quality-extension/pdf-image-uniformity-check'),
     // Resource checks - FOLDER category
     'empty_folder': $.i18n('data-quality-extension/empty-folders-check'),
+    'data_existence': $.i18n('data-quality-extension/data-existence'),
     // Legacy mappings
     'stain': $.i18n('data-quality-extension/stain-check'),
     'edge': $.i18n('data-quality-extension/edge-check'),
@@ -2309,6 +2344,18 @@ QualityAlignment._formatErrorMessage = function(error) {
     return $.i18n('data-quality-extension/error-msg-folder-not-exist');
   }
 
+  if (errorType === 'folder_name_format') {
+    return $.i18n('data-quality-extension/error-msg-folder-name-invalid');
+  }
+
+  if (errorType === 'folder_sequential') {
+    return $.i18n('data-quality-extension/error-msg-folder-sequential');
+  }
+
+  if (errorType === 'data_existence') {
+    return $.i18n('data-quality-extension/error-msg-data-existence');
+  }
+
   if (errorType === 'file_name_format') {
     return $.i18n('data-quality-extension/error-msg-file-name-invalid');
   }
@@ -2362,7 +2409,7 @@ QualityAlignment._formatErrorMessage = function(error) {
       return '检测到重复图片: ' + (message || '');
     }
     if (errorType === 'houseAngle') {
-      return '文本方向异常: ' + (message || '');
+      return '文本方向错误: ' + (message || '');
     }
     if (errorType === 'bias') {
       var biasMatch = message.match(/angle: ([-]?\d+(?:\.\d+)?)/);
@@ -2370,49 +2417,58 @@ QualityAlignment._formatErrorMessage = function(error) {
     }
     if (errorType === 'edgeRemove' || errorType === 'edge') {
       var edgeMatch = message.match(/Edge issue detected: (\S+)/);
-      var baseMsg = '检测到黑边' + (edgeMatch ? ': ' + edgeMatch[1] : '');
-      var locationInfo = QualityAlignment._formatLocationInfo(error);
-      return locationInfo ? baseMsg + ' ' + locationInfo : baseMsg;
+      if (edgeMatch) {
+        var baseMsg = '检测到黑边' + (edgeMatch ? ': ' + edgeMatch[1] : '');
+        var locationInfo = QualityAlignment._formatLocationInfo(error);
+        return locationInfo ? baseMsg + ' ' + locationInfo : baseMsg;
+      }
+      return message;
     }
     if (errorType === 'stainValue' || errorType === 'stain') {
       var stainMatch = message.match(/Stain detected: (\S+)/);
-      var stainBaseMsg = '检测到污点' + (stainMatch ? ': ' + stainMatch[1] : '');
-      var stainLocationInfo = QualityAlignment._formatLocationInfo(error);
-      return stainLocationInfo ? stainBaseMsg + ' ' + stainLocationInfo : stainBaseMsg;
+      if (stainMatch) {
+        var stainBaseMsg = '检测到污点' + (stainMatch ? ': ' + stainMatch[1] : '');
+        var stainLocationInfo = QualityAlignment._formatLocationInfo(error);
+        return stainLocationInfo ? stainBaseMsg + ' ' + stainLocationInfo : stainBaseMsg;
+      }
+      return message;
     }
     if (errorType === 'hole') {
       var holeMatch = message.match(/Binding hole detected: (\S+)/);
-      var holeBaseMsg = '检测到装订孔' + (holeMatch ? ': ' + holeMatch[1] : '');
-      var holeLocationInfo = QualityAlignment._formatLocationInfo(error);
-      return holeLocationInfo ? holeBaseMsg + ' ' + holeLocationInfo : holeBaseMsg;
+      if (holeMatch) {
+        var holeBaseMsg = '检测到装订孔' + (holeMatch ? ': ' + holeMatch[1] : '');
+        var holeLocationInfo = QualityAlignment._formatLocationInfo(error);
+        return holeLocationInfo ? holeBaseMsg + ' ' + holeLocationInfo : holeBaseMsg;
+      }
+      return message;
     }
     if (errorType === 'blank') {
       var blankMatch = message.match(/Blank page detected: (\S+)/);
       return '检测到空白页: ' + (blankMatch ? blankMatch[1] : '');
     }
     if (errorType === 'counting') {
-      return '数量统计异常: ' + (message || '');
+      return '数量统计错误: ' + (message || '');
     }
     if (errorType === 'pageSize') {
-      return '篇幅检查异常: ' + (message || '');
+      return '篇幅错误: ' + (message || '');
     }
     if (errorType === 'pieceContinuous') {
-      return '件号连续性检查失败: ' + (message || '');
+      return '件号连续性错误: ' + (message || '');
     }
     if (errorType === 'continuity') {
-      return '页号连续性检查失败: ' + (message || '');
+      return '页号连续性错误: ' + (message || '');
     }
     if (errorType === 'reImageName') {
-      return '图片名称检查失败: ' + (message || '');
+      return '图片名称错误: ' + (message || '');
     }
     if (errorType === 'reImagePath') {
-      return '文件路径检查失败: ' + (message || '');
+      return '文件路径错误: ' + (message || '');
     }
     if (errorType === 'reImagePathRoot') {
-      return '文件路径正则规则错误: ' + (message || '');
+      return '文件路径错误: ' + (message || '');
     }
     if (errorType === 'quality') {
-      return '压缩率检查失败: ' + (message || '');
+      return '压缩率错误: ' + (message || '');
     }
     if (errorType === 'pdfImageUniformity') {
       return 'PDF与图片不一致: ' + (message || '');

@@ -28,7 +28,7 @@ public class DpiImageChecker implements ImageChecker {
 
     @Override
     public String getItemName() {
-        return "DPI检查";
+        return "分辨率检查";
     }
 
     @Override

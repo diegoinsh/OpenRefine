@@ -11,6 +11,7 @@ import java.util.List;
 import com.google.refine.extension.quality.model.ImageCheckError;
 import com.google.refine.extension.quality.model.ImageCheckItem;
 import com.google.refine.extension.quality.model.ImageQualityRule;
+import com.google.refine.extension.quality.model.QualityRulesConfig;
 import com.google.refine.extension.quality.model.ResourceCheckConfig;
 import com.google.refine.model.Cell;
 import com.google.refine.model.Project;
@@ -43,7 +44,14 @@ public class BlankImageChecker implements ImageChecker {
             return errors;
         }
 
-        ContentChecker contentChecker = new ContentChecker();
+        QualityRulesConfig rulesConfig = (QualityRulesConfig) project.overlayModels.get("qualityRulesConfig");
+        if (rulesConfig == null || rulesConfig.getAimpConfig() == null) {
+            return errors;
+        }
+
+        String aimpEndpoint = rulesConfig.getAimpConfig().getServiceUrl();
+        ImageQualityChecker imageQualityChecker = new ImageQualityChecker(project, rulesConfig, aimpEndpoint);
+
         boolean checkBlank = item.getParameter("enabled", Boolean.class) != null && item.getParameter("enabled", Boolean.class);
 
         for (Row row : rows) {
@@ -52,7 +60,7 @@ public class BlankImageChecker implements ImageChecker {
                 AiCheckParams params = new AiCheckParams();
                 params.setCheckBlank(checkBlank);
 
-                AiCheckResult result = contentChecker.checkImage(imageFile, params);
+                AiCheckResult result = imageQualityChecker.checkImage(imageFile, params);
 
                 if (result.isBlank()) {
                     errors.add(ImageCheckError.createBlankPageError(

@@ -81,6 +81,9 @@ public class ResourceChecker {
         int failedRows = 0;
         int batchSize = DEFAULT_BATCH_SIZE;
 
+        // Build set of all resource paths for data existence check
+        java.util.Set<String> allResourcePaths = new java.util.HashSet<>();
+
         // Check each row (starting from startRowIndex for resume support)
         for (int rowIndex = startRowIndex; rowIndex < totalRows; rowIndex++) {
             // Check for task interruption
@@ -114,13 +117,18 @@ public class ResourceChecker {
                 continue; // Skip rows without valid path
             }
 
+            // Add to set for data existence check
+            allResourcePaths.add(resourcePath);
+
             File resourceDir = new File(resourcePath);
 
             // Folder existence check
             if (config.getFolderChecks().isExistence()) {
                 if (!resourceDir.exists() || !resourceDir.isDirectory()) {
-                    result.addError(new CheckError(rowIndex, "resource_path", resourcePath,
-                        "folder_existence", "Folder does not exist: " + resourcePath));
+                    CheckError error = new CheckError(rowIndex, "resource_path", resourcePath,
+                        "folder_existence", "Folder does not exist: " + resourcePath);
+                    error.setCategory("resource");
+                    result.addError(error);
                     rowPassed = false;
                 }
             }
@@ -129,6 +137,31 @@ public class ResourceChecker {
             if (resourceDir.exists() && resourceDir.isDirectory()) {
                 File[] files = resourceDir.listFiles();
                 List<File> fileList = files != null ? Arrays.asList(files) : new ArrayList<>();
+
+                // Folder name format check
+                String folderNameFormat = config.getFolderChecks().getNameFormat();
+                if (folderNameFormat != null && !folderNameFormat.isEmpty()) {
+                    String folderName = resourceDir.getName();
+                    if (!matchesPattern(folderName, folderNameFormat)) {
+                        CheckError error = new CheckError(rowIndex, "folder_name", folderName,
+                            "folder_name_format", "Folder name does not match format: " + folderNameFormat);
+                        error.setCategory("resource");
+                        result.addError(error);
+                        rowPassed = false;
+                    }
+                }
+
+                // Folder sequential check
+                if (config.getFolderChecks().isSequential()) {
+                    String folderName = resourceDir.getName();
+                    if (!matchesSequentialPattern(folderName)) {
+                        CheckError error = new CheckError(rowIndex, "folder_name", folderName,
+                            "folder_sequential", "Folder name is not sequential: " + folderName);
+                        error.setCategory("resource");
+                        result.addError(error);
+                        rowPassed = false;
+                    }
+                }
 
                 // Empty folder check
                 if (config.getFolderChecks().isEmptyFolder()) {
@@ -140,8 +173,10 @@ public class ResourceChecker {
                         }
                     }
                     if (!hasImageFiles) {
-                        result.addError(new CheckError(rowIndex, "resource_path", resourcePath,
-                            "empty_folder", "Empty folder: " + resourcePath));
+                        CheckError error = new CheckError(rowIndex, "resource_path", resourcePath,
+                            "empty_folder", "Empty folder: " + resourcePath);
+                        error.setCategory("resource");
+                        result.addError(error);
                         rowPassed = false;
                     }
                 }
@@ -157,8 +192,10 @@ public class ResourceChecker {
                             int actual = (int) fileList.stream().filter(File::isFile).count();
                             if (expected >= 0 && expected != actual) {
                                 String severity = Math.abs(expected - actual) <= 1 ? "warning" : "error";
-                                result.addError(new CheckError(rowIndex, countColumn, String.valueOf(actual),
-                                    "file_count", "File count mismatch: expected " + expected + ", actual " + actual));
+                                CheckError error = new CheckError(rowIndex, countColumn, String.valueOf(actual),
+                                    "file_count", "File count mismatch: expected " + expected + ", actual " + actual);
+                                error.setCategory("resource");
+                                result.addError(error);
                                 if (severity.equals("error")) rowPassed = false;
                             }
                         }
@@ -170,8 +207,10 @@ public class ResourceChecker {
                 if (nameFormat != null && !nameFormat.isEmpty()) {
                     for (File f : fileList) {
                         if (f.isFile() && !matchesPattern(f.getName(), nameFormat)) {
-                            result.addError(new CheckError(rowIndex, "file_name", f.getName(),
-                                "file_name_format", "File name does not match format: " + nameFormat));
+                            CheckError error = new CheckError(rowIndex, "file_name", f.getName(),
+                                "file_name_format", "File name does not match format: " + nameFormat);
+                            error.setCategory("resource");
+                            result.addError(error);
                             rowPassed = false;
                         }
                     }
@@ -189,6 +228,18 @@ public class ResourceChecker {
 
             if (rowPassed) passedRows++;
             else failedRows++;
+        }
+
+        // Data existence check - check if all folders have corresponding data rows
+        if (config.getFolderChecks().isDataExistence()) {
+            logger.info("[ResourceChecker] Running data existence check");
+            DataExistenceChecker dataExistenceChecker = new DataExistenceChecker(project, rules, allResourcePaths, columnIndexMap);
+            CheckResult dataExistenceResult = dataExistenceChecker.runCheck();
+            if (dataExistenceResult.getErrors() != null) {
+                for (CheckError error : dataExistenceResult.getErrors()) {
+                    result.addError(error);
+                }
+            }
         }
 
         result.setCheckedRows(totalRows);
@@ -313,6 +364,20 @@ public class ResourceChecker {
         }
 
         return errors;
+    }
+
+    private boolean matchesSequentialPattern(String folderName) {
+        // Check if folder name contains a number
+        String numStr = folderName.replaceAll(".*?(\\d+)$", "$1");
+        if (numStr.isEmpty() || numStr.equals(folderName)) {
+            return false;
+        }
+        try {
+            Integer.parseInt(numStr);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     private boolean isImageFile(String fileName) {

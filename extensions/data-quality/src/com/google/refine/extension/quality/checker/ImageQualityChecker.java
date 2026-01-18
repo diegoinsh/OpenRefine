@@ -439,6 +439,29 @@ public class ImageQualityChecker {
         }
         logger.info("=== 非法归档文件检测结束 ===");
         
+        logger.info("=== 开始执行杀毒软件检测 ===");
+        AntivirusChecker antivirusChecker = new AntivirusChecker();
+        if (antivirusChecker.isEnabled(imageRule)) {
+            logger.info("杀毒软件检测已启用");
+            List<ImageCheckError> antivirusErrors = antivirusChecker.check(project, null, imageRule);
+            for (ImageCheckError error : antivirusErrors) {
+                CheckError checkError = new CheckError(
+                    error.getRowIndex(),
+                    error.getColumnName(),
+                    error.getImagePath(),
+                    "security_check",
+                    error.getMessage() != null ? error.getMessage() : "杀毒软件检测失败"
+                );
+                checkError.setCategory(error.getCategory());
+                checkError.setHiddenFileName(error.getHiddenFileName());
+                result.addError(checkError);
+            }
+            logger.info("杀毒软件检测完成，发现 {} 个错误", antivirusErrors.size());
+        } else {
+            logger.info("杀毒软件检测未启用");
+        }
+        logger.info("=== 杀毒软件检测结束 ===");
+        
         logger.info("=== 开始执行空白页和页面尺寸统计 ===");
         collectBlankPageAndPageSizeStatistics(result, project, resourceConfig, imageRule);
         logger.info("=== 空白页和页面尺寸统计结束 ===");
@@ -485,18 +508,19 @@ public class ImageQualityChecker {
     }
 
     private AiCheckResult doCheckImage(File imageFile, AiCheckParams params) throws Exception {
-        if (INTERFACE_MODE_7999.equals(interfaceMode)) {
-            return doCheckImage7999(imageFile, params);
-        } else {
-            String imageBase64 = encodeImageToBase64(imageFile);
-            String jsonRequest = buildRequestJson7998(imageFile.getName(), params);
-            String response = sendPostRequest7998(jsonRequest, imageBase64);
-            return parseResponse(response);
-        }
+        return doCheckImage7998(imageFile, params);
+        // if (INTERFACE_MODE_7999.equals(interfaceMode)) {
+        //     return doCheckImage7999(imageFile, params);
+        // } else {
+        //     String imageBase64 = encodeImageToBase64(imageFile);
+        //     String jsonRequest = buildRequestJson7998(imageFile.getName(), params);
+        //     String response = sendPostRequest7998(jsonRequest, imageBase64);
+        //     return parseResponse(response);
+        // }
     }
 
-    private AiCheckResult doCheckImage7999(File imageFile, AiCheckParams params) throws Exception {
-        logger.info("=== AIMP 7999 模式图像检测流程 ===");
+    private AiCheckResult doCheckImage7998(File imageFile, AiCheckParams params) throws Exception {
+        logger.info("=== AIMP 7998 模式图像检测流程 ===");
         logger.info("图像文件: " + imageFile.getAbsolutePath());
         logger.info("AIMP端点: " + aimpEndpoint);
         logger.info("接口模式: " + interfaceMode);
@@ -1018,13 +1042,13 @@ public class ImageQualityChecker {
             CheckError error = new CheckError();
             error.setErrorType("houseAngle");
             error.setCategory("image_quality");
-            error.setMessage("文本方向异常: " + imageFile.getName() + ", 角度: " + aiResult.getHouseAngle());
+            error.setMessage("文本角度为" + aiResult.getHouseAngle()+ "度");
             error.setColumn("resource");
             error.setValue(resourcePath);
             error.setHiddenFileName(imageFile.getName());
             errors.add(error);
         } else if (aiResult.getHouseAngle() != null) {
-            logger.info("[convertToCheckErrors] 文本方向角度为0，不需要生成错误");
+            logger.debug("[convertToCheckErrors] 文本方向角度为0，不需要生成错误");
         }
 
         if (aiResult.hasStain()) {
@@ -1034,7 +1058,19 @@ public class ImageQualityChecker {
                 CheckError error = new CheckError();
             error.setErrorType("stain");
             error.setCategory("image_quality");
-            error.setMessage("检测到污点: " + imageFile.getName() + " (总数: " + stainLocations.size() + ")");
+            
+            int stainThreshold = 10;
+            if (imageRule != null) {
+                ImageCheckItem stainItem = imageRule.getItemByCode("stain");
+                if (stainItem != null) {
+                    Object stainValue = stainItem.getParameter("stainValue", Object.class);
+                    if (stainValue != null) {
+                        stainThreshold = Integer.parseInt(stainValue.toString());
+                    }
+                }
+            }
+            
+            error.setMessage("检测到" + stainLocations.size() + "个污点，超过设定阈值" + stainThreshold);
             error.setColumn("resource");
             error.setValue(resourcePath);
             error.setHiddenFileName(imageFile.getName());
@@ -1068,12 +1104,27 @@ public class ImageQualityChecker {
             logger.info("[ImageQualityChecker] hole detected, holeLocations: {}", holeLocations);
             if (holeLocations != null && !holeLocations.isEmpty()) {
                 CheckError error = new CheckError();
-                error.setErrorType("hole");
-                error.setCategory("image_quality");
-                error.setMessage("Binding hole detected: " + imageFile.getName() + " (Total: " + holeLocations.size() + ")");
-                error.setColumn("resource");
-                error.setValue(resourcePath);
-                error.setHiddenFileName(imageFile.getName());
+            error.setErrorType("hole");
+            error.setCategory("image_quality");
+            
+            int holeThreshold = 10;
+            if (imageRule != null) {
+                ImageCheckItem holeItem = imageRule.getItemByCode("hole");
+                if (holeItem == null) {
+                    holeItem = imageRule.getItemByCode("binding-hole");
+                }
+                if (holeItem != null) {
+                    Object holeValue = holeItem.getParameter("holeValue", Object.class);
+                    if (holeValue != null) {
+                        holeThreshold = Integer.parseInt(holeValue.toString());
+                    }
+                }
+            }
+            
+            error.setMessage("检测到" + holeLocations.size() + "个装订孔，超过设定阈值" + holeThreshold);
+            error.setColumn("resource");
+            error.setValue(resourcePath);
+            error.setHiddenFileName(imageFile.getName());
 
                 List<int[]> convertedLocations = new ArrayList<>();
                 for (int[] location : holeLocations) {
@@ -1104,12 +1155,24 @@ public class ImageQualityChecker {
             logger.info("[ImageQualityChecker] edge detected, edgeLocations: {}", edgeLocations);
             if (edgeLocations != null && !edgeLocations.isEmpty()) {
                 CheckError error = new CheckError();
-                error.setErrorType("edge");
-                error.setCategory("image_quality");
-                error.setMessage("检测到黑边: " + imageFile.getName() + " (总数: " + edgeLocations.size() + ")");
-                error.setColumn("resource");
-                error.setValue(resourcePath);
-                error.setHiddenFileName(imageFile.getName());
+            error.setErrorType("edge");
+            error.setCategory("image_quality");
+            
+            int edgeThreshold = 10;
+            if (imageRule != null) {
+                ImageCheckItem edgeItem = imageRule.getItemByCode("edge");
+                if (edgeItem != null) {
+                    Object edgeValue = edgeItem.getParameter("edgeValue", Object.class);
+                    if (edgeValue != null) {
+                        edgeThreshold = Integer.parseInt(edgeValue.toString());
+                    }
+                }
+            }
+            
+            error.setMessage("检测到" + edgeLocations.size() + "个黑边，超过设定阈值" + edgeThreshold);
+            error.setColumn("resource");
+            error.setValue(resourcePath);
+            error.setHiddenFileName(imageFile.getName());
 
                 List<int[]> convertedLocations = new ArrayList<>();
                 for (int[] location : edgeLocations) {
@@ -1144,7 +1207,7 @@ public class ImageQualityChecker {
                     CheckError error = new CheckError();
                     error.setErrorType("dpi");
                     error.setCategory("image_quality");
-                    error.setMessage("分辨率过低: " + imageFile.getName() + ", DPI: " + aiResult.getDpi() + " (最低要求: " + minDpi + ")");
+                    error.setMessage("分辨率错误，当前DPI为" + aiResult.getDpi() + "，低于最低要求" + minDpi);
                     error.setColumn("resource");
                     error.setValue(resourcePath);
                     error.setExtractedValue(String.valueOf(aiResult.getDpi()));
@@ -1185,7 +1248,7 @@ public class ImageQualityChecker {
                     CheckError error = new CheckError();
                     error.setErrorType("quality");
                     error.setCategory("image_quality");
-                    error.setMessage("JPEG质量过低: " + imageFile.getName() + ", 质量: " + aiResult.getQuality() + " (最低要求: " + minQuality + ")");
+                    error.setMessage("图片质量过低，最低要求为: " + minQuality);
                     error.setColumn("resource");
                     error.setValue(resourcePath);
                     error.setExtractedValue(String.valueOf(aiResult.getQuality()));

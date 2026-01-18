@@ -56,6 +56,7 @@ import com.google.refine.RefineServlet;
 import com.google.refine.browsing.Engine;
 import com.google.refine.browsing.EngineConfig;
 import com.google.refine.history.HistoryEntry;
+import com.google.refine.messages.OpenRefineMessage;
 import com.google.refine.model.Project;
 import com.google.refine.process.Process;
 import com.google.refine.util.ParsingUtilities;
@@ -172,7 +173,7 @@ public abstract class Command {
      */
     protected static void checkJSONP(HttpServletRequest request) {
         if (request.getParameter("callback") != null) {
-            throw new IllegalJsonpException("JSONP is no longer supported. Please use JSON for AJAX requests");
+            throw new IllegalJsonpException(OpenRefineMessage.error_jsonp_not_supported());
         }
     }
 
@@ -192,19 +193,19 @@ public abstract class Command {
         }
         String param = request.getParameter("project");
         if (param == null || "".equals(param)) {
-            throw new ServletException("Can't find project: missing ID parameter");
+            throw new ServletException(OpenRefineMessage.error_project_missing_id());
         }
         Long id;
         try {
             id = Long.parseLong(param);
         } catch (NumberFormatException e) {
-            throw new ServletException("Can't find project: badly formatted id #", e);
+            throw new ServletException(OpenRefineMessage.error_project_badly_formatted_id(), e);
         }
         Project p = ProjectManager.singleton.getProject(id);
         if (p != null) {
             return p;
         } else {
-            throw new ServletException("Failed to find project id #" + param + " - may be corrupt");
+            throw new ServletException(OpenRefineMessage.error_project_not_found(param));
         }
     }
 
@@ -230,7 +231,7 @@ public abstract class Command {
         } catch (Exception e) {
             // ignore
         }
-        throw new ServletException("Can't find project metadata: missing or bad URL parameter");
+        throw new ServletException(OpenRefineMessage.error_project_metadata_not_found());
     }
 
     static protected int getIntegerParameter(HttpServletRequest request, String name, int def) {
@@ -280,7 +281,7 @@ public abstract class Command {
         } catch (Exception e) {
             // ignore
         }
-        throw new ServletException("Can't find CSRF token: missing or bad URL parameter");
+        throw new ServletException(OpenRefineMessage.error_csrf_token_missing());
     }
 
     /**
@@ -386,7 +387,7 @@ public abstract class Command {
     }
 
     static protected void respondCSRFError(HttpServletResponse response) throws IOException {
-        respondCodeError(response, "Missing or invalid csrf_token parameter");
+        respondCodeError(response, OpenRefineMessage.error_csrf_token_missing());
     }
 
     static protected void respondCodeError(HttpServletResponse response, String message) throws IOException {

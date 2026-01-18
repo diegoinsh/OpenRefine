@@ -39,7 +39,7 @@
   overflow: hidden;
   height: 100%;
   background-color: var(--background-primary);
-  font-size: 1.2em;
+  font-size: 13px;
 }
 
 /* Quality Rules Container */
@@ -54,14 +54,15 @@
   display: flex;
   border-bottom: 1px solid #ccc;
   margin-bottom: 5px;
+  padding-left: 3px;
+  font-size: 13px;
 }
 
 .quality-sub-tab-header {
-  padding: 8px 16px;
+  padding: 6px 15px;
   cursor: pointer;
-  border: 1px solid transparent;
+  border: 1px solid #ffffff;
   border-bottom: none;
-  margin-bottom: -1px;
   background: #f5f5f5;
   border-radius: 4px 4px 0 0;
 }
@@ -74,6 +75,7 @@
   background: #fff;
   border-color: #ccc;
   font-weight: bold;
+  margin-bottom: -1px;
 }
 
 .quality-sub-tabs-content {
@@ -106,9 +108,15 @@
 }
 
 .quality-template-select {
-  flex: 1;
-  max-width: 300px;
-  padding: 5px;
+    padding: 4px 8px;
+    min-width: 100px;
+    background: #ffffff;
+    border: 1px solid #d9d9d9;
+    border-radius: 2px;
+    color: #333;
+    transition: all 0.3s;
+    height: 25px;
+    box-sizing: border-box;
 }
 
 /* Rules list */
@@ -132,6 +140,7 @@
   font-weight: bold;
   margin-bottom: 10px;
   color: #333;
+  font-size: 13px;
 }
 
 /* Placeholder text */
@@ -378,12 +387,14 @@
 }
 
 .button-primary {
-  background: #1976d2 !important;
-  color: #fff !important;
+  background: linear-gradient(#73b7fa, #8fbcf7);
+  color: var(--text-secondary) ;
+  font-weight: normal;
 }
 
 .button-primary:hover {
-  background: #1565c0 !important;
+  background: #3a7cc7 !important;
+  color: #fff !important;
 }
 
 /* ===== Add Rule Row ===== */
@@ -412,21 +423,15 @@
   gap: 5px;
 }
 
-.quality-inline-select {
-  padding: 4px 8px;
-  min-width: 150px;
-}
-
 .quality-text-input {
   padding: 4px 8px;
   min-width: 50px;
   background: #ffffff;
   border: 1px solid #d9d9d9;
   border-radius: 2px;
-  font-size: 14px;
   color: #333;
   transition: all 0.3s;
-  height: 24px;
+  height: 25px;
   box-sizing: border-box;
 }
 
@@ -455,6 +460,13 @@
 .quality-text-input[type="number"]::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
+}
+
+.regex-editor-button {
+  padding: 4px 12px;
+  height: 25px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 /* Checkbox styling similar to Ant Design */
@@ -499,8 +511,7 @@
 .quality-checkbox-row label {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
+  gap: 5px;
   color: #333;
   cursor: pointer;
   white-space: nowrap;
@@ -509,8 +520,6 @@
 .quality-checkbox-row span {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
   color: var(--link-primary);
   cursor: pointer;
   white-space: nowrap;
@@ -532,13 +541,6 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 13px;
-}
-
-.quality-checkbox-row label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
 }
 
 /* ===== Service Status ===== */
@@ -579,6 +581,21 @@
 }
 
 /* ===== Dialog Styles ===== */
+.dialog-body {
+  padding: 10px;
+}
+.dialog-body select {
+  padding: 4px 8px;
+  min-width: 100px;
+  background: #ffffff;
+  border: 1px solid #d9d9d9;
+  border-radius: 2px;
+  color: #333;
+  transition: all 0.3s;
+  height: 25px;
+  box-sizing: border-box;
+}
+
 .dialog-row {
   margin: 10px 0;
   display: flex;
@@ -588,6 +605,18 @@
 
 .dialog-row label {
   min-width: 80px;
+}
+
+.dialog-checks input[type="text"] {
+  margin-right: 5px;
+  min-width: 220px;
+  background: #ffffff;
+  border: 1px solid #d9d9d9;
+  border-radius: 2px;
+  color: #333;
+  transition: all 0.3s;
+  height: 25px;
+  box-sizing: border-box;
 }
 
 .dialog-checks {
@@ -853,14 +882,17 @@
   word-break: break-all;
 }
 
+.path-config-td {
+  vertical-align: top
+}
+
 /* Path Config Dialog Styles - same as export-bound-assets */
 .path-config-fields {
   width: 100%;
-  max-height: 200px;
+  max-height: 300px;
   overflow-y: auto;
   border: 1px solid #ccc;
   background: #fff;
-  padding: 5px;
   margin-bottom: 10px;
 }
 

@@ -11,6 +11,7 @@ import java.util.List;
 import com.google.refine.extension.quality.model.ImageCheckError;
 import com.google.refine.extension.quality.model.ImageCheckItem;
 import com.google.refine.extension.quality.model.ImageQualityRule;
+import com.google.refine.extension.quality.model.QualityRulesConfig;
 import com.google.refine.extension.quality.model.ResourceCheckConfig;
 import com.google.refine.model.Cell;
 import com.google.refine.model.Project;
@@ -45,7 +46,14 @@ public class EdgeImageChecker implements ImageChecker {
             return errors;
         }
 
-        ContentChecker contentChecker = new ContentChecker();
+        QualityRulesConfig rulesConfig = (QualityRulesConfig) project.overlayModels.get("qualityRulesConfig");
+        if (rulesConfig == null || rulesConfig.getAimpConfig() == null) {
+            return errors;
+        }
+
+        String aimpEndpoint = rulesConfig.getAimpConfig().getServiceUrl();
+        ImageQualityChecker imageQualityChecker = new ImageQualityChecker(project, rulesConfig, aimpEndpoint);
+
         boolean checkEdge = item.isEnabled();
         Object strictModeParam = item.getParameter("strictMode", Object.class);
         int edgeStrictMode = strictModeParam != null ? Integer.parseInt(strictModeParam.toString()) : DEFAULT_EDGE_STRICT_MODE;
@@ -57,7 +65,7 @@ public class EdgeImageChecker implements ImageChecker {
                 params.setCheckEdge(checkEdge);
                 params.setEdgeStrictMode(edgeStrictMode);
 
-                AiCheckResult result = contentChecker.checkImage(imageFile, params);
+                AiCheckResult result = imageQualityChecker.checkImage(imageFile, params);
 
                 if (result.hasEdgeRemove()) {
                     errors.add(ImageCheckError.createEdgeError(

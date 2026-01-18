@@ -11,6 +11,7 @@ import java.util.List;
 import com.google.refine.extension.quality.model.ImageCheckError;
 import com.google.refine.extension.quality.model.ImageCheckItem;
 import com.google.refine.extension.quality.model.ImageQualityRule;
+import com.google.refine.extension.quality.model.QualityRulesConfig;
 import com.google.refine.extension.quality.model.ResourceCheckConfig;
 import com.google.refine.model.Cell;
 import com.google.refine.model.Project;
@@ -45,7 +46,14 @@ public class SkewImageChecker implements ImageChecker {
             return errors;
         }
 
-        ContentChecker contentChecker = new ContentChecker();
+        QualityRulesConfig rulesConfig = (QualityRulesConfig) project.overlayModels.get("qualityRulesConfig");
+        if (rulesConfig == null || rulesConfig.getAimpConfig() == null) {
+            return errors;
+        }
+
+        String aimpEndpoint = rulesConfig.getAimpConfig().getServiceUrl();
+        ImageQualityChecker imageQualityChecker = new ImageQualityChecker(project, rulesConfig, aimpEndpoint);
+
         boolean checkSkew = item.isEnabled();
         Object toleranceParam = item.getParameter("tolerance", Object.class);
         float skewTolerance = toleranceParam != null ? Float.parseFloat(toleranceParam.toString()) : DEFAULT_SKEW_THRESHOLD;
@@ -57,7 +65,7 @@ public class SkewImageChecker implements ImageChecker {
                 params.setCheckSkew(checkSkew);
                 params.setSkewTolerance(String.valueOf(skewTolerance));
 
-                AiCheckResult result = contentChecker.checkImage(imageFile, params);
+                AiCheckResult result = imageQualityChecker.checkImage(imageFile, params);
 
                 Float rectifyAngle = result.getRectify();
                 if (rectifyAngle != null && Math.abs(rectifyAngle) > skewTolerance) {

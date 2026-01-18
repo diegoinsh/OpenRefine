@@ -90,3 +90,6 @@ ruyi-refine.code-workspace
 
 # Trae AI settings
 .trae/
+
+
+docs/em.py

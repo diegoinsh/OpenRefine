@@ -292,7 +292,7 @@ var FilePreviewDialog = {};
       if (!error.locationX && !error.locationY) {
         var nonLocationType = error.errorType;
         if (!nonLocationErrors[nonLocationType]) {
-          nonLocationErrors[nonLocationType] = { count: 0, extractedValue: error.extractedValue };
+          nonLocationErrors[nonLocationType] = { count: 0, extractedValue: error.extractedValue, message: error.message || '' };
         }
         nonLocationErrors[nonLocationType].count++;
         return;
@@ -300,6 +300,7 @@ var FilePreviewDialog = {};
       
       var markerClass = 'error-marker-';
       var legendClass = '';
+      var extractedValue = '';
       
       if (error.errorType === 'stainValue' || error.errorType === 'stain') {
         markerClass += 'stain';
@@ -310,9 +311,9 @@ var FilePreviewDialog = {};
       } else if (error.errorType === 'edgeRemove' || error.errorType === 'edge') {
         markerClass += 'edge';
         legendClass = 'edge';
-      } else if (error.errorType === 'bias' || error.errorType === 'skew') {
-        markerClass += 'skew';
-        legendClass = 'skew';
+      } else if (error.errorType === 'bias' || error.errorType === 'bias') {
+        markerClass += 'bias';
+        legendClass = 'bias';
       } else {
         markerClass += 'other';
         legendClass = 'other';
@@ -320,9 +321,12 @@ var FilePreviewDialog = {};
       
       // Count errors by type
       if (!errorTypes[legendClass]) {
-        errorTypes[legendClass] = { count: 0, label: '' };
+        errorTypes[legendClass] = { count: 0, label: '', extractedValue: '' };
       }
       errorTypes[legendClass].count++;
+      if (extractedValue) {
+        errorTypes[legendClass].extractedValue = extractedValue;
+      }
       
       var x = (error.locationX || 0) * scaleX + offsetX;
       var y = (error.locationY || 0) * scaleY + offsetY;
@@ -356,8 +360,8 @@ var FilePreviewDialog = {};
         translatedLabel = $.i18n('records.assets.annotation.hole') || '装订孔';
       } else if (errorLabel === 'edge' || errorLabel === 'edgeRemove') {
         translatedLabel = $.i18n('records.assets.annotation.edge') || '黑边';
-      } else if (errorLabel === 'skew' || errorLabel === 'bias') {
-        translatedLabel = $.i18n('records.assets.annotation.skew') || '偏斜';
+      } else if (errorLabel === 'bias' || errorLabel === 'bias') {
+        translatedLabel = $.i18n('records.assets.annotation.bias') || '偏斜';
       } else {
         translatedLabel = $.i18n('records.assets.annotation.other') || '其他';
       }
@@ -396,8 +400,6 @@ var FilePreviewDialog = {};
           typeLabel = $.i18n('records.assets.annotation.hole') || '装订孔';
         } else if (legendClass === 'edge') {
           typeLabel = $.i18n('records.assets.annotation.edge') || '黑边';
-        } else if (legendClass === 'skew') {
-          typeLabel = $.i18n('records.assets.annotation.skew') || '偏斜';
         } else {
           typeLabel = $.i18n('records.assets.annotation.other') || '其他';
         }
@@ -437,9 +439,18 @@ var FilePreviewDialog = {};
         case 'bit_depth':
           label = '位深度';
           break;
+        case 'bias':
+          label = '倾斜';
+          var angleMatch = (errorInfo.message || '').match(/angle: ([-]?\d+(?:\.\d+)?)/);
+          if (angleMatch) {
+            errorInfo.extractedValue = angleMatch[1] + '°';
+          }
+          break;
         default:
           label = errorType;
       }
+      
+      extractedValue = errorInfo.extractedValue || '';
       
       legendHtml += '<div class="annotation-legend-item annotation-legend-nonlocation">' +
                     '<span class="annotation-legend-dot">·</span>' +

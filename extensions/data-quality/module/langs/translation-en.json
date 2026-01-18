@@ -76,6 +76,9 @@
   "data-quality-extension/page-sequence-check": "Page Sequence Check",
   "data-quality-extension/text-direction-check": "Text Direction",
   "data-quality-extension/illegal-files-check": "Illegal File Detection",
+  "data-quality-extension/antivirus-check": "Antivirus Check",
+  "data-quality-extension/antivirus-check-mode": "Antivirus Check",
+  "data-quality-extension/antivirus-process-name": "Process Name",
   "data-quality-extension/count-stats-check": "Count Statistics",
   "data-quality-extension/empty-folders-check": "Empty Folder Check",
   "data-quality-extension/empty-folders-check-comment": "Data row corresponding folder has no files",
@@ -261,6 +264,7 @@
   "data-quality-extension/error-msg-file-name-invalid": "Invalid file name format",
   "data-quality-extension/error-msg-sequence-gap": "Sequence gap: missing number(s) between {0} and {1}",
   "data-quality-extension/error-msg-content-mismatch": "Content similarity {0}% below threshold {1}%",
+  "data-quality-extension/error-msg-data-existence": "Data entry does not exist",
 
   "data-quality-extension/damage-check": "Damaged File Check",
   "data-quality-extension/image-name-check": "Image Name Check",

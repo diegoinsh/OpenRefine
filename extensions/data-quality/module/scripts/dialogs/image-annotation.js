@@ -163,7 +163,7 @@ var ImageAnnotation = {
         background: rgba(128, 0, 128, 0.2);
       }
 
-      .error-marker-skew {
+      .error-marker-bias {
         border-color: #ffa500;
         background: rgba(255, 165, 0, 0.2);
       }
@@ -233,7 +233,7 @@ var ImageAnnotation = {
         title = '检测到黑边';
         color = '#a855f7';
         break;
-      case 'skew':
+      case 'bias':
         title = '检测到倾斜';
         color = '#ffa500';
         break;
@@ -371,8 +371,8 @@ var ImageAnnotation = {
         case 'edgeRemove':
           markerClass += 'edge';
           break;
-        case 'skew':
-          markerClass += 'skew';
+        case 'bias':
+          markerClass += 'bias';
           break;
         default:
           markerClass += 'stain';
@@ -446,6 +446,9 @@ var ImageAnnotation = {
             break;
           case 'bit_depth':
             label = '位深度';
+            break;
+          case 'repeat_image':
+            label = '重复图片';
             break;
           default:
             label = errorType;
@@ -540,7 +543,7 @@ var ImageAnnotation = {
         title = '检测到黑边';
         color = '#a855f7';
         break;
-      case 'skew':
+      case 'bias':
         title = '检测到倾斜';
         color = '#ffa500';
         break;
@@ -819,7 +822,7 @@ QualityAlignment._showErrorDetailDialog = function(errorData) {
     case 'edgeRemove':
       title = '黑边详情';
       break;
-    case 'skew':
+    case 'bias':
       title = '倾斜详情';
       break;
     default:

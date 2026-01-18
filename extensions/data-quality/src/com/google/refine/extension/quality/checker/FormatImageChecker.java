@@ -20,7 +20,7 @@ import com.google.refine.model.Row;
 public class FormatImageChecker implements ImageChecker {
 
     private static final java.util.Set<String> SUPPORTED_FORMATS = java.util.Set.of(
-        "jpeg", "jpg", "tiff", "tif", "pdf", "png", "bmp", "gif", "webp"
+        "jpeg", "jpg", "tiff", "tif", "pdf", "png", "bmp", "gif", "webp", "ofd"
     );
 
     @Override
@@ -81,9 +81,7 @@ public class FormatImageChecker implements ImageChecker {
                     String lower = name.toLowerCase();
                     return lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
                            lower.endsWith(".tif") || lower.endsWith(".tiff") ||
-                           lower.endsWith(".pdf") || lower.endsWith(".png") ||
-                           lower.endsWith(".bmp") || lower.endsWith(".gif") ||
-                           lower.endsWith(".webp");
+                           lower.endsWith(".pdf") || lower.endsWith(".ofd") ;
                 });
                 if (found != null) {
                     files.addAll(Arrays.asList(found));

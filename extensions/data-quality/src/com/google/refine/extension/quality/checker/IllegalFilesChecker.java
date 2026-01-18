@@ -20,6 +20,7 @@ import com.google.refine.extension.quality.model.ImageCheckError;
 import com.google.refine.extension.quality.model.ImageCheckItem;
 import com.google.refine.extension.quality.model.ImageQualityRule;
 import com.google.refine.extension.quality.model.ResourceCheckConfig;
+import com.google.refine.extension.quality.util.AntivirusDetector;
 import com.google.refine.extension.quality.util.ResourcePathBuilder;
 import com.google.refine.model.Column;
 import com.google.refine.model.Project;
@@ -73,6 +74,43 @@ public class IllegalFilesChecker implements ImageChecker {
             : ALLOWED_FORMATS;
 
         logger.info("允许的文件格式: {}", allowedSet);
+
+        String antivirusCheck = (String) item.getParameter("antivirusCheck", String.class);
+        String antivirusProcess = (String) item.getParameter("antivirusProcess", String.class);
+        
+        if ("auto".equals(antivirusCheck)) {
+            logger.info("杀毒软件检测模式: 自动");
+            List<AntivirusDetector.AntivirusInfo> antivirusList = AntivirusDetector.detectAntivirus();
+            if (antivirusList.isEmpty()) {
+                logger.warn("未检测到杀毒软件，安全性检测不通过");
+                errors.add(ImageCheckError.createSecurityError(
+                    -1,
+                    "system",
+                    "",
+                    "未检测到杀毒软件",
+                    "请安装并启用杀毒软件以保障档案安全"));
+                return errors;
+            } else {
+                logger.info("检测到杀毒软件: {}", AntivirusDetector.getAntivirusStatus());
+            }
+        } else if ("custom".equals(antivirusCheck) && antivirusProcess != null && !antivirusProcess.trim().isEmpty()) {
+            logger.info("杀毒软件检测模式: 自定义，进程名称: {}", antivirusProcess);
+            boolean processRunning = AntivirusDetector.isProcessRunning(antivirusProcess);
+            if (!processRunning) {
+                logger.warn("指定的杀毒软件进程未运行: {}", antivirusProcess);
+                errors.add(ImageCheckError.createSecurityError(
+                    -1,
+                    "system",
+                    "",
+                    "杀毒软件未运行",
+                    "指定的杀毒软件进程 " + antivirusProcess + " 未运行，请检查杀毒软件是否已启动"));
+                return errors;
+            } else {
+                logger.info("指定的杀毒软件进程正在运行: {}", antivirusProcess);
+            }
+        } else {
+            logger.info("未启用杀毒软件检测");
+        }
 
         Map<String, Integer> columnIndexMap = new HashMap<>();
         for (Column col : project.columnModel.columns) {

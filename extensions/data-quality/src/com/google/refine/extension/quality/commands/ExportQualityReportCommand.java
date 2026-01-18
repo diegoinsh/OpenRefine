@@ -364,6 +364,7 @@ public class ExportQualityReportCommand extends Command {
             case "folder_existence": return "文件夹存在检查";
             case "folder_sequential": return "文件夹序号连续";
             case "folder_sequence": return "文件夹序号连续";
+            case "data_existence": return "数据条目存在检查";
             case "content_match": return "内容匹配检查";
             case "content_mismatch": return "内容不匹配";
             case "content_warning": return "内容相似度偏低";
@@ -421,6 +422,21 @@ public class ExportQualityReportCommand extends Command {
         if (message.startsWith("Folder does not exist:")) {
             String path = message.substring("Folder does not exist:".length()).trim();
             return "文件夹不存在：" + path;
+        }
+        // Folder has no corresponding data entry
+        if (message.startsWith("Folder has no corresponding data entry:")) {
+            String folderName = message.substring("Folder has no corresponding data entry:".length()).trim();
+            return "数据条目不存在：" + folderName;
+        }
+        // Folder name does not match format
+        if (message.startsWith("Folder name does not match format:")) {
+            String format = message.substring("Folder name does not match format:".length()).trim();
+            return "文件夹命名格式错误：" + format;
+        }
+        // Folder name is not sequential
+        if (message.startsWith("Folder name is not sequential:")) {
+            String folderName = message.substring("Folder name is not sequential:".length()).trim();
+            return "文件夹序号不连续：" + folderName;
         }
         // Does not match pattern
         if (message.startsWith("Does not match pattern:")) {
@@ -803,13 +819,15 @@ public class ExportQualityReportCommand extends Command {
                     String column = error.path("column").asText("");
                     String message = error.path("message").asText("");
                     String value = error.path("value").asText("");
+                    String hiddenFileName = error.path("hiddenFileName").asText("");
+                    String category = error.path("category").asText("");
 
                     errorsTable.addCell(new Phrase(String.valueOf(error.path("rowIndex").asInt(0) + 1), normalFont));
-                    errorsTable.addCell(new Phrase(getColumnDisplay(column, errorType, value), normalFont));
+                    errorsTable.addCell(new Phrase(getColumnDisplay(column, errorType, value, hiddenFileName, category), normalFont));
                     errorsTable.addCell(new Phrase(truncate(value.isEmpty() ? "(空)" : value, 30), normalFont));
                     errorsTable.addCell(new Phrase(getErrorTypeLabel(errorType), normalFont));
                     errorsTable.addCell(new Phrase(truncate(translateErrorMessage(message, errorType), 40), normalFont));
-                    errorsTable.addCell(new Phrase(getCategoryLabel(error.path("category").asText("")), normalFont));
+                    errorsTable.addCell(new Phrase(getCategoryLabel(category), normalFont));
                 }
 
                 document.add(errorsTable);

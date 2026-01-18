@@ -45,6 +45,9 @@ public class ImageCheckError {
     @JsonProperty("details")
     private ImageCheckErrorDetails details;
 
+    @JsonProperty("duplicateImagePaths")
+    private java.util.List<String> duplicateImagePaths;
+
     public ImageCheckError() {
         this.severity = "error";
     }
@@ -146,6 +149,14 @@ public class ImageCheckError {
         this.details = details;
     }
 
+    public java.util.List<String> getDuplicateImagePaths() {
+        return duplicateImagePaths;
+    }
+
+    public void setDuplicateImagePaths(java.util.List<String> duplicateImagePaths) {
+        this.duplicateImagePaths = duplicateImagePaths;
+    }
+
     public static ImageCheckError createFormatError(int rowIndex, String columnName, String imagePath,
             String imageName, String expectedFormat, String actualFormat) {
         ImageCheckError error = new ImageCheckError(rowIndex, columnName, imagePath, "format_error",
@@ -156,6 +167,32 @@ public class ImageCheckError {
         error.setCategory(ImageCheckCategoryType.可用性.getCode());
         error.setSeverity("error");
         error.setDetails(new ImageCheckErrorDetails(expectedFormat, actualFormat, null, null));
+        return error;
+    }
+
+    public static ImageCheckError createIllegalFileError(int rowIndex, String columnName, String imagePath,
+            String imageName, String allowedFormats, String actualFormat) {
+        ImageCheckError error = new ImageCheckError(rowIndex, columnName, imagePath, "illegal_file",
+                String.format("非法归档文件: 允许的格式 %s, 实际 %s", allowedFormats, actualFormat));
+        error.setErrorCode("ILLEGAL_FILE_ERROR");
+        error.setImageName(imageName);
+        error.setHiddenFileName(imageName);
+        error.setCategory(ImageCheckCategoryType.安全性.getCode());
+        error.setSeverity("error");
+        error.setDetails(new ImageCheckErrorDetails(allowedFormats, actualFormat, null, null));
+        return error;
+    }
+
+    public static ImageCheckError createSecurityError(int rowIndex, String columnName, String imagePath,
+            String errorTitle, String errorMessage) {
+        ImageCheckError error = new ImageCheckError(rowIndex, columnName, imagePath, "security_check",
+                errorMessage);
+        error.setErrorCode("SECURITY_ERROR");
+        error.setImageName(errorTitle);
+        error.setHiddenFileName(errorTitle);
+        error.setCategory(ImageCheckCategoryType.安全性.getCode());
+        error.setSeverity("error");
+        error.setDetails(new ImageCheckErrorDetails(errorTitle, errorMessage, null, null));
         return error;
     }
 
@@ -241,7 +278,7 @@ public class ImageCheckError {
 
     public static ImageCheckError createSkewError(int rowIndex, String columnName, String imagePath,
             String imageName, float skewAngle, float tolerance) {
-        ImageCheckError error = new ImageCheckError(rowIndex, columnName, imagePath, "skew_error",
+        ImageCheckError error = new ImageCheckError(rowIndex, columnName, imagePath, "bias",
                 String.format("图像倾斜: %.2f° > 容差 %.2f°", skewAngle, tolerance));
         error.setErrorCode("SKEW_ERROR");
         error.setImageName(imageName);
@@ -278,7 +315,7 @@ public class ImageCheckError {
 
     public static ImageCheckError createRepeatImageError(int rowIndex, String columnName, String imagePath,
             String imageName, int duplicateCount) {
-        ImageCheckError error = new ImageCheckError(rowIndex, columnName, imagePath, "repeat_image_error",
+        ImageCheckError error = new ImageCheckError(rowIndex, columnName, imagePath, "repeatimage_error",
                 String.format("发现重复图片，重复 %d 次", duplicateCount));
         error.setErrorCode("REPEAT_IMAGE_ERROR");
         error.setImageName(imageName);
@@ -286,6 +323,20 @@ public class ImageCheckError {
         error.setCategory(ImageCheckCategoryType.真实性.getCode());
         error.setSeverity("error");
         error.setDetails(new ImageCheckErrorDetails(null, null, duplicateCount, null));
+        return error;
+    }
+
+    public static ImageCheckError createRepeatImageError(int rowIndex, String columnName, String imagePath,
+            String imageName, int duplicateCount, java.util.List<String> duplicateImagePaths) {
+        ImageCheckError error = new ImageCheckError(rowIndex, columnName, imagePath, "repeatimage_error",
+                String.format("发现重复图片，重复 %d 次", duplicateCount));
+        error.setErrorCode("REPEAT_IMAGE_ERROR");
+        error.setImageName(imageName);
+        error.setHiddenFileName(imageName);
+        error.setCategory(ImageCheckCategoryType.真实性.getCode());
+        error.setSeverity("error");
+        error.setDetails(new ImageCheckErrorDetails(null, null, duplicateCount, null));
+        error.setDuplicateImagePaths(duplicateImagePaths);
         return error;
     }
 
@@ -322,7 +373,7 @@ public class ImageCheckError {
 
     public static ImageCheckError createPieceNumberError(int rowIndex, String columnName, String imagePath,
             String message, Integer missingPiece) {
-        ImageCheckError error = new ImageCheckError(rowIndex, columnName, imagePath, "piece_continuous_error",
+        ImageCheckError error = new ImageCheckError(rowIndex, columnName, imagePath, "pieceContinuous",
                 message);
         error.setErrorCode("PIECE_NUMBER_ERROR");
         error.setCategory(ImageCheckCategoryType.完整性.getCode());
@@ -333,7 +384,7 @@ public class ImageCheckError {
 
     public static ImageCheckError createPageNumberError(int rowIndex, String columnName, String imagePath,
             String message, Integer missingPage) {
-        ImageCheckError error = new ImageCheckError(rowIndex, columnName, imagePath, "page_continuous_error",
+        ImageCheckError error = new ImageCheckError(rowIndex, columnName, imagePath, "continuity",
                 message);
         error.setErrorCode("PAGE_NUMBER_ERROR");
         error.setCategory(ImageCheckCategoryType.完整性.getCode());

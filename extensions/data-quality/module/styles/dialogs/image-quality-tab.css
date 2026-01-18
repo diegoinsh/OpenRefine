@@ -1,6 +1,7 @@
 .image-quality-tab-container {
   padding: 10px 0 0 10px;
   background-color: var(--background-primary, #f8f8f8);
+  font-size: 13px;
 }
 
 /* 资源配置样式 - 与文件资源关联检查tab一致 */
@@ -86,7 +87,6 @@
   align-items: center;
   gap: 5px;
   cursor: pointer;
-  font-size: 14px;
   user-select: none;
 }
 

@@ -82,6 +82,11 @@ var ImageQualityTab = {
     illegalFiles: {
       enabled: false
     },
+    antivirusCheck: {
+      enabled: true,
+      checkMode: 'auto',
+      processName: ''
+    },
     countStats: {
       enabled: false
     },
@@ -116,6 +121,7 @@ var ImageQualityTab = {
     'pageSequence': 'page-sequence-check',
     'textDirection': 'text-direction-check',
     'illegalFiles': 'illegal-files-check',
+    'antivirusCheck': 'antivirus-check',
     'countStats': 'count-stats-check',
     'page_size': 'page-stats-check'
   },
@@ -131,7 +137,8 @@ var ImageQualityTab = {
     stainValue: 'stain-value',
     holeValue: 'hole-value',
     skewTolerance: 'skew-tolerance',
-    checkMode: 'check-mode'
+    checkMode: 'check-mode',
+    processName: 'antivirus-process-name'
   }
 };
 
@@ -532,7 +539,7 @@ ImageQualityTab._getItemsByCategory = function(categoryCode) {
       'authenticity': ['repeat_image'],
       'integrity': ['sequence', 'pageSequence'],
       'usability': ['quality', 'textDirection', 'blank', 'stain', 'hole', 'skew', 'edge'],
-      'security': ['illegalFiles'],
+      'security': ['illegalFiles', 'antivirusCheck'],
       'technical': ['dpi', 'kb', 'bit_depth'],
       'storage': ['format'],
       'others': ['countStats', 'page_size']
@@ -567,7 +574,16 @@ ImageQualityTab._createItemElement = function(item) {
     if (paramKey === 'enabled') {
       return;
     }
-    var paramParts = self._createParamParts(item.code, paramKey, item.params[paramKey]);
+    
+    // Special handling for processName - only show when checkMode is 'custom'
+    if (paramKey === 'processName') {
+      var checkMode = item.params['checkMode'] || 'auto';
+      if (checkMode !== 'custom') {
+        return;
+      }
+    }
+    
+    var paramParts = self._createParamParts(item.code, paramKey, item.params[paramKey], container);
     checkboxRow.append(paramParts);
   });
   
@@ -584,7 +600,7 @@ ImageQualityTab._createItemElement = function(item) {
   return container;
 };
 
-ImageQualityTab._createParamParts = function(itemCode, paramKey, paramValue) {
+ImageQualityTab._createParamParts = function(itemCode, paramKey, paramValue, container) {
   var paramContainer = $('<span></span>');
   
   // Special handling for format check allowed formats - use checkboxes
@@ -610,6 +626,21 @@ ImageQualityTab._createParamParts = function(itemCode, paramKey, paramValue) {
     return paramContainer;
   }
   
+  // Special handling for processName - add custom class for toggle
+  if (paramKey === 'processName') {
+    var labelText = $('<span></span>').text(' ' + $.i18n('data-quality-extension/' + this._paramNames[paramKey] || paramKey) );
+    paramContainer.append(labelText);
+    
+    var input = $('<input type="text" class="quality-text-input antivirus-process-input" data-param-key="' + paramKey + '">')
+      .val(paramValue)
+      .attr('placeholder', '请输入杀毒软件进程名称，如：msmpeng.exe');
+    
+    input.data('itemCode', itemCode);
+    paramContainer.append(input);
+    
+    return paramContainer;
+  }
+  
   // Regular parameter handling for other cases
   var labelText = $('<span></span>').text(' ' + $.i18n('data-quality-extension/' + this._paramNames[paramKey] || paramKey) );
   paramContainer.append(labelText);
@@ -623,8 +654,8 @@ ImageQualityTab._createParamParts = function(itemCode, paramKey, paramValue) {
       
       if (paramKey === 'checkMode') {
         var options = [
-          { value: 'standard', label: '标准' },
-          { value: 'strict', label: '严格' }
+          { value: 'auto', label: '自动' },
+          { value: 'custom', label: '自定义' }
         ];
         options.forEach(function(opt) {
           var option = $('<option></option>').val(opt.value).text(opt.label);
@@ -632,6 +663,14 @@ ImageQualityTab._createParamParts = function(itemCode, paramKey, paramValue) {
             option.prop('selected', true);
           }
           input.append(option);
+        });
+        
+        input.on('change', function() {
+          var isCustom = $(this).val() === 'custom';
+          var customInput = container.find('.antivirus-process-input');
+          if (customInput.length > 0) {
+            customInput.toggle(isCustom);
+          }
         });
       } else if (paramKey === 'dimension') {
         var options = [
@@ -655,7 +694,7 @@ ImageQualityTab._createParamParts = function(itemCode, paramKey, paramValue) {
       input = $('<input type="number" class="quality-text-input" data-param-key="' + paramKey + '">').val(paramValue);
       break;
     default:
-      input = $('<input type="number" class="quality-text-input" data-param-key="' + paramKey + '">').val(paramValue);
+      input = $('<input type="text" class="quality-text-input" data-param-key="' + paramKey + '">').val(paramValue);
   }
 
   input.data('itemCode', itemCode);
@@ -665,7 +704,7 @@ ImageQualityTab._createParamParts = function(itemCode, paramKey, paramValue) {
 };
 
 ImageQualityTab._getParamType = function(paramKey) {
-  if (paramKey === 'allowedFormats' || paramKey === 'checkMode') {
+  if (paramKey === 'allowedFormats' || paramKey === 'checkMode' || paramKey === 'antivirusCheck') {
     return 'list';
   }
   if (paramKey === 'minDpi' || paramKey === 'maxDpi' ||

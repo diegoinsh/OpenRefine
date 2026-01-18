@@ -1,97 +1,111 @@
 /*
  * Data Quality Extension - Repeat Image Checker
  * Checks for duplicate images using file hashing
+ * 
+ * 长期优化方案TODO：
+ * 1. 引入数据库存储哈希映射：使用SQLite或H2数据库存储文件哈希和路径，降低内存占用
+ *    - 实现位置：在checkWithHashes方法中，从数据库读取哈希映射而非内存Map
+ *    - 优势：支持亿级文件处理，内存占用极低
+ *    - 参考：https://github.com/xerial/sqlite-jdbc
+ * 
+ * 2. 分布式处理：支持多机并行处理大规模图片检查
+ *    - 实现位置：在check方法中，将文件夹列表分片到不同工作节点
+ *    - 优势：线性扩展处理能力，缩短处理时间
+ *    - 参考：使用消息队列（RabbitMQ/Kafka）或分布式任务调度
+ * 
+ * 3. 增量检查：只检查新增或修改的文件
+ *    - 实现位置：在检查前，读取上次检查的哈希数据库，对比文件修改时间
+ *    - 优势：大幅减少重复检查时间，提高效率
+ *    - 参考：维护文件哈希索引表，记录文件路径、哈希、最后检查时间
  */
 package com.google.refine.extension.quality.checker;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.math.BigInteger;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.refine.extension.quality.model.FileInfo;
 import com.google.refine.extension.quality.model.ImageCheckError;
 import com.google.refine.extension.quality.model.ImageCheckItem;
 import com.google.refine.extension.quality.model.ImageQualityRule;
-import com.google.refine.extension.quality.model.ResourceCheckConfig;
-import com.google.refine.model.Cell;
-import com.google.refine.model.Project;
-import com.google.refine.model.Row;
 
-public class RepeatImageChecker implements ImageChecker {
+public class RepeatImageChecker {
 
     private static final Logger logger = LoggerFactory.getLogger(RepeatImageChecker.class);
 
-    @Override
     public String getItemCode() {
         return "repeat_image";
     }
-
-    @Override
     public String getItemName() {
         return "重复图片审查";
     }
 
-    @Override
     public boolean isEnabled(ImageQualityRule rule) {
         ImageCheckItem item = rule.getItemByCode("repeat_image");
         return item != null && item.isEnabled();
     }
 
-    @Override
-    public List<ImageCheckError> check(Project project, List<Row> rows, ImageQualityRule rule) {
+    public List<ImageCheckError> checkWithHashes(Map<String, List<FileInfo>> hashToFiles) {
         List<ImageCheckError> errors = new ArrayList<>();
 
-        ImageCheckItem item = rule.getItemByCode("repeat_image");
-        if (item == null || !item.isEnabled()) {
+        if (hashToFiles == null || hashToFiles.isEmpty()) {
+            logger.info("重复图片审查 - 哈希映射为空，跳过检查");
             return errors;
         }
 
-        Map<String, List<String>> hashToFiles = new HashMap<>();
-
-        for (Row row : rows) {
-            String resourcePath = extractResourcePath(row, rule);
-            if (resourcePath != null) {
-                File folder = new File(resourcePath);
-                if (folder.exists() && folder.isDirectory()) {
-                    List<File> imageFiles = extractImageFiles(folder);
-                    for (File imageFile : imageFiles) {
-                        String hash = calculateFileHash(imageFile);
-                        if (hash != null) {
-                            hashToFiles.computeIfAbsent(hash, k -> new ArrayList<>())
-                                       .add(imageFile.getAbsolutePath());
-                        }
-                    }
-                }
-            }
+        int totalFiles = 0;
+        for (List<FileInfo> files : hashToFiles.values()) {
+            totalFiles += files.size();
         }
 
-        for (Map.Entry<String, List<String>> entry : hashToFiles.entrySet()) {
-            List<String> files = entry.getValue();
+        logger.info("重复图片审查开始 - 使用预计算哈希值，总文件数: {}, 哈希组数: {}", totalFiles, hashToFiles.size());
+
+        return findDuplicateImages(hashToFiles);
+    }
+
+    private List<ImageCheckError> findDuplicateImages(Map<String, List<FileInfo>> hashToFiles) {
+        List<ImageCheckError> errors = new ArrayList<>();
+
+        logger.info("开始查找重复图片，哈希组数: {}", hashToFiles.size());
+
+        for (Map.Entry<String, List<FileInfo>> entry : hashToFiles.entrySet()) {
+            List<FileInfo> files = entry.getValue();
             if (files.size() > 1) {
-                Set<String> reportedPaths = new HashSet<>();
-                for (String filePath : files) {
-                    if (!reportedPaths.contains(filePath)) {
-                        errors.add(ImageCheckError.createRepeatImageError(
-                            -1,
-                            "resource",
-                            new File(filePath).getParent(),
-                            new File(filePath).getName(),
-                            files.size() - 1));
-                        reportedPaths.add(filePath);
+                logger.info("发现重复哈希组 - hash: {}, 文件数: {}", entry.getKey(), files.size());
+                
+                List<String> duplicateImagePaths = new ArrayList<>();
+                StringBuilder messageBuilder = new StringBuilder();
+                messageBuilder.append("发现重复图片 (").append(files.size()).append("张): ");
+                
+                for (int i = 0; i < files.size(); i++) {
+                    FileInfo fileInfo = files.get(i);
+                    String fullPath = fileInfo.getResourcePath() + fileInfo.getFileName();
+                    duplicateImagePaths.add(fullPath);
+                    
+                    if (i > 0) {
+                        messageBuilder.append("; ");
                     }
+                    messageBuilder.append(truncatePath(fullPath, 50));
                 }
+                
+                FileInfo firstFile = files.get(0);
+                ImageCheckError error = ImageCheckError.createRepeatImageError(
+                    -1,
+                    "resource",
+                    firstFile.getResourcePath(),
+                    firstFile.getFileName(),
+                    files.size() - 1,
+                    duplicateImagePaths);
+                error.setMessage(messageBuilder.toString());
+                logger.info("[RepeatImageChecker] 创建ImageCheckError - duplicateImagePaths大小: {}, 内容: {}", 
+                    duplicateImagePaths.size(), duplicateImagePaths);
+                errors.add(error);
+                
+                logger.info("添加重复图片错误 - 主文件: {}, 重复数: {}", 
+                    firstFile.getFileName(), files.size() - 1);
             }
         }
 
@@ -99,62 +113,10 @@ public class RepeatImageChecker implements ImageChecker {
         return errors;
     }
 
-    private String calculateFileHash(File file) {
-        if (file == null || !file.exists() || !file.isFile()) {
-            return null;
+    private String truncatePath(String path, int maxLength) {
+        if (path == null || path.length() <= maxLength) {
+            return path;
         }
-
-        try (FileInputStream fis = new FileInputStream(file)) {
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            byte[] buffer = new byte[8192];
-            int bytesRead;
-            while ((bytesRead = fis.read(buffer)) != -1) {
-                md.update(buffer, 0, bytesRead);
-            }
-            byte[] digest = md.digest();
-            BigInteger bigInt = new BigInteger(1, digest);
-            return bigInt.toString(16);
-        } catch (IOException e) {
-            logger.warn("计算文件哈希失败: {} - {}", file.getAbsolutePath(), e.getMessage());
-            return null;
-        } catch (NoSuchAlgorithmException e) {
-            logger.error("MD5算法不存在", e);
-            return null;
-        }
-    }
-
-    private List<File> extractImageFiles(File folder) {
-        List<File> files = new ArrayList<>();
-        if (folder.exists() && folder.isDirectory()) {
-            File[] found = folder.listFiles((dir, name) -> {
-                String lower = name.toLowerCase();
-                return lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
-                       lower.endsWith(".tif") || lower.endsWith(".tiff") ||
-                       lower.endsWith(".png") || lower.endsWith(".bmp") ||
-                       lower.endsWith(".gif") || lower.endsWith(".webp");
-            });
-            if (found != null) {
-                files.addAll(Arrays.asList(found));
-            }
-        }
-        return files;
-    }
-
-    private String extractResourcePath(Row row, ImageQualityRule rule) {
-        ResourceCheckConfig resourceConfig = rule.getResourceConfig();
-        if (resourceConfig == null) {
-            return null;
-        }
-        if (resourceConfig.getPathFields() != null && !resourceConfig.getPathFields().isEmpty()) {
-            String fieldName = resourceConfig.getPathFields().get(0);
-            Integer cellIndex = rule.getProjectColumnIndex(fieldName);
-            if (cellIndex != null) {
-                Cell cell = row.getCell(cellIndex);
-                if (cell != null && cell.value != null) {
-                    return cell.value.toString();
-                }
-            }
-        }
-        return resourceConfig.getBasePath();
+        return "..." + path.substring(path.length() - maxLength);
     }
 }
