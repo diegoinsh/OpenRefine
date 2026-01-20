@@ -56,6 +56,7 @@ public class CheckResult implements OverlayModel {
     public CheckResult() {
         this.errors = new ArrayList<>();
         this.startTime = System.currentTimeMillis();
+        this.endTime = 0;
     }
 
     public CheckResult(String checkType) {

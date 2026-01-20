@@ -148,7 +148,7 @@ function init() {
       "scripts/dialogs/manage-rules-dialog.js",
       "scripts/dialogs/run-check-dialog.js",
       "scripts/dialogs/image-quality-tab.js",
-      "scripts/dialogs/image-annotation.js",
+      // "scripts/dialogs/image-annotation.js",
       "scripts/dialogs/regex-editor-dialog.js"
     ]
   );

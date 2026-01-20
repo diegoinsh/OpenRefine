@@ -96,8 +96,11 @@ public class TaskPersistence {
         }
         
         try {
+            if (taskFile.length() == 0) {
+                logger.warn("Skipping empty task file: " + taskFile.getName());
+                return null;
+            }
             QualityCheckTask task = mapper.readValue(taskFile, QualityCheckTask.class);
-            // Register in memory cache
             QualityCheckTask.registerTask(task);
             logger.info("Loaded task from: " + taskFile.getAbsolutePath());
             return task;
@@ -125,6 +128,10 @@ public class TaskPersistence {
         
         for (File taskFile : taskFiles) {
             try {
+                if (taskFile.length() == 0) {
+                    logger.warn("Skipping empty task file: " + taskFile.getName());
+                    continue;
+                }
                 QualityCheckTask task = mapper.readValue(taskFile, QualityCheckTask.class);
                 QualityCheckTask.registerTask(task);
                 tasks.add(task);

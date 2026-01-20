@@ -356,6 +356,9 @@ RunCheckDialog.prototype._onCheckComplete = function(response) {
     serviceUnavailableMessage: response.serviceUnavailableMessage || null,
     // Add imageQualityResult for statistics export
     imageQualityResult: response.imageQualityResult || null,
+    // 添加开始和结束时间
+    startTime: response.startTime || 0,
+    endTime: response.endTime || 0,
     // Add summary object for export
     summary: {
       totalRows: response.summary ? response.summary.totalRows : 0,
@@ -373,17 +376,22 @@ RunCheckDialog.prototype._onCheckComplete = function(response) {
   var statusMsg = $.i18n('data-quality-extension/check-complete') + ' - ' +
     $.i18n('data-quality-extension/error-count') + ': ' + totalErrors;
 
+  var detailParts = [];
   if (result.formatErrors > 0) {
-    statusMsg += ' (' + $.i18n('data-quality-extension/format-check-tab') + ': ' + result.formatErrors + ')';
+    detailParts.push($.i18n('data-quality-extension/format-check-tab') + ': ' + result.formatErrors);
   }
   if (result.resourceErrors > 0) {
-    statusMsg += ' (' + $.i18n('data-quality-extension/resource-check-tab') + ': ' + result.resourceErrors + ')';
+    detailParts.push($.i18n('data-quality-extension/resource-check-tab') + ': ' + result.resourceErrors);
   }
   if (result.contentErrors > 0) {
-    statusMsg += ' (' + $.i18n('data-quality-extension/content-check-tab') + ': ' + result.contentErrors + ')';
+    detailParts.push($.i18n('data-quality-extension/content-check-tab') + ': ' + result.contentErrors);
   }
   if (result.imageQualityErrors > 0) {
-    statusMsg += ' (' + $.i18n('data-quality-extension/image-quality-check-tab') + ': ' + result.imageQualityErrors + ')';
+    detailParts.push($.i18n('data-quality-extension/image-quality-check-tab') + ': ' + result.imageQualityErrors);
+  }
+
+  if (detailParts.length > 0) {
+    statusMsg += ' (' + detailParts.join(', ') + ')';
   }
 
   this._elmts.statusText.text(statusMsg);

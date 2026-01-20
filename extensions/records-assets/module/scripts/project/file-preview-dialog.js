@@ -439,6 +439,12 @@ var FilePreviewDialog = {};
         case 'bit_depth':
           label = '位深度';
           break;
+        case 'repeat_image':
+          label = '重复图片';
+          break;
+        case 'blank':
+          label = '空白图片';
+          break;
         case 'bias':
           label = '倾斜';
           var angleMatch = (errorInfo.message || '').match(/angle: ([-]?\d+(?:\.\d+)?)/);

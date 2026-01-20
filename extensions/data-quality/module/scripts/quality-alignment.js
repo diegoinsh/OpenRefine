@@ -3520,6 +3520,14 @@ QualityAlignment._buildExportData = function(result) {
     errors: errors
   };
 
+  // Include startTime and endTime if they exist
+  if (result.startTime) {
+    exportData.startTime = result.startTime;
+  }
+  if (result.endTime) {
+    exportData.endTime = result.endTime;
+  }
+
   // Include imageQualityResult if it exists in the original result
   if (result.imageQualityResult) {
     console.log('[QualityAlignment] Adding imageQualityResult to exportData');
@@ -3788,10 +3796,10 @@ QualityAlignment._openImagePreviewWithAnnotations = function(error, rowIndex) {
   if (typeof FilePreviewDialog !== 'undefined') {
     console.log('[QualityAlignment] Calling FilePreviewDialog.showWithAnnotations');
     FilePreviewDialog.showWithAnnotations(resourcePath, resourceErrors);
-  } else if (typeof ImageAnnotation !== 'undefined') {
-    console.log('[QualityAlignment] Calling ImageAnnotation.showImageWithAnnotations');
-    console.log('[QualityAlignment] 传递给 ImageAnnotation.showImageWithAnnotations 的 resourceErrors:', JSON.stringify(resourceErrors, null, 2));
-    ImageAnnotation.showImageWithAnnotations(resourcePath, resourceErrors);
+  // } else if (typeof ImageAnnotation !== 'undefined') {
+  //   console.log('[QualityAlignment] Calling ImageAnnotation.showImageWithAnnotations');
+  //   console.log('[QualityAlignment] 传递给 ImageAnnotation.showImageWithAnnotations 的 resourceErrors:', JSON.stringify(resourceErrors, null, 2));
+  //   ImageAnnotation.showImageWithAnnotations(resourcePath, resourceErrors);
   } else {
     console.error('[QualityAlignment] Preview modules not loaded');
     alert('预览功能未加载，请刷新页面后重试');

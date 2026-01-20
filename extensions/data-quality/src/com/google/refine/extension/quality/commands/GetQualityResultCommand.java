@@ -51,7 +51,6 @@ public class GetQualityResultCommand extends Command {
             } else {
                 String json = ParsingUtilities.mapper.writeValueAsString(result);
                 logger.info("Retrieved quality result: {} errors for project {}", result.getErrors().size(), project.id);
-                logger.info("CheckResult keys: {}", ParsingUtilities.mapper.valueToTree(result).fieldNames());
                 logger.info("imageQualityResult: {}", result.getImageQualityResult());
                 if (result.getImageQualityResult() != null) {
                     logger.info("imageQualityResult errors: {}", result.getImageQualityResult().getErrors().size());

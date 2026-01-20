@@ -184,6 +184,7 @@ public class ImageQualityChecker {
         int totalImageCount = 0;
 
         Map<String, List<FileInfo>> hashToFiles = new Object2ObjectOpenHashMap<>();
+        FileStatistics statistics = new FileStatistics();
 
         this.resetTaskCreated();
 
@@ -337,6 +338,13 @@ public class ImageQualityChecker {
                         hashToFiles.computeIfAbsent(hash, k -> new ObjectArrayList<>())
                                    .add(fileInfo);
                     }
+
+                    if (aiResult.isBlank()) {
+                        statistics.incrementBlankPages(1);
+                    }
+
+                    String pageSize = determinePageSize(aiResult);
+                    statistics.addPageSize(pageSize);
                 } catch (Exception e) {
                     logger.warn("图像质量检查失败 for " + imageFile.getName() + ": " + e.getMessage(), e);
                     filesProcessed++;
@@ -375,8 +383,12 @@ public class ImageQualityChecker {
         if (quantityChecker.isEnabled(imageRule)) {
             logger.info("数量统计已启用");
             List<Row> allRows = project.rows;
-            FileStatistics statistics = quantityChecker.checkStatistics(project, allRows, imageRule, resourceConfig);
-            result.setFileStatistics(statistics);
+            FileStatistics quantityStatistics = quantityChecker.checkStatistics(project, allRows, imageRule, resourceConfig);
+            statistics.setTotalFolders(quantityStatistics.getTotalFolders());
+            statistics.setTotalFiles(quantityStatistics.getTotalFiles());
+            statistics.setImageFiles(quantityStatistics.getImageFiles());
+            statistics.setOtherFiles(quantityStatistics.getOtherFiles());
+            statistics.setEmptyFolders(quantityStatistics.getEmptyFolders());
             logger.info("数量统计完成 - 文件夹: {}, 总文件: {}, 图片文件: {}, 其他文件: {}, 空白页: {}, 空文件夹: {}", 
                        statistics.getTotalFolders(), statistics.getTotalFiles(), 
                        statistics.getImageFiles(), statistics.getOtherFiles(),
@@ -462,9 +474,7 @@ public class ImageQualityChecker {
         }
         logger.info("=== 杀毒软件检测结束 ===");
         
-        logger.info("=== 开始执行空白页和页面尺寸统计 ===");
-        collectBlankPageAndPageSizeStatistics(result, project, resourceConfig, imageRule);
-        logger.info("=== 空白页和页面尺寸统计结束 ===");
+        result.setFileStatistics(statistics);
         
         result.complete();
 
@@ -1279,72 +1289,6 @@ public class ImageQualityChecker {
 
         logger.info("[convertToCheckErrors] 转换完成，返回错误数量: " + errors.size());
         return errors;
-    }
-
-    private void collectBlankPageAndPageSizeStatistics(CheckResult result, Project project, 
-            ResourceCheckConfig resourceConfig, ImageQualityRule imageRule) {
-        if (result.getFileStatistics() == null) {
-            result.setFileStatistics(new FileStatistics());
-        }
-
-        FileStatistics statistics = result.getFileStatistics();
-        Map<String, Integer> columnIndexMap = new HashMap<>();
-        for (Column col : project.columnModel.columns) {
-            columnIndexMap.put(col.getName(), col.getCellIndex());
-        }
-
-        String separator = "/";
-        if (resourceConfig != null) {
-            separator = resourceConfig.getSeparator();
-            if (separator == null || separator.isEmpty()) {
-                separator = File.separator;
-            }
-        }
-
-        for (int rowIndex = 0; rowIndex < project.rows.size(); rowIndex++) {
-            Row row = project.rows.get(rowIndex);
-            String resourcePath = ResourcePathBuilder.buildResourcePath(row, columnIndexMap, resourceConfig, separator);
-
-            if (resourcePath == null || resourcePath.isEmpty()) {
-                continue;
-            }
-
-            File folder = new File(resourcePath);
-            if (!folder.exists() || !folder.isDirectory()) {
-                continue;
-            }
-
-            File[] imageFiles = folder.listFiles((dir, name) -> {
-                String lowerName = name.toLowerCase();
-                return lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg") ||
-                       lowerName.endsWith(".png") || lowerName.endsWith(".tif") ||
-                       lowerName.endsWith(".tiff") || lowerName.endsWith(".bmp") ||
-                       lowerName.endsWith(".gif") || lowerName.endsWith(".webp");
-            });
-
-            if (imageFiles == null || imageFiles.length == 0) {
-                continue;
-            }
-
-            AiCheckParams params = buildCheckParams(imageRule);
-            params.setCheckBlank(true);
-            params.setCheckPageSize(true);
-
-            for (File imageFile : imageFiles) {
-                try {
-                    AiCheckResult aiResult = this.checkImage(imageFile, params);
-
-                    if (aiResult.isBlank()) {
-                        statistics.incrementBlankPages(1);
-                    }
-
-                    String pageSize = determinePageSize(aiResult);
-                    statistics.addPageSize(pageSize);
-                } catch (Exception e) {
-                    logger.warn("Failed to check image for statistics: " + imageFile.getName(), e);
-                }
-            }
-        }
     }
 
     private String determinePageSize(AiCheckResult aiResult) {

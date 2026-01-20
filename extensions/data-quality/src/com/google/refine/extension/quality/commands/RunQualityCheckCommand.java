@@ -168,6 +168,7 @@ public class RunQualityCheckCommand extends Command {
      */
     private ObjectNode runCheckSync(Project project, QualityRulesConfig rules, String aimpServiceUrl) {
         int totalRows = project.rows.size();
+        long checkStartTime = System.currentTimeMillis();
 
         // Run format checks
         FormatChecker formatChecker = new FormatChecker(project, rules);
@@ -203,6 +204,10 @@ public class RunQualityCheckCommand extends Command {
             imageQualityResult.complete();
         }
 
+        long checkEndTime = System.currentTimeMillis();
+        formatResult.setStartTime(checkStartTime);
+        formatResult.setEndTime(checkEndTime);
+
         return buildResponse(totalRows, formatResult, resourceResult, contentResult, imageQualityResult);
     }
 
@@ -212,6 +217,7 @@ public class RunQualityCheckCommand extends Command {
     private void runCheckAsync(Project project, QualityRulesConfig rules, String aimpServiceUrl, QualityCheckTask task) {
         try {
             task.setStatus(TaskStatus.RUNNING);
+            long checkStartTime = System.currentTimeMillis();
             int totalErrors = 0;
 
             // Phase 1: Format checks
@@ -256,17 +262,23 @@ public class RunQualityCheckCommand extends Command {
                 imageQualityResult.complete();
             }
 
+            long checkEndTime = System.currentTimeMillis();
+            formatResult.setStartTime(checkStartTime);
+            formatResult.setEndTime(checkEndTime);
+
             // Build and store result
             ObjectNode result = buildResponse(project.rows.size(), formatResult, resourceResult, contentResult, imageQualityResult);
             task.setResult(result);
             task.setStatus(TaskStatus.COMPLETED);
-            task.setCompletedAt(System.currentTimeMillis());
+            task.setCompletedAt(checkEndTime);
 
             // Persist result to project overlay for later retrieval
             try {
                 CheckResult combinedResult = new CheckResult("combined");
                 combinedResult.setTotalRows(project.rows.size());
                 combinedResult.setCheckedRows(project.rows.size());
+                combinedResult.setStartTime(formatResult.getStartTime());
+                combinedResult.setEndTime(formatResult.getEndTime());
                 // 复制serviceUnavailable状态
                 combinedResult.setServiceUnavailable(
                     formatResult.isServiceUnavailable() || 
@@ -309,7 +321,6 @@ public class RunQualityCheckCommand extends Command {
                     err.setCategory("image_quality");
                     combinedResult.addError(err);
                 }
-                combinedResult.complete();
 
                 synchronized (project) {
                     project.overlayModels.put(SaveQualityResultOperation.OVERLAY_MODEL_KEY, combinedResult);
@@ -345,6 +356,10 @@ public class RunQualityCheckCommand extends Command {
 
         int totalErrors = formatResult.getErrors().size() + resourceResult.getErrors().size() + 
                          contentResult.getErrors().size() + imageQualityResult.getErrors().size();
+
+        // 添加开始和结束时间
+        responseNode.put("startTime", formatResult.getStartTime());
+        responseNode.put("endTime", formatResult.getEndTime());
 
         // 检查是否有服务不可用状态
         boolean serviceUnavailable = formatResult.isServiceUnavailable() || 
