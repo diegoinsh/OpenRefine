@@ -1,0 +1,113 @@
+{
+  "records": {
+    "db": {
+      "label": "Records Database",
+      "description": "Import records and documents from a database",
+      "wizard": {
+        "title": "Records Database Import Wizard",
+        "selectMode": {
+          "title": "Select Import Mode",
+          "description": "Choose the mode for data import",
+          "catalogMode": "Catalog Mode",
+          "catalogModeDesc": "Use predefined Catalog mode for metadata import, supporting documents and associated assets",
+          "sqlMode": "SQL Mode",
+          "sqlModeDesc": "Use custom SQL queries for data import, providing more flexible data selection"
+        },
+        "selectProfile": {
+          "title": "Select Profile",
+          "description": "Choose a preset profile or create a custom one",
+          "kubao": "Archive System",
+          "flatTable": "Flat Table",
+          "genericJson": "Generic JSON-in-Field",
+          "databaseConfig": "Database Configuration",
+          "dialect": "Database Dialect",
+          "host": "Host",
+          "port": "Port",
+          "database": "Database",
+          "username": "Username",
+          "password": "Password",
+          "testConnection": "Test Connection",
+          "testing": "Testing connection",
+          "connectionSuccess": "Connection successful!"
+        },
+        "selectFields": {
+          "title": "Select Fields",
+          "description": "Choose which fields to import",
+          "availableFields": "Available Fields",
+          "selectedFields": "Selected Fields",
+          "selectAll": "Select All",
+          "deselectAll": "Deselect All"
+        },
+        "fieldMapping": {
+          "title": "Field Mapping",
+          "description": "Configure how database fields map to OpenRefine columns",
+          "sourceField": "Source Field",
+          "targetField": "Target Field",
+          "fieldType": "Field Type",
+          "action": "Action",
+          "addField": "Add Field"
+        },
+        "fileMapping": {
+          "title": "File Mapping",
+          "description": "Configure file root and allowed directories",
+          "fileRootColumn": "File Root Column",
+          "fileRootRawColumn": "File Root Raw Column",
+          "allowedRoots": "Allowed Root Directories",
+          "enableFilePreview": "Enable File Preview",
+          "preview": "File Browser Preview",
+          "selectFileRootColumn": "Please select a file root column",
+          "noRootConfigured": "No root directory configured"
+        },
+        "configureFilters": {
+          "title": "Configure Filters",
+          "description": "Set up filters for data import",
+          "excludeExported": "Exclude already exported records",
+          "exportedFieldLabel": "Exported Field Name",
+          "exportedValueLabel": "Exported Value",
+          "customConditions": "Custom Filter Conditions",
+          "addCondition": "Add Condition",
+          "selectField": "Select a field",
+          "enterValue": "Enter value",
+          "removeCondition": "Remove",
+          "filterPreview": "Filter Preview",
+          "noFilters": "No filters configured",
+          "exportedFieldRequired": "Please specify the exported field name",
+          "exportedValueRequired": "Please specify the exported value",
+          "incompleteCondition": "Please complete all filter conditions"
+        },
+        "preview": {
+          "title": "Preview",
+          "description": "Preview the data to be imported",
+          "rowCount": "Rows to preview",
+          "loading": "Loading preview"
+        },
+        "createProject": {
+          "title": "Create Project",
+          "description": "Create the OpenRefine project",
+          "projectName": "Project Name",
+          "maxRows": "Maximum Rows",
+          "create": "Create Project",
+          "creating": "Creating project",
+          "success": "Project created successfully!"
+        }
+      },
+      "error": {
+        "connectionFailed": "Failed to connect to database",
+        "invalidProfile": "Invalid profile configuration",
+        "noFieldsSelected": "Please select at least one field"
+      },
+      "success": {
+        "projectCreated": "Project created successfully"
+      }
+    }
+  },
+  "common": {
+    "button": {
+      "previous": "Previous",
+      "next": "Next",
+      "finish": "Finish",
+      "cancel": "Cancel"
+    }
+  }
+}
+

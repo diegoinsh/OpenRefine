@@ -36,15 +36,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>Error - OpenRefine</title>
-    <link rel="icon" type="image/png" href="/images/favicon.png">
+    <title>Error - JinRefine</title>
+    <link rel="icon" type="image/ico" href="images/jinshu-refine.ico">
     <link rel="stylesheet" href="/styles/common.css" />
   </head>
   <body>
     <div id="header">
       <a id="app-home-button" href="./" title="Navigate to the home screen">
-        <img aria-hidden="true" src="images/logo-gem-126.svg" width="30" />
-        <h1>OpenRefine</h1>
+        <img aria-hidden="true" src="images/jinshu-icon-metallic.png" width="30" />
+        <h1>数据金炼</h1>
       </a>
     </div>
     <div id="body-info">

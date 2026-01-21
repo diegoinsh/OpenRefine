@@ -97,12 +97,65 @@ Refine.CreateProjectUI.prototype.addSourceSelectionUI = function(sourceSelection
 
   this._sourceSelectionUIs.push(sourceSelectionUI);
 
-  if (this._sourceSelectionUIs.length == 1) {
-    self.selectImportSource(sourceSelectionUI.id);
+  // Optional ordering support: if a source declares a numeric `position`,
+  // move its tab and body to that index (0-based) so extensions can control
+  // their relative order in the Create Project source list.
+  if (typeof sourceSelectionUI.position === 'number') {
+    var headers = headerContainer.children('.create-project-ui-source-selection-tab');
+    var bodies = bodyContainer.children('.create-project-ui-source-selection-tab-body');
+    var currentIndex = headers.index(sourceSelectionUI._divHeader);
+    if (currentIndex >= 0) {
+      var targetIndex = sourceSelectionUI.position;
+      if (targetIndex < 0) {
+        targetIndex = 0;
+      }
+      if (targetIndex > headers.length - 1) {
+        targetIndex = headers.length - 1;
+      }
+
+      if (targetIndex !== currentIndex) {
+        if (targetIndex === 0) {
+          // Move to the beginning
+          sourceSelectionUI._divHeader.prependTo(headerContainer);
+          sourceSelectionUI._divBody.prependTo(bodyContainer);
+        } else {
+          // Insert before the tab currently at targetIndex
+          var headerRef = headers.eq(targetIndex);
+          var bodyRef = bodies.eq(targetIndex);
+
+          if (headerRef.length) {
+            sourceSelectionUI._divHeader.insertBefore(headerRef);
+          }
+          if (bodyRef.length) {
+            sourceSelectionUI._divBody.insertBefore(bodyRef);
+          }
+        }
+
+        // Keep internal array order consistent with DOM order
+        this._sourceSelectionUIs.splice(currentIndex, 1);
+        this._sourceSelectionUIs.splice(targetIndex, 0, sourceSelectionUI);
+      }
+    }
+  }
+
+  // 选中保存的选项卡或默认第一个
+  var savedSourceId = localStorage.getItem('createProject.selectedSource');
+  if (savedSourceId) {
+    // 检查保存的选项卡是否存在
+    var savedSourceExists = this._sourceSelectionUIs.some(function(ui) {
+      return ui.id === savedSourceId;
+    });
+    if (savedSourceExists) {
+      self.selectImportSource(savedSourceId, false);
+    } else if (this._sourceSelectionUIs.length == 1) {
+      self.selectImportSource(sourceSelectionUI.id, false);
+    }
+  } else if (this._sourceSelectionUIs.length == 1) {
+    self.selectImportSource(sourceSelectionUI.id, false);
   }
 };
 
-Refine.CreateProjectUI.prototype.selectImportSource = function(id) {
+Refine.CreateProjectUI.prototype.selectImportSource = function(id, saveToStorage) {
   for (var i = 0; i < this._sourceSelectionUIs.length; i++) {
     var sourceSelectionUI = this._sourceSelectionUIs[i];
     if (sourceSelectionUI.id == id) {
@@ -113,6 +166,11 @@ Refine.CreateProjectUI.prototype.selectImportSource = function(id) {
       sourceSelectionUI._divHeader.addClass('selected');
 
       sourceSelectionUI.ui.focus();
+
+      // 保存选中的选项卡到 localStorage（默认保存，除非明确指定不保存）
+      if (saveToStorage !== false) {
+        localStorage.setItem('createProject.selectedSource', id);
+      }
 
       break;
     }

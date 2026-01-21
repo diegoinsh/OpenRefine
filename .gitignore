@@ -36,6 +36,7 @@ open-refine.log
 main/target/
 main/webapp/WEB-INF/lib/
 main/webapp/modules/core/3rdparty/
+!main/webapp/modules/core/3rdparty/tablesorter/theme.metallic.css
 server/target/
 extensions/*/target/
 extensions/*/module/MOD-INF/classes/
@@ -69,7 +70,7 @@ refine-dev.ini
 # STS (Spring Tool Suite)
 .springBeans
 
-# Ignore Node modules that might inadvertently install at current path instead of user or configured env var NODE_PATH 
+# Ignore Node modules that might inadvertently install at current path instead of user or configured env var NODE_PATH
 node_modules/
 
 # Ignore the node_modules folder as they are dependencies to be installed by end-user
@@ -82,3 +83,13 @@ main/webapp/node_modules
 # Ignore .gitignore among extensions as it can be used to ignore custom extensions
 
 extensions/.gitignore
+
+
+# Local VS Code workspace
+ruyi-refine.code-workspace
+
+# Trae AI settings
+.trae/
+
+
+docs/em.py

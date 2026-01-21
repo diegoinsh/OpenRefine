@@ -47,8 +47,9 @@ Refine.SetLanguageUI = function(elmt) {
 	});
 };
 
-Refine.actionAreas.push({
-	id : "language-settings",
-	label : $.i18n('core-index-lang/lang-settings'),
-	uiClass : Refine.SetLanguageUI
-});
+// 隐藏语言设置菜单
+// Refine.actionAreas.push({
+// 	id : "language-settings",
+// 	label : $.i18n('core-index-lang/lang-settings'),
+// 	uiClass : Refine.SetLanguageUI
+// });

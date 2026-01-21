@@ -5,8 +5,8 @@
    xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee http://xmlns.jcp.org/xml/ns/javaee/web-app_3_1.xsd"
    metadata-complete="false"
    version="3.1">
-    <display-name>OpenRefine</display-name>
-    <description>OpenRefine Webapp</description>
+    <display-name>JinRefine</display-name>
+    <description>JinRefine Webapp</description>
 
     <!--+
         | This forces all the session cookies to default to the root path.

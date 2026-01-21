@@ -234,7 +234,7 @@ function registerImporting() {
   IM.registerFormat("text/xml/ods", "core-import-formats/text/xml/ods", "ExcelParserUI", new Packages.com.google.refine.importers.OdsImporter());
   IM.registerFormat("text/json", "core-import-formats/text/json", "JsonParserUI", new Packages.com.google.refine.importers.JsonImporter());
   IM.registerFormat("text/marc", "core-import-formats/text/marc", "XmlParserUI", new Packages.com.google.refine.importers.MarcImporter());
-  IM.registerFormat("text/wiki", "core-import-formats/text/wiki", "WikitextParserUI", new Packages.com.google.refine.importers.WikitextImporter());
+  // IM.registerFormat("text/wiki", "core-import-formats/text/wiki", "WikitextParserUI", new Packages.com.google.refine.importers.WikitextImporter());
 
   IM.registerFormat("binary", "core-import-formats/binary"); // generic format, no parser to handle it
 
@@ -426,8 +426,8 @@ function init() {
       "scripts/util/filter-lists-search.js",
 
       "scripts/index.js",
-      "scripts/index/create-project-ui.js",
       "scripts/index/open-project-ui.js",
+      "scripts/index/create-project-ui.js",
       "scripts/index/import-project-ui.js",
       "scripts/index/lang-settings-ui.js",
       "scripts/index/manage-extensions-ui.js",
@@ -458,7 +458,7 @@ function init() {
     [
       "externals/jquery-ui/css/ui-lightness/jquery-ui.css",
       "3rdparty/select2/select2.css",
-      "3rdparty/tablesorter/theme.blue.css",
+      "3rdparty/tablesorter/theme.metallic.css",
 
       "styles/theme.css",
       "styles/jquery-ui-overrides.css",

@@ -35,8 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 <head>
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <title>Preferences - OpenRefine</title>
-  <link rel="icon" type="image/png" href="images/favicon.png">
+  <title>Preferences - JinRefine</title>
+  <link rel="icon" type="image/x-icon" href="images/jinshu-refine.ico">
   <script type="text/javascript" src="wirings.js"></script>
   $scriptInjection
   $styleInjection
@@ -44,8 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 <body>
   <div id="header">
     <a id="app-home-button" href="./">
-      <img aria-hidden="true" src="images/logo-gem-126.svg" width="30" />
-      <h1>OpenRefine</h1>
+      <img aria-hidden="true" src="images/jinshu-icon-metallic.png" width="30" />
+      <h1>数据金炼</h1>
     </a>
   </div>
 

@@ -60,13 +60,12 @@ import com.google.refine.browsing.util.RowEvaluable;
 import com.google.refine.expr.Evaluable;
 import com.google.refine.expr.MetaParser;
 import com.google.refine.expr.ParsingException;
+import com.google.refine.messages.OpenRefineMessage;
 import com.google.refine.model.Column;
 import com.google.refine.model.Project;
 import com.google.refine.util.NotImplementedException;
 
 public class RangeFacet implements Facet {
-
-    public static final String ERR_NO_NUMERIC_VALUE_PRESENT = "No numeric value present.";
 
     /*
      * Configuration, from the client side
@@ -242,7 +241,7 @@ public class RangeFacet implements Facet {
         if (_errorMessage != null) {
             return _errorMessage;
         } else if (!isFiniteRange()) {
-            return ERR_NO_NUMERIC_VALUE_PRESENT;
+            return OpenRefineMessage.facet_no_numeric_value_present();
         }
         return null;
     }
@@ -323,7 +322,7 @@ public class RangeFacet implements Facet {
             if (column != null) {
                 _cellIndex = column.getCellIndex();
             } else {
-                _errorMessage = "No column named " + _config._columnName;
+                _errorMessage = OpenRefineMessage.error_no_column_named(_config._columnName);
             }
         } else {
             _cellIndex = -1;

@@ -1,0 +1,19 @@
+<div class="dialog-frame" id="run-check-dialog">
+  <div class="dialog-header" bind="dialogHeader">运行质量检查</div>
+  <div class="dialog-body">
+    <div class="check-status">
+      <p class="status-text" bind="statusText">点击"开始检查"运行质量检查</p>
+      <div class="progress-bar" bind="progressBar" style="display: none;">
+        <div class="progress-fill" bind="progressFill"></div>
+        <span class="progress-text" bind="progressText">0%</span>
+      </div>
+    </div>
+  </div>
+  <div class="dialog-footer">
+    <button class="button button-primary" bind="startButton">开始检查</button>
+    <button class="button button-warning" bind="pauseButton" style="display: none;">暂停</button>
+    <button class="button button-primary" bind="resumeButton" style="display: none;">继续</button>
+    <button class="button button-danger" bind="stopButton" style="display: none;">停止</button>
+    <button class="button button-secondary" bind="cancelButton">取消</button>
+  </div>
+</div>

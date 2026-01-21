@@ -1,0 +1,28 @@
+{
+  "records": {
+    "assets": {
+      "preview": {
+        "title": "Assets Preview",
+        "selectFile": "Select a file to preview",
+        "loading": "Loading...",
+        "error": "Error loading file",
+        "notSupported": "File type not supported for preview"
+      },
+      "list": {
+        "title": "File Browser",
+        "empty": "No files found",
+        "folder": "Folder",
+        "file": "File",
+        "size": "Size",
+        "modified": "Modified"
+      },
+      "errors": {
+        "invalidPath": "Invalid path",
+        "accessDenied": "Access denied",
+        "fileNotFound": "File not found",
+        "pathTraversal": "Path traversal not allowed"
+      }
+    }
+  }
+}
+

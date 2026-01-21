@@ -80,10 +80,11 @@
   <files>
     <file>
       <source>target/openrefine_with_jre.exe</source>
-      <destName>openrefine.exe</destName>
+      <destName>jinrefine.exe</destName>
     </file>
     <file>
       <source>${rootdir}/conf/openrefine.l4j.ini</source>
+      <destName>jinrefine.l4j.ini</destName>
     </file>
     <file>
       <source>${rootdir}/refine.bat</source>

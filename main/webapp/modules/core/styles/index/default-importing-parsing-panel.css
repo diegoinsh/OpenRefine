@@ -73,6 +73,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 td.default-importing-parsing-control-panel-formats {
   padding: var(--padding-looser) 0;
   width: 250px;
+  background-color: #F5F1EB;
 }
 
 .default-importing-parsing-control-panel-formats-message {

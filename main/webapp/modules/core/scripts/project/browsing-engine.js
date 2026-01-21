@@ -97,7 +97,7 @@ BrowsingEngine.prototype._initializeUI = function() {
     '<div class="browsing-panel-help" bind="help">' +
     '<h1>'+$.i18n('core-project/use-facets')+'</h1>' +
     '<p>'+$.i18n('core-project/use-to-select')+'</p>' +
-    '<p>'+$.i18n('core-project/not-sure')+'<br /><a href="https://github.com/OpenRefine/OpenRefine/wiki/Screencasts" target="_blank"><b>'+$.i18n('core-project/watch-cast')+'</b></a></p>' +
+    '<p>'+$.i18n('core-project/not-sure')+'<br /><a href="about.html" target="_blank"><b>'+$.i18n('core-project/watch-cast')+'</b></a></p>' +
     '</div>' +
     '<div class="browsing-panel-header" bind="header">' +
     '<div class="browsing-panel-errors" bind="errors"></div>' +

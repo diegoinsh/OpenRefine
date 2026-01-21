@@ -5,7 +5,7 @@
   <groupId>org.openrefine</groupId>
   <artifactId>openrefine</artifactId>
   <packaging>pom</packaging>
-  <version>3.10-SNAPSHOT</version>
+  <version>3.11.0.01</version>
 
   <name>OpenRefine</name>
   <description>OpenRefine is a free, open source power tool for working with messy data and improving it</description>
@@ -136,7 +136,7 @@
     <!-- It is nice for "mvn" with no arguments to do a reasonable default. -->
     <defaultGoal>install</defaultGoal>
 
-    <finalName>openrefine</finalName>
+    <finalName>jinrefine</finalName>
     <resources>
     </resources>
     <plugins>

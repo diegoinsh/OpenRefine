@@ -1,0 +1,114 @@
+{
+  "records": {
+    "db": {
+      "label": "记录数据库",
+      "description": "从数据库导入记录和文档",
+      "wizard": {
+        "title": "记录数据库导入向导",
+        "selectMode": {
+          "title": "选择导入模式",
+          "description": "选择数据导入的模式",
+          "catalogMode": "Catalog 模式",
+          "catalogModeDesc": "使用预定义的 Catalog 模式进行元数据导入，支持文档和关联资产的导入",
+          "sqlMode": "SQL 模式",
+          "sqlModeDesc": "使用自定义 SQL 查询进行数据导入，提供更灵活的数据选择"
+        },
+        "selectProfile": {
+          "title": "选择配置文件",
+          "description": "选择预设配置文件或创建自定义配置",
+          "kubao": "档案格式",
+          "flatTable": "平面表",
+          "genericJson": "通用 JSON 字段",
+          "databaseConfig": "数据库配置",
+          "dialect": "数据库方言",
+          "host": "主机",
+          "port": "端口",
+          "database": "数据库",
+          "username": "用户名",
+          "password": "密码",
+          "testConnection": "测试连接",
+          "testing": "正在测试连接",
+          "connectionSuccess": "连接成功！",
+          "dbNamePlaceholder": "输入数据库名称"
+        },
+        "selectFields": {
+          "title": "选择字段",
+          "description": "选择要导入的字段",
+          "availableFields": "可用字段",
+          "selectedFields": "已选字段",
+          "selectAll": "全选",
+          "deselectAll": "取消全选"
+        },
+        "fieldMapping": {
+          "title": "字段映射",
+          "description": "配置数据库字段如何映射到 OpenRefine 列",
+          "sourceField": "源字段",
+          "targetField": "目标字段",
+          "fieldType": "字段类型",
+          "action": "操作",
+          "addField": "添加字段"
+        },
+        "fileMapping": {
+          "title": "文件映射",
+          "description": "配置文件根目录和允许的目录",
+          "fileRootColumn": "文件根目录列",
+          "fileRootRawColumn": "文件根目录原始列",
+          "allowedRoots": "允许的根目录",
+          "enableFilePreview": "启用文件预览",
+          "preview": "文件浏览器预览",
+          "selectFileRootColumn": "请选择文件根目录列",
+          "noRootConfigured": "未配置根目录"
+        },
+        "configureFilters": {
+          "title": "配置过滤器",
+          "description": "设置数据导入过滤器",
+          "excludeExported": "排除已导出的记录",
+          "exportedFieldLabel": "已导出字段名",
+          "exportedValueLabel": "已导出值",
+          "customConditions": "自定义过滤条件",
+          "addCondition": "添加条件",
+          "selectField": "选择字段",
+          "enterValue": "输入值",
+          "removeCondition": "删除",
+          "filterPreview": "过滤器预览",
+          "noFilters": "未配置过滤器",
+          "exportedFieldRequired": "请指定已导出字段名",
+          "exportedValueRequired": "请指定已导出值",
+          "incompleteCondition": "请完成所有过滤条件"
+        },
+        "preview": {
+          "title": "预览",
+          "description": "预览要导入的数据",
+          "rowCount": "预览行数",
+          "loading": "正在加载预览"
+        },
+        "createProject": {
+          "title": "创建项目",
+          "description": "创建 OpenRefine 项目",
+          "projectName": "项目名称",
+          "maxRows": "最大行数",
+          "create": "创建项目",
+          "creating": "正在创建项目",
+          "success": "项目创建成功！"
+        }
+      },
+      "error": {
+        "connectionFailed": "数据库连接失败",
+        "invalidProfile": "无效的配置文件",
+        "noFieldsSelected": "请至少选择一个字段"
+      },
+      "success": {
+        "projectCreated": "项目创建成功"
+      }
+    }
+  },
+  "common": {
+    "button": {
+      "previous": "上一步",
+      "next": "下一步",
+      "finish": "完成",
+      "cancel": "取消"
+    }
+  }
+}
+

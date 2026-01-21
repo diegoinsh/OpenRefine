@@ -88,11 +88,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 .browsing-panel-help h1, .history-panel-help h1 {
   margin: 10px;
-  padding: 20px 0 0 10px;
+  padding: 10px 0 0 10px;
   font-size: 1.15em;
   font-weight: bold;
-  background: url(../../images/logo-gem-126.svg) no-repeat top right;
-  background-size: 43px;
+  background: url(../../images/jinshu-icon-metallic.png) no-repeat top right;
+  background-size: 25px;
 }
 
 .browsing-panel-help p, .history-panel-help p {
@@ -103,7 +103,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .visibility-panel-button {
   width: 17px;
   height: 19px;
-  background-image: url(../../images/leftpanel-showhide.png);
+  background-image: url(../../images/leftpanel-showhide-ry.png);
   background-repeat: no-repeat;
   background-position: 0px 0px;
   border: none;

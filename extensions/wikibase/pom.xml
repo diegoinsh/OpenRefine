@@ -5,13 +5,13 @@
   <artifactId>wikibase</artifactId>
   <packaging>jar</packaging>
 
-  <name>OpenRefine - Wikibase extension</name>
+  <name>JinRefine - Wikibase extension</name>
   <description>Schema alignment and data upload for Wikibase</description>
   <url>https://www.wikidata.org/wiki/Wikidata:Tools/OpenRefine</url>
   <parent>
     <groupId>org.openrefine</groupId>
     <artifactId>extensions</artifactId>
-    <version>3.10-SNAPSHOT</version>
+    <version>3.11.0.01</version>
   </parent>
 
   <properties>

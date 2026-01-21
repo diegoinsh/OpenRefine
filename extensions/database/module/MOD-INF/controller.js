@@ -69,58 +69,64 @@ function registerFunctions() {
  * Function invoked to initialize the extension.
  */
 function init() {
-  
-  logger.trace("Initializing OpenRefine Database Extension...");
-  logger.trace("Database Extension Mount point " + module.getMountPoint());
+	  // JINSHU customization: disable the legacy Database extension UI in favor of
+	  // the new Records-DB extension. We keep the code in the repository, but we
+	  // skip registering commands, importers and any client-side resources so
+	  // that no "Database" menu items or import/export entries appear in the UI.
+	  logger.info("Database extension init skipped (disabled by JinRefine)");
+	  return;
+	  
+	  logger.trace("Initializing OpenRefine Database Extension...");
+	  logger.trace("Database Extension Mount point " + module.getMountPoint());
 
-  registerCommands();
-  registerOperations();
-  registerFunctions();
- 
+	  registerCommands();
+	  registerOperations();
+	  registerFunctions();
+	 
 
-  // Register importer and exporter
-  var IM = Packages.com.google.refine.importing.ImportingManager;
-  
-  IM.registerController(
-    module,
-    "database-import-controller",
-    new Packages.com.google.refine.extension.database.DatabaseImportController()
-  );
-
-
-  // Script files to inject into /index page
-  ClientSideResourceManager.addPaths(
-    "index/scripts",
-    module,
-    [
-      "scripts/index/jquery.contextMenu.js",
-      "scripts/index/jquery.ui.position.js",
-      "scripts/database-extension.js",
-      "scripts/index/database-import-controller.js",
-      "scripts/index/database-source-ui.js"
-    ]
-  );
-  // Style files to inject into /index page
-  ClientSideResourceManager.addPaths(
-    "index/styles",
-    module,
-    [
-      "styles/jquery.contextMenu.css",
-      "styles/database-import.css"
-
-    ]
-  );
-  
-  // Script files to inject into /project page
-  ClientSideResourceManager.addPaths(
-    "project/scripts",
-    module,
-    [
-      "scripts/database-extension.js",
-      "scripts/project/database-exporters.js"
-    ]
-  );
-}
+	  // Register importer and exporter
+	  var IM = Packages.com.google.refine.importing.ImportingManager;
+	  
+	  IM.registerController(
+	    module,
+	    "database-import-controller",
+	    new Packages.com.google.refine.extension.database.DatabaseImportController()
+	  );
+	
+	
+	  // Script files to inject into /index page
+	  ClientSideResourceManager.addPaths(
+	    "index/scripts",
+	    module,
+	    [
+	      "scripts/index/jquery.contextMenu.js",
+	      "scripts/index/jquery.ui.position.js",
+	      "scripts/database-extension.js",
+	      "scripts/index/database-import-controller.js",
+	      "scripts/index/database-source-ui.js"
+	    ]
+	  );
+	  // Style files to inject into /index page
+	  ClientSideResourceManager.addPaths(
+	    "index/styles",
+	    module,
+	    [
+	      "styles/jquery.contextMenu.css",
+	      "styles/database-import.css"
+	
+	    ]
+	  );
+	  
+	  // Script files to inject into /project page
+	  ClientSideResourceManager.addPaths(
+	    "project/scripts",
+	    module,
+	    [
+	      "scripts/database-extension.js",
+	      "scripts/project/database-exporters.js"
+	    ]
+	  );
+	}
 
 /*
  * Function invoked to handle each request in a custom way.

@@ -47,8 +47,9 @@ Refine.ManageExtensionsUI._renderExtensions = function() {
     });
 }
 
-Refine.actionAreas.push({
-    id: "manage-extensions",
-    label: $.i18n('core-index-extensions/extensions'),
-    uiClass: Refine.ManageExtensionsUI,
-});
+// 隐藏扩展菜单
+// Refine.actionAreas.push({
+//     id: "manage-extensions",
+//     label: $.i18n('core-index-extensions/extensions'),
+//     uiClass: Refine.ManageExtensionsUI,
+// });

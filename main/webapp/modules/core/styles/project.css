@@ -92,13 +92,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #tool-panel {
   position: relative;
-  height: 32px;
+  height: 34px;
+  font-weight: bold;
 }
 
 #summary-bar {
   display: inline-block;
   margin: 7px 0px 0px 4px;
-  font-size: 1.8em;
+  font-size: 1.5em;
   font-weight: bold;
 }
 

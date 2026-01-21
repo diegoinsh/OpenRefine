@@ -1,0 +1,54 @@
+<div class="relative-frame data-quality-container">
+  <!-- 二级Tab导航 -->
+  <div class="data-quality-tabs">
+    <ul class="dq-tab-list">
+      <li class="dq-tab active" data-tab="tasks">
+        <a href="javascript:void(0)">数据质量任务</a>
+      </li>
+      <li class="dq-tab" data-tab="settings">
+        <a href="javascript:void(0)">高级设置</a>
+      </li>
+    </ul>
+  </div>
+
+  <!-- Tab 内容区 -->
+  <div class="dq-tab-content">
+    <!-- Tab 1: 项目质量任务 -->
+    <div class="dq-tab-panel active" id="dq-panel-tasks">
+      <!-- 标签和搜索栏 (参考 open-project-ui 风格) -->
+      <div bind="projectTags" id="dq-project-tags">
+        <span id="dq-search-icon" class="dq-magnifying-glass">
+          <svg xmlns="http://www.w3.org/2000/svg" height="100%" viewBox="0 0 24 24" width="100%">
+            <path d="M0 0h24v24H0z" fill="none"/>
+            <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+          </svg>
+        </span>
+        <input type="text" id="dq-search-input" class="dq-header-search-box" placeholder="搜索项目...">
+        <ul id="dq-tags-ul"></ul>
+      </div>
+
+      <!-- 项目列表 (tablesorter 风格) -->
+      <div class="dq-projects-list" id="dq-project-list"></div>
+
+      <!-- 底部操作区 -->
+      <div class="dq-workspace-controls" id="dq-workspace-controls">
+        <button class="dq-btn dq-btn-refresh" id="dq-refresh-tasks" title="刷新">
+          <img src="images/extensions/arrows-rotate-solid-full.svg" alt="刷新" /> 刷新列表
+        </button>
+          <span class="dq-legend-item"><span class="dq-icon"><img src="images/extensions/circle-play-regular-full.svg" alt="停止" /></span>启动</span>
+          <span class="dq-legend-item"><span class="dq-icon"><img src="images/extensions/pause-solid-full.svg" alt="暂停" /></span>暂停</span>
+          <span class="dq-legend-item"><span class="dq-icon"><img src="images/extensions/stop-solid-full.svg" alt="停止" /></span>停止</span>
+          <span class="dq-legend-item"><span class="dq-icon"><img src="images/extensions/pen-to-square-regular-full.svg" alt="规则" /></span>规则</span>
+          <span class="dq-legend-item"><span class="dq-icon"><img src="images/extensions/chart-line-solid-full.svg" alt="报告" /></span>报告</span>
+      </div>
+    </div>
+
+    <!-- Tab 2: 配置设置 -->
+    <div class="dq-tab-panel" id="dq-panel-settings">
+      <div class="dq-settings-container" id="dq-settings-form">
+        <!-- 配置表单将通过JS动态生成 -->
+      </div>
+    </div>
+  </div>
+</div>
+

@@ -1,0 +1,109 @@
+/*
+ * Export Bound Assets Dialog Styles
+ */
+
+.export-bound-assets-fields {
+  height: 300px;
+  overflow-y: auto;
+  border: 1px solid #ccc;
+  background: #fff;
+  padding: 5px;
+}
+
+.export-bound-assets-field-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.export-bound-assets-field-item {
+  padding: 5px 8px;
+  margin: 2px 0;
+  background: #f8f8f8;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  cursor: move;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.export-bound-assets-field-item:hover {
+  background: #e8f4fc;
+  border-color: #b8d4e8;
+}
+
+.export-bound-assets-field-item.file-column {
+  background: #e8f8e8;
+  border-color: #a8d8a8;
+}
+
+.export-bound-assets-field-item.ui-sortable-helper {
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.export-bound-assets-field-item input[type="checkbox"] {
+  margin: 0;
+}
+
+.export-bound-assets-field-item label {
+  margin: 0;
+  cursor: pointer;
+  flex: 1;
+}
+
+.export-bound-assets-options {
+  padding: 10px;
+  background: #fafafa;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  height: 300px;
+  overflow-y: auto;
+}
+
+.export-bound-assets-preview {
+  padding: 10px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 12px;
+  color: #333;
+  min-height: 40px;
+  word-break: break-all;
+}
+
+textarea.export-bound-assets-code {
+  width: 100%;
+  border: 1px solid var(--chrome-primary);
+  height: 25em;
+}
+
+/* Tab styling - match custom-tabular-exporter-dialog */
+#export-bound-assets-tabs .ui-tabs-panel {
+  padding: var(--padding-looser);
+}
+
+/* Button styling */
+.export-bound-assets-dialog .button-primary {
+  background: #4a90d9;
+  color: #fff;
+  border-color: #3a80c9;
+}
+
+.export-bound-assets-dialog .button-primary:hover {
+  background: #3a80c9;
+}
+
+/* Status message */
+.export-bound-assets-dialog .status-message {
+  font-size: 12px;
+  color: #666;
+}
+
+/* Disabled label */
+.export-bound-assets-dialog label.disabled {
+  color: #999;
+}
+

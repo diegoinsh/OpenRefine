@@ -131,7 +131,7 @@ a img {
   overflow: visible;
   font-size: 1em;
   line-height: 1.4;
-  color: var(--text-primary);
+  color: var(--text-secondary);
   text-decoration: none;
   padding: 1px 6px;
   border: 1px solid #bbb;
@@ -139,7 +139,7 @@ a img {
   white-space: nowrap;
   font-family: Arial, Helvetica, sans-serif;
   border-radius: 3px;
-  background: linear-gradient(#f9f9f9, #e3e3e3);
+  background: linear-gradient(#D4C4A9, #E1D8CD);
 }
 
 
@@ -154,7 +154,7 @@ a img {
 
 .button-primary, a.button-primary {
   font-weight: bold;
-  padding: 1px 15px;
+  padding: 1px 12px;
 }
 
 .button-pill-left, a.button-pill-left {
@@ -224,7 +224,7 @@ a img {
   background: #f2f2f2;
 }
 
-.list-table-itemname {
+-itemname {
   font-size: 1.2em;
 }
 
@@ -289,7 +289,8 @@ a img {
 }
 
 #header img {
-  height: 30px;
+  height: 20px;
+  width: 20px;
 }
 
 #app-home-button {
@@ -389,7 +390,8 @@ div.grid-layout.grid-layout-for-ui>table>tbody>tr>td {
 }
 
 div.grid-layout.layout-normal {
-  margin: -10px;
+  margin: 0;
+  padding: var(--padding-tightest);
 }
 
 div.grid-layout.layout-normal>table {

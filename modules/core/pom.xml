@@ -5,13 +5,13 @@
   <artifactId>core</artifactId>
   <packaging>jar</packaging>
 
-  <name>OpenRefine - core</name>
-  <description>Definition of OpenRefine's data model and extension points</description>
+  <name>JinRefine - core</name>
+  <description>Definition of JinRefine's data model and extension points</description>
   <url>http://openrefine.org/</url>
   <parent>
     <groupId>org.openrefine</groupId>
     <artifactId>openrefine</artifactId>
-    <version>3.10-SNAPSHOT</version>
+	    <version>3.11.0.01</version>
     <relativePath>../..</relativePath>
   </parent>
 

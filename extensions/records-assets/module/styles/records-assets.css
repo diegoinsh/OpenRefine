@@ -1,0 +1,154 @@
+/* Records Assets Preview Styles */
+
+.records-assets-preview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: #f5f5f5;
+}
+
+.assets-header {
+  padding: 15px;
+  background-color: #fff;
+  border-bottom: 1px solid #ddd;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.assets-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+
+.assets-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.assets-browser {
+  width: 30%;
+  border-right: 1px solid #ddd;
+  background-color: #fff;
+  overflow-y: auto;
+}
+
+.assets-tree {
+  padding: 10px;
+}
+
+.assets-tree-item {
+  padding: 8px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.assets-tree-item:hover {
+  background-color: #f0f0f0;
+}
+
+.assets-tree-item.selected {
+  background-color: #e3f2fd;
+  color: #1976d2;
+}
+
+.assets-tree-item-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.assets-tree-item-name {
+  display: inline-block;
+  vertical-align: middle;
+  font-size: 13px;
+}
+
+.assets-viewer {
+  flex: 1;
+  background-color: #fff;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.viewer-placeholder {
+  color: #999;
+  font-size: 14px;
+  text-align: center;
+}
+
+.viewer-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.viewer-pdf {
+  width: 100%;
+  height: 100%;
+}
+
+.viewer-text {
+  padding: 20px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #333;
+}
+
+.viewer-error {
+  padding: 20px;
+  color: #d32f2f;
+  text-align: center;
+}
+
+/* Loading state */
+.assets-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.assets-loading::after {
+  content: '';
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #1976d2;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .assets-content {
+    flex-direction: column;
+  }
+
+  .assets-browser {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid #ddd;
+    max-height: 40%;
+  }
+
+  .assets-viewer {
+    flex: 1;
+  }
+}
+

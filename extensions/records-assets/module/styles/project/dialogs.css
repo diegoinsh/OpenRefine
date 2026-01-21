@@ -1,0 +1,366 @@
+/*
+ * File Preview Dialog Styles
+ * Fixed position at right edge, aligned with rightPanelDiv
+ */
+
+/* Floating dialog - right edge, full height aligned with rightPanel */
+.file-preview-dialog-float {
+  position: fixed;
+  background: #fff;
+  border-radius: 0;
+  box-shadow: -1px 0 3px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #ddd;
+}
+
+/* Header */
+.file-preview-float-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+  flex-shrink: 0;
+}
+
+.file-preview-float-title {
+  font-weight: 600;
+  color: #333;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.file-preview-float-close-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 20px;
+  color: #666;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.file-preview-float-close-btn:hover {
+  background: #e0e0e0;
+  color: #333;
+}
+
+/* Content area - fills available space */
+.file-preview-float-content {
+  flex: 1;
+  padding: 12px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fafafa;
+}
+
+/* Image preview - fill container */
+.image-preview-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transition: transform 0.2s;
+  transform-origin: top left;
+  position: relative;
+  z-index: 2;
+  display: block;
+  margin: 0 auto;
+  cursor: grab;
+}
+
+.preview-image.dragging {
+  cursor: grabbing;
+}
+
+/* Zoom controls in footer */
+.zoom-controls {
+  display: flex;
+  gap: 4px;
+  margin-right: 8px;
+}
+
+.zoom-controls .button.zoom-btn {
+  padding: 4px 10px;
+  min-width: 32px;
+}
+
+/* PDF preview - fill container */
+.pdf-preview-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pdf-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+.pdf-placeholder {
+  text-align: center;
+  color: #666;
+}
+
+.pdf-placeholder .pdf-icon {
+  font-size: 64px;
+  margin-bottom: 12px;
+}
+
+/* Text preview */
+.text-preview-container {
+  width: 100%;
+  max-height: 100%;
+  overflow: auto;
+}
+
+.text-preview {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 16px;
+  background: #f8f8f8;
+  border-radius: 4px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* No preview placeholder */
+.no-preview {
+  text-align: center;
+  color: #999;
+  padding: 40px;
+}
+
+/* Annotation toggle button */
+.annotation-toggle-btn {
+  margin-right: 8px !important;
+}
+
+/* Error markers on image */
+.error-marker {
+  position: absolute;
+  border: 1px solid;
+  border-radius: 1px;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 1000;
+}
+
+.error-marker:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 10px rgba(255,255,255,0.5);
+}
+
+.error-marker-stain {
+  border-color: #ff0000;
+  background: rgba(255, 0, 0, 0.50);
+}
+
+.error-marker-hole {
+  border-color: #ffa500;
+  background: rgba(255, 165, 0, 0.50);
+}
+
+.error-marker-edge {
+  border-color: #800080;
+  background: rgba(128, 0, 128, 0.50);
+}
+
+.error-marker-skew {
+  border-color: #ff9800;
+  background: rgba(255, 152, 0, 0.50);
+}
+
+.error-marker-other {
+  border-color: #f44336;
+  background: rgba(244, 67, 54, 0.50);
+}
+
+/* Annotation tooltip */
+.annotation-tooltip {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  max-width: 250px;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  pointer-events: none;
+}
+
+.annotation-tooltip .tooltip-title {
+  font-weight: bold;
+  margin-bottom: 4px;
+  color: #ff6b6b;
+}
+
+.annotation-tooltip .tooltip-message {
+  color: #ddd;
+  font-size: 11px;
+}
+
+/* Annotation legend */
+.annotation-legend {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: auto;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  z-index: 9999;
+  box-shadow: 0 2px 3px rgba(0,0,0,0.15);
+}
+.annotation-legend-title {
+  font-size: 11px;
+  font-weight: bold;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #edecec;
+}
+.annotation-legend-item {
+  display: flex;
+  align-items: center;
+  margin: 4px 0;
+}
+
+.annotation-legend-item:first-child {
+  margin-top: 0;
+}
+
+.annotation-legend-item:last-child {
+  margin-bottom: 0;
+}
+
+.annotation-legend-color {
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  border-radius: 1px;
+}
+
+.annotation-legend-stain {
+  background: rgba(255, 0, 0, 0.6);
+  border: 1px solid #ff0000;
+}
+
+.annotation-legend-hole {
+  background: rgba(255, 165, 0, 0.6);
+  border: 1px solid #ffa500;
+}
+
+.annotation-legend-edge {
+  background: rgba(128, 0, 128, 0.6);
+  border: 1px solid #800080;
+}
+
+.annotation-legend-skew {
+  background: rgba(255, 152, 0, 0.6);
+  border: 1px solid #ff9800;
+}
+
+.annotation-legend-other {
+  background: rgba(244, 67, 54, 0.6);
+  border: 1px solid #f44336;
+}
+
+.annotation-legend-dot {
+  color: #000;
+  font-weight: bold;
+  margin-right: 6px;
+  padding: 0 3px 0 4px;
+}
+
+.no-preview .file-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+}
+
+/* Footer */
+.file-preview-float-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid #ddd;
+  background: #f5f5f5;
+  flex-shrink: 0;
+}
+
+.file-info {
+  color: #666;
+  font-size: 12px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.file-actions .button {
+  padding: 5px 12px;
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.file-actions .button:hover {
+  background: #e8e8e8;
+}
+
+/* Loading and error states */
+.loading {
+  text-align: center;
+  color: #666;
+  padding: 40px;
+}
+
+.error {
+  text-align: center;
+  color: #d93025;
+  padding: 40px;
+}
+
+.empty {
+  text-align: center;
+  color: #999;
+  padding: 40px;
+}
+

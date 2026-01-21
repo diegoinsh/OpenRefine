@@ -72,7 +72,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 }
 
 #action-area-tabs>li.selected {
-  background: var(--chrome-primary);
+  background: var(--selected-primary);
   border-top-left-radius: 5px;
   border-bottom-left-radius: 5px;
 }
@@ -80,6 +80,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #action-area-tabs li a {
   color: var(--text-secondary);
   text-decoration: none;
+}
+
+#action-area-tabs>li.selected a {
+  color: var(--button-accent-text, #fff);
+  font-weight: bold;
 }
 
 #project-links {
@@ -125,6 +130,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   background: var(--chrome-primary);
   left: 150px;
   width: calc(100% - 150px);
+  /* border-left: 1px solid var(--border-color, #D8D0C8); */
+  box-shadow: var(--shadow-light, 0 1px 3px rgba(139, 115, 85, 0.1));
 }
 
 #right-panel-body {
