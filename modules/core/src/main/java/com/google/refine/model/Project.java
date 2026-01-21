@@ -69,14 +69,18 @@ public class Project {
     final static protected Map<String, Class<? extends OverlayModel>> s_overlayModelClasses = new HashMap<String, Class<? extends OverlayModel>>();
 
     final public long id;
-    final public List<Row> rows = new ArrayList<>();
-    final public ColumnModel columnModel = new ColumnModel();
-    final public RecordModel recordModel = new RecordModel();
+    public List<Row> rows = new ArrayList<>();
+    public ColumnModel columnModel = new ColumnModel();
+    public RecordModel recordModel = new RecordModel();
     final public Map<String, OverlayModel> overlayModels = new HashMap<String, OverlayModel>();
     final public History history;
 
     transient public ProcessManager processManager = new ProcessManager();
     transient private Instant _lastSave = Instant.now();
+
+    public String activeSheetId;
+    public Map<String, SheetData> sheetDataMap = new HashMap<>();
+    public boolean isMultiSheetProject = false;
 
     final static Logger logger = LoggerFactory.getLogger(Project.class);
 
@@ -100,6 +104,8 @@ public class Project {
     protected Project(long id) {
         this.id = id;
         this.history = new History(this);
+        this.sheetDataMap = new HashMap<>();
+        this.isMultiSheetProject = false;
     }
 
     static public void registerOverlayModel(String modelName, Class<? extends OverlayModel> klass) {
@@ -117,8 +123,47 @@ public class Project {
                 logger.warn("Error signaling overlay model before disposing", e);
             }
         }
+        for (SheetData sheetData : sheetDataMap.values()) {
+            try {
+                sheetData.dispose();
+            } catch (Exception e) {
+                logger.warn("Error disposing sheet data", e);
+            }
+        }
         ProjectManager.singleton.getLookupCacheManager().flushLookupsInvolvingProject(this.id);
         // The rest of the project should get garbage collected when we return.
+    }
+
+    public SheetData getActiveSheetData() {
+        if (isMultiSheetProject && activeSheetId != null) {
+            return sheetDataMap.get(activeSheetId);
+        }
+        return null;
+    }
+
+    public void setActiveSheet(String sheetId) {
+        if (sheetDataMap.containsKey(sheetId)) {
+            this.activeSheetId = sheetId;
+            SheetData sheetData = sheetDataMap.get(sheetId);
+            this.rows = sheetData.rows;
+            this.columnModel = sheetData.columnModel;
+            this.recordModel = sheetData.recordModel;
+        }
+    }
+
+    public void addSheetData(SheetData sheetData) {
+        sheetDataMap.put(sheetData.sheetId, sheetData);
+        if (sheetDataMap.size() > 1) {
+            isMultiSheetProject = true;
+        }
+    }
+
+    public SheetData getSheetData(String sheetId) {
+        return sheetDataMap.get(sheetId);
+    }
+
+    public List<SheetData> getAllSheetData() {
+        return new ArrayList<>(sheetDataMap.values());
     }
 
     public Instant getLastSave() {
@@ -169,26 +214,55 @@ public class Project {
         writer.write(RefineServlet.VERSION);
         writer.write('\n');
 
-        writer.write("columnModel=\n");
-        columnModel.save(writer, options);
-        writer.write("history=\n");
-        history.save(writer, options);
-
-        for (String modelName : overlayModels.keySet()) {
-            writer.write("overlayModel:");
-            writer.write(modelName);
-            writer.write("=");
-
-            ParsingUtilities.saveWriter.writeValue(writer, overlayModels.get(modelName));
+        if (isMultiSheetProject) {
+            writer.write("isMultiSheetProject=true\n");
+            if (activeSheetId != null) {
+                writer.write("activeSheetId=");
+                writer.write(activeSheetId);
+                writer.write('\n');
+            }
+            writer.write("sheetCount=");
+            writer.write(Integer.toString(sheetDataMap.size()));
             writer.write('\n');
-        }
+            
+            for (SheetData sheetData : sheetDataMap.values()) {
+                writer.write("sheet:");
+                writer.write(sheetData.sheetId);
+                writer.write("=\n");
+                
+                writer.write("columnModel=\n");
+                sheetData.columnModel.save(writer, options);
+                
+                writer.write("rowCount=");
+                writer.write(Integer.toString(sheetData.rows.size()));
+                writer.write('\n');
+                for (Row row : sheetData.rows) {
+                    row.save(writer, options);
+                    writer.write('\n');
+                }
+            }
+        } else {
+            writer.write("columnModel=\n");
+            columnModel.save(writer, options);
+            writer.write("history=\n");
+            history.save(writer, options);
 
-        writer.write("rowCount=");
-        writer.write(Integer.toString(rows.size()));
-        writer.write('\n');
-        for (Row row : rows) {
-            row.save(writer, options);
+            for (String modelName : overlayModels.keySet()) {
+                writer.write("overlayModel:");
+                writer.write(modelName);
+                writer.write("=");
+
+                ParsingUtilities.saveWriter.writeValue(writer, overlayModels.get(modelName));
+                writer.write('\n');
+            }
+
+            writer.write("rowCount=");
+            writer.write(Integer.toString(rows.size()));
             writer.write('\n');
+            for (Row row : rows) {
+                row.save(writer, options);
+                writer.write('\n');
+            }
         }
     }
 
@@ -202,8 +276,7 @@ public class Project {
             Pool pool) throws IOException {
         long start = System.currentTimeMillis();
 
-        // version of Refine which wrote the file
-        /* String version = */ reader.readLine();
+        String version = reader.readLine();
 
         Project project = new Project(id);
         int maxCellCount = 0;
@@ -218,24 +291,62 @@ public class Project {
             String field = line.substring(0, equal);
             String value = line.substring(equal + 1);
 
-            // backward compatibility
-            if ("protograph".equals(field)) {
-                field = "overlayModel:freebaseProtograph";
-            }
-
-            if ("columnModel".equals(field)) {
-                project.columnModel.load(reader);
+            if ("isMultiSheetProject".equals(field)) {
+                project.isMultiSheetProject = Boolean.parseBoolean(value);
+            } else if ("activeSheetId".equals(field)) {
+                project.activeSheetId = value;
+            } else if ("sheetCount".equals(field)) {
+                int sheetCount = Integer.parseInt(value);
+                for (int i = 0; i < sheetCount; i++) {
+                    String sheetLine = reader.readLine();
+                    if (sheetLine != null && sheetLine.startsWith("sheet:")) {
+                        int sheetEqual = sheetLine.indexOf('=');
+                        String sheetId = sheetLine.substring(sheetEqual + 1);
+                        
+                        SheetData sheetData = new SheetData(sheetId, sheetId.split("#")[1], "");
+                        
+                        String sheetField;
+                        while ((sheetField = reader.readLine()) != null && !sheetField.startsWith("sheet:")) {
+                            int sheetFieldEqual = sheetField.indexOf('=');
+                            String sheetFieldName = sheetField.substring(0, sheetFieldEqual);
+                            String sheetFieldValue = sheetField.substring(sheetFieldEqual + 1);
+                            
+                            if ("columnModel".equals(sheetFieldName)) {
+                                sheetData.columnModel.load(reader);
+                            } else if ("rowCount".equals(sheetFieldName)) {
+                                int count = Integer.parseInt(sheetFieldValue);
+                                for (int j = 0; j < count; j++) {
+                                    String rowLine = reader.readLine();
+                                    if (rowLine != null) {
+                                        Row row = Row.load(rowLine, pool);
+                                        sheetData.rows.add(row);
+                                        maxCellCount = Math.max(maxCellCount, row.cells.size());
+                                    }
+                                }
+                            }
+                        }
+                        
+                        project.addSheetData(sheetData);
+                    }
+                }
+            } else if ("columnModel".equals(field)) {
+                if (!project.isMultiSheetProject) {
+                    project.columnModel.load(reader);
+                }
             } else if ("history".equals(field)) {
-                project.history.load(project, reader);
+                if (!project.isMultiSheetProject) {
+                    project.history.load(project, reader);
+                }
             } else if ("rowCount".equals(field)) {
-                int count = Integer.parseInt(value);
-
-                for (int i = 0; i < count; i++) {
-                    line = reader.readLine();
-                    if (line != null) {
-                        Row row = Row.load(line, pool);
-                        project.rows.add(row);
-                        maxCellCount = Math.max(maxCellCount, row.cells.size());
+                if (!project.isMultiSheetProject) {
+                    int count = Integer.parseInt(value);
+                    for (int i = 0; i < count; i++) {
+                        line = reader.readLine();
+                        if (line != null) {
+                            Row row = Row.load(line, pool);
+                            project.rows.add(row);
+                            maxCellCount = Math.max(maxCellCount, row.cells.size());
+                        }
                     }
                 }
             } else if (field.startsWith("overlayModel:")) {
@@ -254,7 +365,13 @@ public class Project {
             }
         }
 
-        project.columnModel.setMaxCellIndex(maxCellCount - 1);
+        if (project.isMultiSheetProject && project.activeSheetId != null) {
+            project.setActiveSheet(project.activeSheetId);
+        }
+
+        if (!project.isMultiSheetProject) {
+            project.columnModel.setMaxCellIndex(maxCellCount - 1);
+        }
 
         logger.info(
                 "Loaded project {} from disk in {} sec(s)", id, Long.toString((System.currentTimeMillis() - start) / 1000));

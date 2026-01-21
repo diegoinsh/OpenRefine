@@ -43,6 +43,8 @@ function DataTableView(div) {
   this._sorting = { criteria: [] };
   this._columnHeaderUIs = [];
   this._shownulls = false;
+  
+  this._sheetTabView = null;
 
   this._showRows({start: 0});
 }
@@ -635,6 +637,23 @@ DataTableView.prototype._addResizingControls = function(th, index) {
 
 DataTableView.prototype._showRows = function(paginationOptions, onDone) {
   var self = this;
+  
+  if (theProject.sheetDataMap && Object.keys(theProject.sheetDataMap).length > 1) {
+    if (!this._sheetTabView) {
+      var tabsContainer = $('<div>').addClass('sheet-tabs-container');
+      this._div.prepend(tabsContainer);
+      this._sheetTabView = new SheetTabView(theProject, tabsContainer);
+      
+      window.addEventListener('sheetChanged', function(e) {
+        self._onSheetChanged(e.detail.sheetId);
+      });
+    }
+    
+    if (this._sheetTabView && theProject.activeSheetId) {
+      this._sheetTabView.setActiveSheet(theProject.activeSheetId);
+    }
+  }
+  
   Refine.fetchRows(paginationOptions, this._pageSize, function() {
     self.render();
 
@@ -658,6 +677,20 @@ DataTableView.prototype._onClickFirstPage = function(elmt, evt) {
 
 DataTableView.prototype._onClickLastPage = function(elmt, evt) {
   this._showRows({end: theProject.rowModel.totalRows});
+};
+
+DataTableView.prototype._onSheetChanged = function(sheetId) {
+  var self = this;
+  Refine.postCoreProcess(
+    "switch-sheet",
+    { sheetId: sheetId },
+    {},
+    { },
+    function(data) {
+      theProject.activeSheetId = sheetId;
+      self._showRows({start: 0});
+    }
+  );
 };
 
 DataTableView.prototype._onChangeMinRow = function(elmt, evt) {
