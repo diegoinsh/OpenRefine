@@ -173,6 +173,42 @@ public class History {
         }
     }
 
+    synchronized public List<HistoryEntry> getLastPastEntries(int count, String sheetId) {
+        List<HistoryEntry> filteredEntries = new ArrayList<>();
+        for (HistoryEntry entry : _pastEntries) {
+            if (sheetId == null || sheetId.equals(entry.sheetId)) {
+                filteredEntries.add(entry);
+            }
+        }
+        
+        if (count <= 0) {
+            return new LinkedList<HistoryEntry>(filteredEntries);
+        } else {
+            int start = Math.max(filteredEntries.size() - count, 0);
+            return filteredEntries.subList(start, filteredEntries.size());
+        }
+    }
+
+    synchronized public List<HistoryEntry> getPastEntries(String sheetId) {
+        List<HistoryEntry> filteredEntries = new ArrayList<>();
+        for (HistoryEntry entry : _pastEntries) {
+            if (sheetId == null || sheetId.equals(entry.sheetId)) {
+                filteredEntries.add(entry);
+            }
+        }
+        return filteredEntries;
+    }
+
+    synchronized public List<HistoryEntry> getFutureEntries(String sheetId) {
+        List<HistoryEntry> filteredEntries = new ArrayList<>();
+        for (HistoryEntry entry : _futureEntries) {
+            if (sheetId == null || sheetId.equals(entry.sheetId)) {
+                filteredEntries.add(entry);
+            }
+        }
+        return filteredEntries;
+    }
+
     synchronized public void undoRedo(long lastDoneEntryID) {
         if (lastDoneEntryID == 0) {
             // undo all the way back to the start of the project

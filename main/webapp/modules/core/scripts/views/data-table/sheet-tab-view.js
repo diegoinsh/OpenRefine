@@ -31,9 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-function SheetTabView(project, container) {
+function SheetTabView(project) {
     this._project = project;
-    this._container = container;
     this._activeSheetId = null;
     this._initialize();
 }
@@ -41,50 +40,61 @@ function SheetTabView(project, container) {
 SheetTabView.prototype._initialize = function() {
     var self = this;
     
-    this._container.html(
-        '<div class="sheet-tabs">' +
-            '<div class="sheet-tab-list"></div>' +
-        '</div>'
-    );
-    
+    this._toolPanel = $('#tool-panel');
     this._renderTabs();
 };
 
 SheetTabView.prototype._renderTabs = function() {
     var self = this;
-    var sheetList = this._container.find('.sheet-tab-list');
-    sheetList.empty();
+    
+    this._toolPanel.find('.sheet-tab-header').remove();
     
     var sheets = this._project.sheetDataMap;
+    console.log('[SheetTabView] Rendering tabs, sheets:', sheets);
+    var sheetCount = Object.keys(sheets).length;
+    console.log('[SheetTabView] Sheet count:', sheetCount);
+    
+    if (sheetCount <= 1) {
+        console.log('[SheetTabView] Skipping render, sheet count <= 1');
+        return;
+    }
+    
     for (var sheetId in sheets) {
         if (sheets.hasOwnProperty(sheetId)) {
             var sheetData = sheets[sheetId];
-            var tab = $('<div>')
-                .addClass('sheet-tab')
+            console.log('[SheetTabView] Creating tab for sheet:', sheetId, 'name:', sheetData.sheetName);
+            var tab = $('<div></div>')
+                .addClass('main-view-panel-tab-header')
+                .addClass('sheet-tab-header')
                 .attr('data-sheet-id', sheetId)
+                .attr('href', '#sheet-' + sheetId)
                 .text(sheetData.sheetName);
             
             if (sheetId === this._activeSheetId) {
                 tab.addClass('active');
             }
             
-            tab.on('click', function() {
+            tab.on('click', function(e) {
                 self._switchSheet($(this).attr('data-sheet-id'));
+                e.preventDefault();
             });
             
-            sheetList.append(tab);
+            this._toolPanel.append(tab);
         }
     }
 };
 
 SheetTabView.prototype._switchSheet = function(sheetId) {
+    console.log('[SheetTabView] _switchSheet called with sheetId:', sheetId);
     this._activeSheetId = sheetId;
     this._renderTabs();
     
+    console.log('[SheetTabView] Dispatching sheetChanged event');
     var event = new CustomEvent('sheetChanged', {
         detail: { sheetId: sheetId }
     });
     window.dispatchEvent(event);
+    console.log('[SheetTabView] Event dispatched');
 };
 
 SheetTabView.prototype.setActiveSheet = function(sheetId) {
@@ -93,5 +103,5 @@ SheetTabView.prototype.setActiveSheet = function(sheetId) {
 };
 
 SheetTabView.prototype.dispose = function() {
-    this._container.empty();
+    this._toolPanel.find('.sheet-tab-header').remove();
 };

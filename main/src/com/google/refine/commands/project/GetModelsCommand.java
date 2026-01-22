@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 package com.google.refine.commands.project;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -54,8 +55,21 @@ import com.google.refine.model.ColumnModel;
 import com.google.refine.model.OverlayModel;
 import com.google.refine.model.Project;
 import com.google.refine.model.RecordModel;
+import com.google.refine.model.SheetData;
 
 public class GetModelsCommand extends Command {
+
+    protected static class SheetInfo {
+        @JsonProperty("sheetId")
+        protected String sheetId;
+        @JsonProperty("sheetName")
+        protected String sheetName;
+        
+        protected SheetInfo(String sheetId, String sheetName) {
+            this.sheetId = sheetId;
+            this.sheetName = sheetName;
+        }
+    }
 
     /**
      * This command uses POST but is left CSRF-unprotected as it does not incur a state change.
@@ -84,18 +98,26 @@ public class GetModelsCommand extends Command {
         protected Map<String, LanguageInfo> scripting;
         @JsonProperty("httpHeaders")
         protected Map<String, HttpHeaderInfo> httpHeaders;
+        @JsonProperty("sheetDataMap")
+        protected Map<String, SheetInfo> sheetDataMap;
+        @JsonProperty("activeSheetId")
+        protected String activeSheetId;
 
         protected ModelsResponse(
                 ColumnModel columns,
                 RecordModel records,
                 Map<String, OverlayModel> overlays,
                 Map<String, LanguageInfo> languageInfos,
-                Map<String, HttpHeaderInfo> headers) {
+                Map<String, HttpHeaderInfo> headers,
+                Map<String, SheetInfo> sheetDataMap,
+                String activeSheetId) {
             columnModel = columns;
             recordModel = records;
             overlayModels = overlays;
             scripting = languageInfos;
             httpHeaders = headers;
+            this.sheetDataMap = sheetDataMap;
+            this.activeSheetId = activeSheetId;
         }
     }
 
@@ -136,12 +158,61 @@ public class GetModelsCommand extends Command {
             headersMap.put(headerLabel, info);
         }
 
-        respondJSON(response, new ModelsResponse(
-                project.columnModel,
-                project.recordModel,
-                project.overlayModels,
-                prefixesMap,
-                headersMap));
+        Map<String, SheetInfo> sheetInfoMap = new HashMap<>();
+        try {
+            Field sheetDataMapField = Project.class.getDeclaredField("sheetDataMap");
+            sheetDataMapField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Map<String, SheetData> sheetDataMap = (Map<String, SheetData>) sheetDataMapField.get(project);
+            
+            Field activeSheetIdField = Project.class.getDeclaredField("activeSheetId");
+            activeSheetIdField.setAccessible(true);
+            String activeSheetId = (String) activeSheetIdField.get(project);
+            
+            if (sheetDataMap != null && !sheetDataMap.isEmpty()) {
+                for (String sheetId : sheetDataMap.keySet()) {
+                    SheetData sheetData = sheetDataMap.get(sheetId);
+                    sheetInfoMap.put(sheetId, new SheetInfo(sheetId, sheetData.sheetName));
+                }
+            }
+            
+            respondJSON(response, new ModelsResponse(
+                    project.columnModel,
+                    project.recordModel,
+                    project.overlayModels,
+                    prefixesMap,
+                    headersMap,
+                    sheetInfoMap,
+                    activeSheetId));
+        } catch (NoSuchFieldException e) {
+            respondJSON(response, new ModelsResponse(
+                    project.columnModel,
+                    project.recordModel,
+                    project.overlayModels,
+                    prefixesMap,
+                    headersMap,
+                    sheetInfoMap,
+                    null));
+        } catch (IllegalAccessException e) {
+            respondJSON(response, new ModelsResponse(
+                    project.columnModel,
+                    project.recordModel,
+                    project.overlayModels,
+                    prefixesMap,
+                    headersMap,
+                    sheetInfoMap,
+                    null));
+        } catch (Exception e) {
+            e.printStackTrace();
+            respondJSON(response, new ModelsResponse(
+                    project.columnModel,
+                    project.recordModel,
+                    project.overlayModels,
+                    prefixesMap,
+                    headersMap,
+                    sheetInfoMap,
+                    null));
+        }
     }
 
 }

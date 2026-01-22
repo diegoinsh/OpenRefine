@@ -638,20 +638,30 @@ DataTableView.prototype._addResizingControls = function(th, index) {
 DataTableView.prototype._showRows = function(paginationOptions, onDone) {
   var self = this;
   
+  console.log('[DataTableView] _showRows called');
+  console.log('[DataTableView] theProject.sheetDataMap:', theProject.sheetDataMap);
+  console.log('[DataTableView] sheetDataMap keys:', theProject.sheetDataMap ? Object.keys(theProject.sheetDataMap) : 'undefined');
+  console.log('[DataTableView] sheetDataMap length:', theProject.sheetDataMap ? Object.keys(theProject.sheetDataMap).length : 0);
+  
   if (theProject.sheetDataMap && Object.keys(theProject.sheetDataMap).length > 1) {
+    console.log('[DataTableView] Multi-sheet project detected, creating SheetTabView');
     if (!this._sheetTabView) {
-      var tabsContainer = $('<div>').addClass('sheet-tabs-container');
-      this._div.prepend(tabsContainer);
-      this._sheetTabView = new SheetTabView(theProject, tabsContainer);
+      console.log('[DataTableView] Creating new SheetTabView');
+      this._sheetTabView = new SheetTabView(theProject);
       
+      console.log('[DataTableView] Adding sheetChanged event listener');
       window.addEventListener('sheetChanged', function(e) {
+        console.log('[DataTableView] sheetChanged event received, sheetId:', e.detail.sheetId);
         self._onSheetChanged(e.detail.sheetId);
       });
     }
     
     if (this._sheetTabView && theProject.activeSheetId) {
+      console.log('[DataTableView] Setting active sheet:', theProject.activeSheetId);
       this._sheetTabView.setActiveSheet(theProject.activeSheetId);
     }
+  } else {
+    console.log('[DataTableView] Not a multi-sheet project or sheetDataMap is empty');
   }
   
   Refine.fetchRows(paginationOptions, this._pageSize, function() {
@@ -680,15 +690,29 @@ DataTableView.prototype._onClickLastPage = function(elmt, evt) {
 };
 
 DataTableView.prototype._onSheetChanged = function(sheetId) {
+  console.log('[DataTableView] _onSheetChanged called with sheetId:', sheetId);
   var self = this;
+  console.log('[DataTableView] Switching to sheet:', sheetId);
+  
   Refine.postCoreProcess(
     "switch-sheet",
     { sheetId: sheetId },
     {},
-    { },
-    function(data) {
-      theProject.activeSheetId = sheetId;
-      self._showRows({start: 0});
+    {},
+    {
+      onDone: function(data) {
+        console.log('[DataTableView] Switch sheet response received');
+        console.log('[DataTableView] Switch sheet response:', data);
+        console.log('[DataTableView] Before reinitialize, theProject.activeSheetId:', theProject.activeSheetId);
+        
+        Refine.reinitializeProjectData(function() {
+          console.log('[DataTableView] Project data reinitialized');
+          console.log('[DataTableView] After reinitialize, theProject.activeSheetId:', theProject.activeSheetId);
+          console.log('[DataTableView] After reinitialize, theProject.columnModel:', theProject.columnModel);
+          console.log('[DataTableView] After reinitialize, theProject.rows:', theProject.rows);
+          self._showRows({start: 0});
+        });
+      }
     }
   );
 };

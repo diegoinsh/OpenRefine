@@ -77,6 +77,7 @@ function registerCommands() {
   RS.registerCommand(module, "rename-project", new Packages.com.google.refine.commands.project.RenameProjectCommand());
   
   RS.registerCommand(module, "get-models", new Packages.com.google.refine.commands.project.GetModelsCommand());
+  RS.registerCommand(module, "switch-sheet", new Packages.com.google.refine.commands.project.SwitchSheetCommand());
   RS.registerCommand(module, "get-rows", new Packages.com.google.refine.commands.row.GetRowsCommand());
   RS.registerCommand(module, "get-processes", new Packages.com.google.refine.commands.history.GetProcessesCommand());
   RS.registerCommand(module, "get-history", new Packages.com.google.refine.commands.history.GetHistoryCommand());
@@ -532,6 +533,7 @@ function init() {
       "scripts/views/data-table/cell-renderers/registry.js",
 
       "scripts/views/data-table/data-table-view.js",
+      "scripts/views/data-table/sheet-tab-view.js",
       "scripts/views/data-table/cell-ui.js",
       "scripts/views/data-table/column-header-ui.js",
       "scripts/views/data-table/menu-facets.js",

@@ -90,7 +90,7 @@ Refine.ExcelParserUI.prototype.getOptions = function() {
     options.sheetOptions[index] = self._getSheetOptions(index);
   });
   
-  if (options.sheets.length > 1) {
+  if (options.sheets.length === 1) {
     options.activeSheetIndex = this._activeSheetIndex;
     var activeSheetInfo = selectedSheets.find(function(s) { return s.index === self._activeSheetIndex; });
     if (activeSheetInfo) {
@@ -99,7 +99,8 @@ Refine.ExcelParserUI.prototype.getOptions = function() {
       options.sheetOptions = {};
       options.sheetOptions[self._activeSheetIndex] = activeSheetOptions;
     }
-    return options;
+  } else if (options.sheets.length > 1) {
+    options.activeSheetIndex = this._activeSheetIndex;
   }
   
   if (this._optionContainerElmts.ignoreCheckbox[0].checked) {
@@ -110,7 +111,7 @@ Refine.ExcelParserUI.prototype.getOptions = function() {
   if (this._optionContainerElmts.headerLinesCheckbox[0].checked) {
     options.headerLines = parseIntDefault(this._optionContainerElmts.headerLinesInput[0].value, 0);
   } else {
-    options.headerLines = 0;
+    options.headerLines = parseIntDefault(this._optionContainerElmts.headerLinesInput[0].value, 1);
   }
   if (this._optionContainerElmts.skipCheckbox[0].checked) {
     options.skipDataLines = parseIntDefault(this._optionContainerElmts.skipInput[0].value, 0);
@@ -179,7 +180,7 @@ Refine.ExcelParserUI.prototype._getSheetOptions = function(sheetIndex) {
   if (headerCheckbox.length > 0 && headerCheckbox[0].checked) {
     options.headerLines = parseIntDefault(headerInput[0].value, 0);
   } else {
-    options.headerLines = 0;
+    options.headerLines = parseIntDefault(headerInput.length > 0 ? headerInput[0].value : 1, 1);
   }
   if (skipCheckbox.length > 0 && skipCheckbox[0].checked) {
     options.skipDataLines = parseIntDefault(skipInput[0].value, 0);
@@ -671,7 +672,8 @@ Refine.ExcelParserUI.prototype._updatePreview = function() {
 
   this._progressContainer.show();
 
-  this._controller.updateFormatAndOptions(this.getOptions(), function(result) {
+  var previewOptions = this._getPreviewOptions();
+  this._controller.updateFormatAndOptions(previewOptions, function(result) {
     if (result.status == "ok") {
       self._controller.getPreviewData(function(projectData) {
         self._progressContainer.hide();
@@ -682,6 +684,77 @@ Refine.ExcelParserUI.prototype._updatePreview = function() {
   }, function() {
 	  self._progressContainer.hide();
   });
+};
+
+Refine.ExcelParserUI.prototype._getPreviewOptions = function() {
+  var self = this;
+  var options = {
+    sheets: [],
+    sheetOptions: {}
+  };
+
+  var selectedSheets = [];
+  this._optionContainerElmts.sheetRecordContainer.find('input:checked').each(function() {
+    var index = parseInt($(this).attr('index'));
+    selectedSheets.push({
+      index: index,
+      record: self._config.sheetRecords[index]
+    });
+    options.sheets.push(self._config.sheetRecords[index]);
+    options.sheetOptions[index] = self._getSheetOptions(index);
+  });
+
+  if (selectedSheets.length > 0) {
+    var activeSheetInfo = selectedSheets.find(function(s) { return s.index === self._activeSheetIndex; });
+    if (activeSheetInfo) {
+      options.sheets = [activeSheetInfo.record];
+      var activeSheetOptions = options.sheetOptions[self._activeSheetIndex];
+      options.sheetOptions = {};
+      options.sheetOptions[self._activeSheetIndex] = activeSheetOptions;
+    }
+  }
+
+  var parseIntDefault = function(s, def) {
+    try {
+      var n = parseInt(s,10);
+      if (!isNaN(n)) {
+        return n;
+      }
+    } catch (e) {
+    }
+    return def;
+  };
+  
+  if (this._optionContainerElmts.ignoreCheckbox[0].checked) {
+    options.ignoreLines = parseIntDefault(this._optionContainerElmts.ignoreInput[0].value, -1);
+  } else {
+    options.ignoreLines = -1;
+  }
+  if (this._optionContainerElmts.headerLinesCheckbox[0].checked) {
+    options.headerLines = parseIntDefault(this._optionContainerElmts.headerLinesInput[0].value, 0);
+  } else {
+    options.headerLines = parseIntDefault(this._optionContainerElmts.headerLinesInput[0].value, 1);
+  }
+  if (this._optionContainerElmts.skipCheckbox[0].checked) {
+    options.skipDataLines = parseIntDefault(this._optionContainerElmts.skipInput[0].value, 0);
+  } else {
+    options.skipDataLines = 0;
+  }
+  if (this._optionContainerElmts.limitCheckbox[0].checked) {
+    options.limit = parseIntDefault(this._optionContainerElmts.limitInput[0].value, -1);
+  } else {
+    options.limit = -1;
+  }
+  options.storeBlankRows = this._optionContainerElmts.storeBlankRowsCheckbox[0].checked;
+  options.storeBlankColumns = this._optionContainerElmts.storeBlankColumnsCheckbox[0].checked;
+  options.storeBlankCellsAsNulls = this._optionContainerElmts.storeBlankCellsAsNullsCheckbox[0].checked;
+  options.includeFileSources = this._optionContainerElmts.includeFileSourcesCheckbox[0].checked;
+  options.includeArchiveFileName = this._optionContainerElmts.includeArchiveFileCheckbox[0].checked;
+  options.forceText = this._optionContainerElmts.forceTextCheckbox[0].checked;
+
+  options.disableAutoPreview = this._optionContainerElmts.disableAutoPreviewCheckbox[0].checked;
+
+  return options;
 };
 
 Refine.ExcelParserUI.prototype._selectAll = function() {

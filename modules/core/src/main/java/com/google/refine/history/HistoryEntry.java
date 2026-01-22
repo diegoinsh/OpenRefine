@@ -67,6 +67,8 @@ public class HistoryEntry {
     final public long id;
     @JsonIgnore
     final public long projectID;
+    @JsonProperty("sheetId")
+    final public String sheetId;
     @JsonProperty("description")
     final public String description;
     @JsonProperty("time")
@@ -104,27 +106,26 @@ public class HistoryEntry {
     protected HistoryEntry(
             @JsonProperty("id") long id,
             @JacksonInject("projectID") long projectID,
+            @JsonProperty("sheetId") String sheetId,
             @JsonProperty("description") String description,
             @JsonProperty(OPERATION) AbstractOperation operation) {
-        this(id, projectID, description, operation, Instant.now());
+        this(id, projectID, sheetId, description, operation, Instant.now());
     }
 
     public HistoryEntry(long id, Project project, String description, AbstractOperation operation, Change change) {
-        this(id, project.id, description, operation, Instant.now());
+        this(id, project.id, project.activeSheetId, description, operation, Instant.now());
         setChange(change);
     }
 
     @Deprecated(since = "3.8")
     protected HistoryEntry(long id, long projectID, String description, AbstractOperation operation, OffsetDateTime time) {
-        // TODO: I'm not sure attempting to preserve this backward compatibility is worthwhile, since:
-        // a) this constructor is unused in the core, and
-        // b) there's a public field which has changed datatype
-        this(id, projectID, description, operation, time.toInstant());
+        this(id, projectID, null, description, operation, time.toInstant());
     }
 
-    protected HistoryEntry(long id, long projectID, String description, AbstractOperation operation, Instant time) {
+    protected HistoryEntry(long id, long projectID, String sheetId, String description, AbstractOperation operation, Instant time) {
         this.id = id;
         this.projectID = projectID;
+        this.sheetId = sheetId;
         this.description = description;
         this.operation = operation;
         this.time = time;

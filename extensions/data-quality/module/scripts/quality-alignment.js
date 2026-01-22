@@ -191,8 +191,9 @@ QualityAlignment.autoLaunchIfNeeded = function() {
   function checkAndLaunch() {
     if (!rulesLoaded || !resultsLoaded) return;
 
-    // If there are rules or results, initialize the tabs first
-    if (hasRules || hasResults) {
+    // Only launch if there are actual rules configured
+    // Don't auto-launch just because there are saved results
+    if (hasRules) {
       // Check if this is a page refresh (has saved tab state) or new project entry
       var savedTab = sessionStorage.getItem('quality_current_tab_' + theProject.id);
       var isRefresh = savedTab !== null;
@@ -213,6 +214,15 @@ QualityAlignment.autoLaunchIfNeeded = function() {
         // New project entry: switch to data view after tabs are initialized
         self.switchTab('#view-panel', false);
       }
+    } else if (hasResults) {
+      // Only have results but no rules - this shouldn't happen in normal flow
+      // Just load results without launching tabs
+      console.log('[QualityAlignment] Found results but no rules, loading results only');
+      self._currentResults = self._lastCheckResult;
+      self._buildCellErrorMap();
+      self._refreshDataTable();
+    } else {
+      console.log('[QualityAlignment] No rules or results found, skipping auto-launch');
     }
   }
 

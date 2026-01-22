@@ -303,7 +303,13 @@ public class Project {
                         int sheetEqual = sheetLine.indexOf('=');
                         String sheetId = sheetLine.substring(sheetEqual + 1);
                         
-                        SheetData sheetData = new SheetData(sheetId, sheetId.split("#")[1], "");
+                        String sheetName = sheetId;
+                        String[] parts = sheetId.split("#");
+                        if (parts.length > 1) {
+                            sheetName = parts[1];
+                        }
+                        
+                        SheetData sheetData = new SheetData(sheetId, sheetName, "");
                         
                         String sheetField;
                         while ((sheetField = reader.readLine()) != null && !sheetField.startsWith("sheet:")) {
