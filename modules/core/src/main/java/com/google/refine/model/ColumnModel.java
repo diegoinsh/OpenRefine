@@ -49,6 +49,8 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ColumnModel {
 
@@ -238,29 +240,69 @@ public class ColumnModel {
 
     synchronized public void load(LineNumberReader reader) throws IOException {
         String line;
+        int linesRead = 0;
+        Logger logger = LoggerFactory.getLogger("com.google.refine.model.ColumnModel");
+        logger.info("ColumnModel.load() starting...");
+        
         while ((line = reader.readLine()) != null && !"/e/".equals(line)) {
-            int equal = line.indexOf('=');
-            CharSequence field = line.subSequence(0, equal);
-            String value = line.substring(equal + 1);
-
-            if ("maxCellIndex".equals(field)) {
-                _maxCellIndex = Integer.parseInt(value);
-            } else if ("keyColumnIndex".equals(field)) {
-                _keyColumnIndex = Integer.parseInt(value);
-            } else if ("columnCount".equals(field)) {
-                int count = Integer.parseInt(value);
-
-                for (int i = 0; i < count; i++) {
-                    columns.add(Column.load(reader.readLine()));
+            linesRead++;
+            logger.info("ColumnModel.load() processing line: " + line.substring(0, Math.min(50, line.length())));
+            
+            try {
+                int equal = line.indexOf('=');
+                if (equal == -1) {
+                    continue;
                 }
-            } else if ("columnGroupCount".equals(field)) {
-                int count = Integer.parseInt(value);
+                CharSequence field = line.subSequence(0, equal);
+                String value = line.substring(equal + 1);
 
-                for (int i = 0; i < count; i++) {
-                    columnGroups.add(ColumnGroup.load(reader.readLine()));
+                if ("maxCellIndex".equals(field)) {
+                    _maxCellIndex = Integer.parseInt(value);
+                } else if ("keyColumnIndex".equals(field)) {
+                    _keyColumnIndex = Integer.parseInt(value);
+                } else if ("columnCount".equals(field)) {
+                    int count = Integer.parseInt(value);
+                    logger.info("ColumnModel.load() found columnCount=" + count);
+
+                    for (int i = 0; i < count; i++) {
+                        String columnLine = reader.readLine();
+                        logger.info("ColumnModel.load() reading column " + i + ": " + columnLine.substring(0, Math.min(50, columnLine.length())));
+                        if ("/e/".equals(columnLine)) {
+                            logger.info("ColumnModel.load() found /e/ during column reading at i=" + i + ", breaking early");
+                            break;
+                        }
+                        columns.add(Column.load(columnLine));
+                    }
+                } else if ("columnGroupCount".equals(field)) {
+                    int count = Integer.parseInt(value);
+                    logger.info("ColumnModel.load() found columnGroupCount=" + count);
+
+                    for (int i = 0; i < count; i++) {
+                        String groupLine = reader.readLine();
+                        if ("/e/".equals(groupLine)) {
+                            logger.info("ColumnModel.load() found /e/ during group reading at i=" + i + ", breaking early");
+                            break;
+                        }
+                        columnGroups.add(ColumnGroup.load(groupLine));
+                    }
+                    
+                    if (count == 0) {
+                        // 如果 columnGroupCount=0，列模型加载完成，直接返回
+                        // Project.java 的外层循环会继续处理 rowCount 等
+                        // 注意：不读取 /e/ 标记，由外层循环处理
+                        logger.info("ColumnModel.load() finished early after columnGroupCount=0, columns.size=" + columns.size());
+                        internalInitialize();
+                        logger.info("ColumnModel.load() returning early, next line should be /e/");
+                        return;
+                    }
                 }
+            } catch (Exception e) {
+                logger.error("ColumnModel.load() exception: " + e.getMessage());
+                continue;
             }
         }
+        
+        logger.info("ColumnModel.load() finished at /e/. linesRead=" + linesRead + ", columns.size=" + columns.size());
 
         internalInitialize();
     }

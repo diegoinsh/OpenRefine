@@ -60,11 +60,11 @@ public class MassRowChange implements Change {
     @Override
     public void apply(Project project) {
         synchronized (project) {
-            _oldRows = new ArrayList<Row>(project.rows);
-            project.rows.clear();
-            project.rows.addAll(_newRows);
+            _oldRows = new ArrayList<Row>(project.getActiveSheetData().rows);
+            project.getActiveSheetData().rows.clear();
+            project.getActiveSheetData().rows.addAll(_newRows);
 
-            project.columnModel.clearPrecomputes();
+            project.getActiveSheetData().columnModel.clearPrecomputes();
             ProjectManager.singleton.getLookupCacheManager().flushLookupsInvolvingProject(project.id);
 
             project.update();
@@ -74,10 +74,10 @@ public class MassRowChange implements Change {
     @Override
     public void revert(Project project) {
         synchronized (project) {
-            project.rows.clear();
-            project.rows.addAll(_oldRows);
+            project.getActiveSheetData().rows.clear();
+            project.getActiveSheetData().rows.addAll(_oldRows);
 
-            project.columnModel.clearPrecomputes();
+            project.getActiveSheetData().columnModel.clearPrecomputes();
             ProjectManager.singleton.getLookupCacheManager().flushLookupsInvolvingProject(project.id);
 
             project.update();

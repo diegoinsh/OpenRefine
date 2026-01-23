@@ -66,21 +66,21 @@ public class MassRowColumnChange implements Change {
     public void apply(Project project) {
         synchronized (project) {
             if (_oldColumnGroups == null) {
-                _oldColumnGroups = new ArrayList<ColumnGroup>(project.columnModel.columnGroups);
+                _oldColumnGroups = new ArrayList<ColumnGroup>(project.getActiveSheetData().columnModel.columnGroups);
             }
             if (_oldColumns == null) {
-                _oldColumns = new ArrayList<Column>(project.columnModel.columns);
+                _oldColumns = new ArrayList<Column>(project.getActiveSheetData().columnModel.columns);
             }
             if (_oldRows == null) {
-                _oldRows = new ArrayList<Row>(project.rows);
+                _oldRows = new ArrayList<Row>(project.getActiveSheetData().rows);
             }
 
-            project.columnModel.columns.clear();
-            project.columnModel.columns.addAll(_newColumns);
-            project.columnModel.columnGroups.clear();
+            project.getActiveSheetData().columnModel.columns.clear();
+            project.getActiveSheetData().columnModel.columns.addAll(_newColumns);
+            project.getActiveSheetData().columnModel.columnGroups.clear();
 
-            project.rows.clear();
-            project.rows.addAll(_newRows);
+            project.getActiveSheetData().rows.clear();
+            project.getActiveSheetData().rows.addAll(_newRows);
 
             ProjectManager.singleton.getLookupCacheManager().flushLookupsInvolvingProject(project.id);
 
@@ -91,14 +91,14 @@ public class MassRowColumnChange implements Change {
     @Override
     public void revert(Project project) {
         synchronized (project) {
-            project.columnModel.columns.clear();
-            project.columnModel.columns.addAll(_oldColumns);
+            project.getActiveSheetData().columnModel.columns.clear();
+            project.getActiveSheetData().columnModel.columns.addAll(_oldColumns);
 
-            project.columnModel.columnGroups.clear();
-            project.columnModel.columnGroups.addAll(_oldColumnGroups);
+            project.getActiveSheetData().columnModel.columnGroups.clear();
+            project.getActiveSheetData().columnModel.columnGroups.addAll(_oldColumnGroups);
 
-            project.rows.clear();
-            project.rows.addAll(_oldRows);
+            project.getActiveSheetData().rows.clear();
+            project.getActiveSheetData().rows.addAll(_oldRows);
 
             ProjectManager.singleton.getLookupCacheManager().flushLookupsInvolvingProject(project.id);
 
