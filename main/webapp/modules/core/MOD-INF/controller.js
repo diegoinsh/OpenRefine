@@ -558,6 +558,7 @@ function init() {
       "scripts/dialogs/common-transform-dialog.js",
       "scripts/dialogs/column-mapping-dialog.js",
       "scripts/dialogs/custom-tabular-exporter-dialog.js",
+      "scripts/dialogs/multi-sheet-exporter-dialog.js",
       "scripts/dialogs/sql-exporter-dialog.js",
       "scripts/dialogs/expression-column-dialog.js",
       "scripts/dialogs/http-headers-dialog.js",

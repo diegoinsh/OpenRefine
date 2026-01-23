@@ -45,6 +45,8 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.net.PercentEscaper;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hc.core5.http.HttpStatus;
@@ -128,7 +130,10 @@ public class ExportRowsCommand extends Command {
                 }
             }
 
-            if (exporter instanceof WriterExporter) {
+            String sheetIdsParam = params.get("sheetIds");
+            if (sheetIdsParam != null && (format.equals("xls") || format.equals("xlsx"))) {
+                exportMultipleSheets(project, params, engine, exporter, sheetIdsParam, response, request);
+            } else if (exporter instanceof WriterExporter) {
                 String encoding = params.get("encoding");
 
                 response.setCharacterEncoding(encoding != null ? encoding : "UTF-8");
@@ -161,6 +166,44 @@ public class ExportRowsCommand extends Command {
             }
         } finally {
             ProjectManager.singleton.setBusy(false);
+        }
+    }
+
+    private void exportMultipleSheets(Project project, Map<String, String> params, Engine engine,
+            Exporter exporter, String sheetIdsParam, HttpServletResponse response,
+            HttpServletRequest request) throws IOException {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode sheetIdsNode = mapper.readTree(sheetIdsParam);
+            
+            if (!sheetIdsNode.isArray()) {
+                throw new IOException("Invalid sheetIds format");
+            }
+            
+            String[] sheetIds = new String[sheetIdsNode.size()];
+            for (int i = 0; i < sheetIdsNode.size(); i++) {
+                sheetIds[i] = sheetIdsNode.get(i).asText();
+            }
+            
+            params.put("sheetIds", String.join(",", sheetIds));
+            
+            String outputColumnHeaders = params.get("outputColumnHeaders");
+            String outputEmptyRows = params.get("outputEmptyRows");
+            
+            if (outputColumnHeaders != null && outputEmptyRows != null) {
+                JsonNode optionsNode = mapper.createObjectNode();
+                ((com.fasterxml.jackson.databind.node.ObjectNode) optionsNode).put("outputColumnHeaders", "true".equals(outputColumnHeaders));
+                ((com.fasterxml.jackson.databind.node.ObjectNode) optionsNode).put("outputBlankRows", "true".equals(outputEmptyRows));
+                params.put("options", mapper.writeValueAsString(optionsNode));
+            }
+            
+            response.setCharacterEncoding("UTF-8");
+            OutputStream stream = response.getOutputStream();
+            ((StreamExporter) exporter).export(project, params, engine, stream);
+            stream.close();
+        } catch (Exception e) {
+            logger.error("Error exporting multiple sheets: " + e.getMessage(), e);
+            throw new IOException("Error exporting multiple sheets: " + e.getMessage(), e);
         }
     }
 }
