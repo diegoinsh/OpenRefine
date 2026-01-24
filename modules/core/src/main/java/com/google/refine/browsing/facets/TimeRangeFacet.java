@@ -281,7 +281,7 @@ public class TimeRangeFacet implements Facet {
 
     public void initializeFromConfig(TimeRangeFacetConfig config, Project project) {
         _config = config;
-        if (_config._columnName.length() > 0) {
+        if (_config._columnName != null && _config._columnName.length() > 0) {
             Column column = project.columnModel.getColumnByName(_config._columnName);
             if (column != null) {
                 _cellIndex = column.getCellIndex();
@@ -293,7 +293,11 @@ public class TimeRangeFacet implements Facet {
         }
 
         try {
-            _eval = MetaParser.parse(_config._expression);
+            if (_config._expression != null && _config._expression.length() > 0) {
+                _eval = MetaParser.parse(_config._expression);
+            } else {
+                _eval = null;
+            }
         } catch (ParsingException e) {
             _errorMessage = e.getMessage();
         }

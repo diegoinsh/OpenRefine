@@ -36,6 +36,8 @@ function BrowsingEngine(div, facetConfigs) {
   this._mode = theProject.recordModel.hasRecords ? "record-based" : "row-based";
 
   this._facets = [];
+  this._sheetFacets = {};
+  this._currentSheetId = theProject.activeSheetId || 'default';
   this._initializeUI();
 
   if (facetConfigs.length > 0) {
@@ -47,6 +49,8 @@ function BrowsingEngine(div, facetConfigs) {
       this._facets.push({ elmt: elmt, facet: facet });
       facet.prepareUI();
     }
+    
+    this._sheetFacets[this._currentSheetId] = this.getFacetUIStates();
   }
 }
 
@@ -186,9 +190,49 @@ BrowsingEngine.prototype.setJSON = function(engineConfig, updateLater) {
     this._facets.push({ elmt: elmt, facet: facet });
     facet.prepareUI();
   }
+  
   if (!updateLater) {
+    this._sheetFacets[this._currentSheetId] = this.getFacetUIStates();
     Refine.update({ engineChanged: true });
   }
+};
+
+BrowsingEngine.prototype.saveCurrentSheetFacets = function() {
+  this._sheetFacets[this._currentSheetId] = this.getFacetUIStates();
+  console.log('[BrowsingEngine] Saved facets for sheet:', this._currentSheetId, this._sheetFacets[this._currentSheetId]);
+};
+
+BrowsingEngine.prototype.loadSheetFacets = function(sheetId) {
+  console.log('[BrowsingEngine] Loading facets for sheet:', sheetId);
+  console.log('[BrowsingEngine] Saved facets:', this._sheetFacets);
+  
+  this._currentSheetId = sheetId;
+  
+  var uiStates = this._sheetFacets[sheetId] || [];
+  console.log('[BrowsingEngine] Loading UI states:', uiStates);
+  
+  var facetConfigs = [];
+  for (var i = 0; i < uiStates.length; i++) {
+    var uiState = uiStates[i];
+    var facetConfig = uiState.c;
+    if (uiState.s) {
+      facetConfig.selection = uiState.s;
+    }
+    facetConfigs.push(facetConfig);
+  }
+  console.log('[BrowsingEngine] Converted to facet configs:', facetConfigs);
+  
+  var engineConfig = {
+    facets: facetConfigs,
+    mode: this._mode
+  };
+  
+  this.setJSON(engineConfig, true);
+  
+  var self = this;
+  setTimeout(function() {
+    self.update();
+  }, 100);
 };
 
 
@@ -222,6 +266,7 @@ BrowsingEngine.prototype.addFacet = function(type, config, options, avoidDuplica
      }
   });
 
+  this.saveCurrentSheetFacets();
   Refine.update({ engineChanged: true });
 };
 
@@ -255,6 +300,8 @@ BrowsingEngine.prototype.removeFacet = function(facet) {
       this._facets[i].facet.update();
     }
   }
+
+  this.saveCurrentSheetFacets();
 
   if (update) {
     Refine.update({ engineChanged: true });

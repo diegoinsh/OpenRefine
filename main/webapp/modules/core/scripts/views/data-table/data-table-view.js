@@ -35,7 +35,7 @@ function DataTableView(div) {
   this._div = div;
 
   this._gridPagesSizes = JSON.parse(Refine.getPreference("ui.browsing.pageSize", null));
-  this._gridPagesSizes = this._checkPaginationSize(this._gridPagesSizes, [ 5, 10, 25, 50, 100, 500, 1000 ]);
+  this._gridPagesSizes = this._checkPaginationSize(this._gridPagesSizes, [ 100, 5, 10, 25, 50, 500, 1000 ]);
   this._pageSize = ( this._gridPagesSizes[0] < 10 ) ? 10 : this._gridPagesSizes[0];
 
   this._showRecon = true;
@@ -694,6 +694,9 @@ DataTableView.prototype._onSheetChanged = function(sheetId) {
   var self = this;
   console.log('[DataTableView] Switching to sheet:', sheetId);
   
+  var previousSheetId = theProject.activeSheetId || 'default';
+  console.log('[DataTableView] Previous sheet ID:', previousSheetId);
+  
   Refine.postCoreProcess(
     "switch-sheet",
     { sheetId: sheetId },
@@ -710,6 +713,9 @@ DataTableView.prototype._onSheetChanged = function(sheetId) {
           console.log('[DataTableView] After reinitialize, theProject.activeSheetId:', theProject.activeSheetId);
           console.log('[DataTableView] After reinitialize, theProject.columnModel:', theProject.columnModel);
           console.log('[DataTableView] After reinitialize, theProject.rows:', theProject.rows);
+          
+          ui.browsingEngine.loadSheetFacets(sheetId);
+          
           self._showRows({start: 0});
         });
       }

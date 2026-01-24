@@ -516,8 +516,8 @@ ul.sorting-dialog-blank-error-positions>li {
 .preview-tab-container {
   background: var(--fill-secondary);
   border-bottom: 2px solid var(--chrome-primary);
-  padding: 8px 12px;
-  margin-bottom: 10px;
+  padding: 8px 12px 0 8px;
+  margin-bottom: 1px;
 }
 
 .preview-tab-list {
@@ -530,7 +530,8 @@ ul.sorting-dialog-blank-error-positions>li {
   padding: 6px 14px;
   background: var(--fill-primary);
   border: 1px solid var(--chrome-secondary);
-  border-radius: 4px;
+  border-top-right-radius: 5px;
+  border-top-left-radius: 5px;
   cursor: pointer;
   font-size: 0.95em;
   transition: all 0.2s ease;
@@ -551,8 +552,7 @@ ul.sorting-dialog-blank-error-positions>li {
 .option-tab-container {
   background: var(--fill-secondary);
   border-bottom: 2px solid var(--chrome-primary);
-  padding: 8px 12px;
-  margin-bottom: 10px;
+  padding: 8px 12px 0;
 }
 
 .option-tab-list {
@@ -565,7 +565,8 @@ ul.sorting-dialog-blank-error-positions>li {
   padding: 6px 14px;
   background: var(--fill-primary);
   border: 1px solid var(--chrome-secondary);
-  border-radius: 4px;
+  border-top-right-radius: 5px;
+  border-top-left-radius: 5px;
   cursor: pointer;
   font-size: 0.95em;
   transition: all 0.2s ease;

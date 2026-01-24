@@ -421,7 +421,7 @@ public class ScatterplotFacet implements Facet {
 
         t = createRotationMatrix(config.rotation, config.l);
 
-        if (config.columnName_x.length() > 0) {
+        if (config.columnName_x != null && config.columnName_x.length() > 0) {
             Column x_column = project.columnModel.getColumnByName(config.columnName_x);
             if (x_column != null) {
                 columnIndex_x = x_column.getCellIndex();
@@ -437,12 +437,16 @@ public class ScatterplotFacet implements Facet {
         }
 
         try {
-            eval_x = MetaParser.parse(config.expression_x);
+            if (config.expression_x != null && config.expression_x.length() > 0) {
+                eval_x = MetaParser.parse(config.expression_x);
+            } else {
+                eval_x = null;
+            }
         } catch (ParsingException e) {
             errorMessage_x = e.getMessage();
         }
 
-        if (config.columnName_y.length() > 0) {
+        if (config.columnName_y != null && config.columnName_y.length() > 0) {
             Column y_column = project.columnModel.getColumnByName(config.columnName_y);
             if (y_column != null) {
                 columnIndex_y = y_column.getCellIndex();
@@ -458,7 +462,11 @@ public class ScatterplotFacet implements Facet {
         }
 
         try {
-            eval_y = MetaParser.parse(config.expression_y);
+            if (config.expression_y != null && config.expression_y.length() > 0) {
+                eval_y = MetaParser.parse(config.expression_y);
+            } else {
+                eval_y = null;
+            }
         } catch (ParsingException e) {
             errorMessage_y = e.getMessage();
         }
