@@ -59,35 +59,40 @@ SheetTabView.prototype._renderTabs = function() {
         return;
     }
     
+    TabManager.registerTabGroup('sheet-tabs', '#tool-panel');
+    
     for (var sheetId in sheets) {
         if (sheets.hasOwnProperty(sheetId)) {
             var sheetData = sheets[sheetId];
             console.log('[SheetTabView] Creating tab for sheet:', sheetId, 'name:', sheetData.sheetName);
+            
             var tab = $('<div></div>')
                 .addClass('main-view-panel-tab-header')
                 .addClass('sheet-tab-header')
                 .attr('data-sheet-id', sheetId)
-                .attr('href', '#sheet-' + sheetId)
+                .attr('href', '#view-panel')
                 .text(sheetData.sheetName);
             
             if (sheetId === this._activeSheetId) {
                 tab.addClass('active');
             }
             
-            tab.on('click', function(e) {
-                self._switchSheet($(this).attr('data-sheet-id'));
-                e.preventDefault();
-            });
-            
             this._toolPanel.append(tab);
+            
+            TabManager.registerTab('sheet-tabs', tab, '#view-panel', function(e) {
+                self._switchSheet($(e.currentTarget).attr('data-sheet-id'));
+            }, 0);
         }
     }
+};
+
+SheetTabView.prototype._escapeSelector = function(sheetId) {
+    return sheetId.replace(/([!"#$%&'()*+,./:;<=>?@\[\\\]^`{|}~])/g, '\\\\$1');
 };
 
 SheetTabView.prototype._switchSheet = function(sheetId) {
     console.log('[SheetTabView] _switchSheet called with sheetId:', sheetId);
     this._activeSheetId = sheetId;
-    this._renderTabs();
     
     console.log('[SheetTabView] Dispatching sheetChanged event');
     var event = new CustomEvent('sheetChanged', {
@@ -104,4 +109,5 @@ SheetTabView.prototype.setActiveSheet = function(sheetId) {
 
 SheetTabView.prototype.dispose = function() {
     this._toolPanel.find('.sheet-tab-header').remove();
+    TabManager.unregisterTabGroup('sheet-tabs');
 };

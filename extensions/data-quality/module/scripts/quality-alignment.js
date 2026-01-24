@@ -397,7 +397,12 @@ QualityAlignment.setUpTabs = function() {
   this._summaryBar = $('#summary-bar')
     .addClass('main-view-panel-tab-header')
     .addClass('active')
-    .attr('href', '#view-panel');
+    .css('cursor', 'default')
+    .css('pointer-events', 'none')
+    .removeAttr('href');
+
+  // Register quality tab group
+  TabManager.registerTabGroup('quality-tabs', '#tool-panel');
 
   // Create Quality Rules Panel
   this._rulesPanel = $('<div id="quality-rules-panel"></div>')
@@ -433,12 +438,18 @@ QualityAlignment.setUpTabs = function() {
     .appendTo(resultsButton)
     .hide();
 
-  // Bind tab click events
-  $('.main-view-panel-tab-header').off('click.quality').on('click.quality', function(e) {
-    var targetTab = $(this).attr('href');
-    QualityAlignment.switchTab(targetTab);
-    e.preventDefault();
-  });
+  // Register quality tabs with TabManager
+  TabManager.registerTab('quality-tabs', this._summaryBar, '#view-panel', function(e) {
+    // View panel tab click handler
+  }, 0);
+  
+  TabManager.registerTab('quality-tabs', rulesButton, '#quality-rules-panel', function(e) {
+    // Rules tab click handler
+  }, 100);
+  
+  TabManager.registerTab('quality-tabs', resultsButton, '#quality-results-panel', function(e) {
+    // Results tab click handler
+  }, 200);
 
   // Load existing rules from project
   this._loadRules();
@@ -454,11 +465,8 @@ QualityAlignment.setUpTabs = function() {
  * @param {boolean} saveState - Whether to save tab state (default: true)
  */
 QualityAlignment.switchTab = function(targetTab, saveState) {
-  $('.main-view-panel-tab').hide();
-  $('.main-view-panel-tab-header').removeClass('active');
-
-  $(targetTab).show();
-  $('.main-view-panel-tab-header[href="' + targetTab + '"]').addClass('active');
+  var targetTabElement = $('.main-view-panel-tab-header[href="' + targetTab + '"]');
+  TabManager.switchTab('quality-tabs', targetTabElement);
 
   // Save current tab state for page refresh (unless explicitly disabled)
   if (saveState !== false) {

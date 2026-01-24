@@ -425,6 +425,7 @@ function init() {
       "scripts/util/sign.js",
       "scripts/util/filter-lists.js",
       "scripts/util/filter-lists-search.js",
+      "scripts/util/tab-manager.js",
 
       "scripts/index.js",
       "scripts/index/open-project-ui.js",
@@ -503,6 +504,7 @@ function init() {
       "scripts/util/custom-suggest.js",
       "scripts/util/encoding.js",
       "scripts/util/sign.js",
+      "scripts/util/tab-manager.js",
 
       "scripts/widgets/histogram-widget.js",
       "scripts/widgets/slider-widget.js",
