@@ -447,6 +447,8 @@
     "core-views/facet-blank": "按空白归类 (null或空字符串)",
     "core-views/facet-null": "按null归类",
     "core-views/facet-empty-string": "按空字符串归类",
+    "core-views/facet-exclude": "排除",
+    "core-views/facet-include": "包含",
     "core-views/text-filter": "文本过滤器",
     "core-views/add-col-col": "基于当前列添加列",
     "core-views/new-col-name": "新列名称",

@@ -3930,3 +3930,77 @@ QualityAlignment._createImageViewLink = function(cell, rowIndex, columnName) {
   return link;
 };
 
+QualityAlignment.onProjectUpdate = function(options) {
+  console.log('[QualityAlignment.onProjectUpdate] Called with options:', options);
+  
+  if (QualityAlignment.isSetUp() && (options.everythingChanged || options.modelsChanged ||
+      options.rowsChanged || options.rowMetadataChanged || options.cellsChanged || options.engineChanged)) {
+    console.log('[QualityAlignment.onProjectUpdate] Project changed, reloading quality rules and results');
+    
+    var self = this;
+    
+    $.ajax({
+      url: "command/data-quality/get-quality-rules",
+      type: "GET",
+      data: { project: theProject.id },
+      dataType: "json",
+      success: function(response) {
+        if (response.code === "ok" && response.rules) {
+          self._formatRules = response.rules.formatRules || {};
+          self._resourceConfig = response.rules.resourceConfig || self._getDefaultResourceConfig();
+          self._contentRules = response.rules.contentRules || [];
+          self._aimpConfig = response.rules.aimpConfig || { serviceUrl: '' };
+          
+          if (self._isSetUp) {
+            self._refreshFormatRulesTable();
+            self._renderResourceCheckTab();
+            self._refreshContentRulesTable();
+          }
+        }
+      },
+      error: function(xhr, status, error) {
+        console.error("Error loading quality rules:", error);
+      }
+    });
+    
+    $.ajax({
+      url: "command/data-quality/get-quality-result",
+      type: "GET",
+      data: { project: theProject.id },
+      dataType: "json",
+      success: function(response) {
+        console.log('[QualityAlignment.onProjectUpdate] get-quality-result response:', response);
+        if (response.code === "ok" && response.hasResult && response.result) {
+          self._currentResults = response.result;
+          self._lastCheckResult = response.result;
+          self._buildCellErrorMap();
+          self._refreshDataTable();
+          
+          if (self._hasResults()) {
+            self._renderResultsTab();
+          }
+        }
+      },
+      error: function(xhr, status, error) {
+        console.error('[QualityAlignment.onProjectUpdate] Error loading results:', status, error);
+      }
+    });
+    
+    console.log('[QualityAlignment.onProjectUpdate] Deactivating quality tabs and switching to data view');
+    var activeTabGroup = TabManager.getActiveTabGroup();
+    console.log('[QualityAlignment.onProjectUpdate] Current active tab group:', activeTabGroup);
+    
+    if (activeTabGroup === 'quality-tabs') {
+      console.log('[QualityAlignment.onProjectUpdate] Quality tab is active, switching to data view');
+      
+      $('#tool-panel .main-view-panel-tab-header').not('#summary-bar').removeClass('active');
+      
+      $('#quality-rules-panel').hide();
+      $('#quality-results-panel').hide();
+      $('#view-panel').show();
+    }
+  }
+};
+
+Refine.customUpdateCallbacks.push(QualityAlignment.onProjectUpdate);
+

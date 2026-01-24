@@ -404,7 +404,7 @@ class ListFacet extends Facet {
       html.push(
         '<a href="javascript:{}" class="facet-choice-link facet-choice-toggle" ' +
           'style="visibility: ' + (choice.s ? 'visible' : 'hidden') + '">' + 
-          (invert != choice.s ? 'exclude' : 'include') + 
+          (invert != choice.s ? $.i18n('core-views/facet-exclude') : $.i18n('core-views/facet-include')) + 
         '</a>'
       );
 

@@ -664,6 +664,8 @@
     "core-views/facet-blank": "Facet by blank (null or empty string)",
     "core-views/facet-null": "Facet by null",
     "core-views/facet-empty-string": "Facet by empty string",
+    "core-views/facet-exclude": "exclude",
+    "core-views/facet-include": "include",
     "core-views/text-filter": "Text filter",
     "core-views/add-col-col": "Add column based on column",
     "core-views/new-col-name": "New column name",
