@@ -64,10 +64,13 @@ public class GetModelsCommand extends Command {
         protected String sheetId;
         @JsonProperty("sheetName")
         protected String sheetName;
+        @JsonProperty("columnModel")
+        protected ColumnModel columnModel;
         
-        protected SheetInfo(String sheetId, String sheetName) {
+        protected SheetInfo(String sheetId, String sheetName, ColumnModel columnModel) {
             this.sheetId = sheetId;
             this.sheetName = sheetName;
+            this.columnModel = columnModel;
         }
     }
 
@@ -172,7 +175,7 @@ public class GetModelsCommand extends Command {
             if (sheetDataMap != null && !sheetDataMap.isEmpty()) {
                 for (String sheetId : sheetDataMap.keySet()) {
                     SheetData sheetData = sheetDataMap.get(sheetId);
-                    sheetInfoMap.put(sheetId, new SheetInfo(sheetId, sheetData.sheetName));
+                    sheetInfoMap.put(sheetId, new SheetInfo(sheetId, sheetData.sheetName, sheetData.columnModel));
                 }
             }
             

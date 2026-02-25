@@ -740,6 +740,18 @@
   font-style: italic;
 }
 
+/* ===== Sheet Name Badge ===== */
+.sheet-name-badge {
+  display: inline-block;
+  background-color: #4CAF50;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.75em;
+  margin-left: 8px;
+  font-weight: normal;
+}
+
 /* ===== Dialog Info ===== */
 .dialog-info {
   margin: 5px 0 10px 0;

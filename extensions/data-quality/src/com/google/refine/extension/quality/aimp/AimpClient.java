@@ -18,6 +18,7 @@ import java.util.Map;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -531,6 +532,105 @@ public class AimpClient {
         public void setSimilarity(double similarity) { this.similarity = similarity; }
         public String getSuggestion() { return suggestion; }
         public void setSuggestion(String suggestion) { this.suggestion = suggestion; }
+    }
+
+    /**
+     * Generic LLM analysis result
+     */
+    public static class LlmAnalyzeResult {
+        private boolean success;
+        private JsonNode result;
+        private String error;
+
+        public boolean isSuccess() { return success; }
+        public void setSuccess(boolean success) { this.success = success; }
+        public JsonNode getResult() { return result; }
+        public void setResult(JsonNode result) { this.result = result; }
+        public String getError() { return error; }
+        public void setError(String error) { this.error = error; }
+    }
+
+    /**
+     * Generic LLM analysis using prompt
+     *
+     * @param prompt The prompt text to send to LLM
+     * @param context Optional context information (can be null)
+     * @param responseFormat Expected response format ("json" or "text")
+     * @return LlmAnalyzeResult containing the analysis result
+     */
+    public LlmAnalyzeResult llmAnalyze(String prompt, Map<String, Object> context, String responseFormat) {
+        LlmAnalyzeResult result = new LlmAnalyzeResult();
+
+        try {
+            String endpoint = serviceUrl + "/api/llm/analyze";
+            logger.info("Calling LLM analyze: " + endpoint);
+
+            HttpURLConnection conn = (HttpURLConnection) new URL(endpoint).openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setConnectTimeout(30000);
+            conn.setReadTimeout(120000);
+            conn.setDoOutput(true);
+
+            ObjectMapper requestMapper = new ObjectMapper();
+            ObjectNode requestBody = requestMapper.createObjectNode();
+            requestBody.put("prompt", prompt);
+            if (context != null && !context.isEmpty()) {
+                requestBody.putPOJO("context", context);
+            }
+            requestBody.put("response_format", responseFormat != null ? responseFormat : "json");
+
+            logger.info("LLM analyze request: " + requestBody.toString());
+
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(requestBody.toString().getBytes(StandardCharsets.UTF_8));
+            }
+
+            int responseCode = conn.getResponseCode();
+            logger.info("LLM analyze response code: " + responseCode);
+
+            if (responseCode == 200) {
+                try (BufferedReader br = new BufferedReader(
+                        new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                    StringBuilder response = new StringBuilder();
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        response.append(line);
+                    }
+
+                    logger.debug("LLM analyze response: " + response.toString());
+                    JsonNode responseJson = mapper.readTree(response.toString());
+
+                    result.setSuccess(responseJson.has("success") && responseJson.get("success").asBoolean());
+
+                    if (responseJson.has("result")) {
+                        result.setResult(responseJson.get("result"));
+                    }
+
+                    if (responseJson.has("error")) {
+                        result.setError(responseJson.get("error").asText());
+                    }
+                }
+            } else {
+                try (BufferedReader br = new BufferedReader(
+                        new InputStreamReader(conn.getErrorStream(), StandardCharsets.UTF_8))) {
+                    StringBuilder errorResponse = new StringBuilder();
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        errorResponse.append(line);
+                    }
+                    logger.warn("LLM analyze failed: " + responseCode + ", error: " + errorResponse);
+                    result.setSuccess(false);
+                    result.setError("HTTP " + responseCode + ": " + errorResponse);
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error calling LLM analyze", e);
+            result.setSuccess(false);
+            result.setError(e.getMessage());
+        }
+
+        return result;
     }
 }
 

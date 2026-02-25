@@ -12,12 +12,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.refine.extension.quality.aimp.AimpClient;
 import com.google.refine.extension.quality.aimp.AimpClient.BatchCompareResult;
 import com.google.refine.extension.quality.aimp.AimpClient.ElementResult;
+import com.google.refine.extension.quality.aimp.AimpClient.LlmAnalyzeResult;
 import com.google.refine.extension.quality.model.CheckResult;
 import com.google.refine.extension.quality.model.CheckResult.CheckError;
 import com.google.refine.extension.quality.model.ContentComparisonRule;
@@ -82,6 +85,19 @@ public class ContentChecker {
             logger.warn("AIMP service not available, skipping content check");
             result.complete();
             return result;
+        }
+
+        // Check for multi-sheet scenario and perform volume title check
+        if (isMultiSheetProject()) {
+            logger.info("Multi-sheet project detected, checking for volume title comparison");
+            CheckResult volumeTitleResult = checkVolumeTitleComparison(contentRules);
+            if (volumeTitleResult != null) {
+                // Merge volume title check results
+                for (CheckError error : volumeTitleResult.getErrors()) {
+                    result.addError(error);
+                }
+                logger.info("Volume title comparison completed. Errors: " + volumeTitleResult.getErrors().size());
+            }
         }
 
         int totalRows = project.rows.size();
@@ -381,6 +397,311 @@ public class ContentChecker {
         }
 
         return path.toString();
+    }
+
+    /**
+     * Check if project is multi-sheet
+     */
+    private boolean isMultiSheetProject() {
+        try {
+            Object projectMetadataObj = project.getMetadata().getCustomMetadata("project");
+            if (projectMetadataObj != null) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode projectMetadata = mapper.valueToTree(projectMetadataObj);
+                if (projectMetadata.has("sheetDataMap")) {
+                    JsonNode sheetDataMap = projectMetadata.get("sheetDataMap");
+                    return sheetDataMap.size() > 1;
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to check multi-sheet status", e);
+        }
+        return false;
+    }
+
+    /**
+     * Check volume title comparison for multi-sheet scenario
+     * Compares volume title with all item titles in the same volume
+     */
+    private CheckResult checkVolumeTitleComparison(List<ContentComparisonRule> contentRules) {
+        CheckResult result = new CheckResult("volume_title_comparison");
+
+        try {
+            // Find title rule
+            ContentComparisonRule titleRule = contentRules.stream()
+                    .filter(rule -> "题名".equals(rule.getExtractLabel()))
+                    .findFirst()
+                    .orElse(null);
+
+            if (titleRule == null) {
+                logger.info("No title rule found, skipping volume title comparison");
+                return null;
+            }
+
+            // Check if rule has cross_sheet check type
+            if (!"cross_sheet".equals(titleRule.getCheckType())) {
+                logger.info("Title rule is not cross_sheet type, skipping volume title comparison");
+                return null;
+            }
+
+            // Find volume sheet (has "卷号" column)
+            String volumeSheetId = findSheetWithColumn("卷号");
+            if (volumeSheetId == null) {
+                logger.info("No volume sheet found (missing '卷号' column)");
+                return null;
+            }
+
+            // Find item sheet (has both "卷号" and "件号" columns)
+            String itemSheetId = findSheetWithColumns(Arrays.asList("卷号", "件号"));
+            if (itemSheetId == null) {
+                logger.info("No item sheet found (missing '卷号' or '件号' columns)");
+                return null;
+            }
+
+            logger.info("Volume sheet: " + volumeSheetId + ", Item sheet: " + itemSheetId);
+
+            // Get volume title column index
+            Integer volumeTitleColumnIndex = findColumnIndex(volumeSheetId, "题名");
+            if (volumeTitleColumnIndex == null) {
+                logger.warn("No '题名' column found in volume sheet");
+                return null;
+            }
+
+            // Get volume number column index in volume sheet
+            Integer volumeVolumeNumberColumnIndex = findColumnIndex(volumeSheetId, "卷号");
+            if (volumeVolumeNumberColumnIndex == null) {
+                logger.warn("No '卷号' column found in volume sheet");
+                return null;
+            }
+
+            // Get item title column index
+            Integer itemTitleColumnIndex = findColumnIndex(itemSheetId, "题名");
+            if (itemTitleColumnIndex == null) {
+                logger.warn("No '题名' column found in item sheet");
+                return null;
+            }
+
+            // Get volume number column index in item sheet
+            Integer itemVolumeNumberColumnIndex = findColumnIndex(itemSheetId, "卷号");
+            if (itemVolumeNumberColumnIndex == null) {
+                logger.warn("No '卷号' column found in item sheet");
+                return null;
+            }
+
+            // Collect all volume titles and their corresponding item titles
+            Map<String, List<String>> volumeTitleToItemTitlesMap = new HashMap<>();
+            for (int rowIndex = 0; rowIndex < project.rows.size(); rowIndex++) {
+                Row row = project.rows.get(rowIndex);
+
+                // Get volume number from item sheet
+                Cell volumeNumberCell = row.getCell(itemVolumeNumberColumnIndex);
+                if (volumeNumberCell == null || volumeNumberCell.value == null) {
+                    continue;
+                }
+                String volumeNumber = volumeNumberCell.value.toString().trim();
+                if (volumeNumber.isEmpty()) {
+                    continue;
+                }
+
+                // Get item title
+                Cell itemTitleCell = row.getCell(itemTitleColumnIndex);
+                if (itemTitleCell == null || itemTitleCell.value == null) {
+                    continue;
+                }
+                String itemTitle = itemTitleCell.value.toString().trim();
+                if (itemTitle.isEmpty()) {
+                    continue;
+                }
+
+                // Add to map
+                if (!volumeTitleToItemTitlesMap.containsKey(volumeNumber)) {
+                    volumeTitleToItemTitlesMap.put(volumeNumber, new ArrayList<>());
+                }
+                volumeTitleToItemTitlesMap.get(volumeNumber).add(itemTitle);
+            }
+
+            logger.info("Found " + volumeTitleToItemTitlesMap.size() + " volumes with item titles");
+
+            // Check each volume title against its item titles
+            for (Map.Entry<String, List<String>> entry : volumeTitleToItemTitlesMap.entrySet()) {
+                String volumeNumber = entry.getKey();
+                List<String> itemTitles = entry.getValue();
+
+                // Find volume title row by matching volume number in volume sheet
+                String volumeTitle = null;
+                int volumeTitleRowIndex = -1;
+                for (int rowIndex = 0; rowIndex < project.rows.size(); rowIndex++) {
+                    Row row = project.rows.get(rowIndex);
+                    Cell volumeNumberCell = row.getCell(volumeVolumeNumberColumnIndex);
+                    if (volumeNumberCell != null && volumeNumberCell.value != null) {
+                        String cellValue = volumeNumberCell.value.toString().trim();
+                        if (volumeNumber.equals(cellValue)) {
+                            // Found matching volume number, now get the title
+                            Cell titleCell = row.getCell(volumeTitleColumnIndex);
+                            if (titleCell != null && titleCell.value != null) {
+                                volumeTitle = titleCell.value.toString().trim();
+                                volumeTitleRowIndex = rowIndex;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (volumeTitle == null) {
+                    logger.warn("No volume title found for volume number: " + volumeNumber);
+                    continue;
+                }
+
+                // Build prompt for LLM
+                StringBuilder promptBuilder = new StringBuilder();
+                promptBuilder.append("请判断以下案卷题名是否与卷内题名集合匹配：\n\n");
+                promptBuilder.append("案卷题名：").append(volumeTitle).append("\n\n");
+                promptBuilder.append("卷内题名列表：\n");
+                for (int i = 0; i < itemTitles.size(); i++) {
+                    promptBuilder.append(i + 1).append(". ").append(itemTitles.get(i)).append("\n");
+                }
+                promptBuilder.append("\n判断标准：\n");
+                promptBuilder.append("1. 案卷题名与卷内题名主题是否一致\n");
+                promptBuilder.append("2. 案卷题名是否体现了所有卷内题名的主题\n\n");
+                promptBuilder.append("请返回JSON格式：\n");
+                promptBuilder.append("{\n");
+                promptBuilder.append("  \"passed\": true/false,\n");
+                promptBuilder.append("  \"reason\": \"判断原因说明\"\n");
+                promptBuilder.append("}");
+
+                // Call LLM
+                LlmAnalyzeResult llmResult = aimpClient.llmAnalyze(
+                        promptBuilder.toString(),
+                        null,
+                        "json");
+
+                if (!llmResult.isSuccess()) {
+                    logger.error("LLM analyze failed for volume " + volumeNumber + ": " + llmResult.getError());
+                    result.addError(new CheckError(volumeTitleRowIndex, "题名",
+                            volumeTitle, "llm_error", "LLM调用失败: " + llmResult.getError()));
+                    continue;
+                }
+
+                // Parse LLM result
+                JsonNode llmResultJson = llmResult.getResult();
+                boolean passed = llmResultJson.has("passed") && llmResultJson.get("passed").asBoolean();
+                String reason = llmResultJson.has("reason") ? llmResultJson.get("reason").asText() : "";
+
+                logger.info("Volume " + volumeNumber + " title check result: passed=" + passed + ", reason=" + reason);
+
+                if (!passed) {
+                    result.addError(new CheckError(volumeTitleRowIndex, "题名",
+                            volumeTitle, "volume_title_mismatch", reason));
+                }
+            }
+
+            result.complete();
+            return result;
+
+        } catch (Exception e) {
+            logger.error("Error in volume title comparison", e);
+            result.complete();
+            return result;
+        }
+    }
+
+    /**
+     * Find sheet that contains a specific column
+     */
+    private String findSheetWithColumn(String columnName) {
+        try {
+            Object projectMetadataObj = project.getMetadata().getCustomMetadata("project");
+            if (projectMetadataObj != null) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode projectMetadata = mapper.valueToTree(projectMetadataObj);
+                if (projectMetadata.has("sheetDataMap")) {
+                    JsonNode sheetDataMap = projectMetadata.get("sheetDataMap");
+                    java.util.Iterator<String> sheetIdIterator = sheetDataMap.fieldNames();
+                    while (sheetIdIterator.hasNext()) {
+                        String sheetId = sheetIdIterator.next();
+                        JsonNode sheetData = sheetDataMap.get(sheetId);
+                        if (sheetData.has("columnModel") && sheetData.get("columnModel").has("columns")) {
+                            JsonNode columns = sheetData.get("columnModel").get("columns");
+                            for (JsonNode column : columns) {
+                                if (column.has("name") && columnName.equals(column.get("name").asText())) {
+                                    return sheetId;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to find sheet with column: " + columnName, e);
+        }
+        return null;
+    }
+
+    /**
+     * Find sheet that contains all specified columns
+     */
+    private String findSheetWithColumns(List<String> columnNames) {
+        try {
+            Object projectMetadataObj = project.getMetadata().getCustomMetadata("project");
+            if (projectMetadataObj != null) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode projectMetadata = mapper.valueToTree(projectMetadataObj);
+                if (projectMetadata.has("sheetDataMap")) {
+                    JsonNode sheetDataMap = projectMetadata.get("sheetDataMap");
+                    java.util.Iterator<String> sheetIdIterator = sheetDataMap.fieldNames();
+                    while (sheetIdIterator.hasNext()) {
+                        String sheetId = sheetIdIterator.next();
+                        JsonNode sheetData = sheetDataMap.get(sheetId);
+                        if (sheetData.has("columnModel") && sheetData.get("columnModel").has("columns")) {
+                            JsonNode columns = sheetData.get("columnModel").get("columns");
+                            List<String> sheetColumnNames = new ArrayList<>();
+                            for (JsonNode column : columns) {
+                                if (column.has("name")) {
+                                    sheetColumnNames.add(column.get("name").asText());
+                                }
+                            }
+                            // Check if all required columns exist
+                            if (sheetColumnNames.containsAll(columnNames)) {
+                                return sheetId;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to find sheet with columns: " + columnNames, e);
+        }
+        return null;
+    }
+
+    /**
+     * Find column index in a specific sheet
+     */
+    private Integer findColumnIndex(String sheetId, String columnName) {
+        try {
+            Object projectMetadataObj = project.getMetadata().getCustomMetadata("project");
+            if (projectMetadataObj != null) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode projectMetadata = mapper.valueToTree(projectMetadataObj);
+                if (projectMetadata.has("sheetDataMap")) {
+                    JsonNode sheetDataMap = projectMetadata.get("sheetDataMap");
+                    JsonNode sheetData = sheetDataMap.get(sheetId);
+                    if (sheetData != null && sheetData.has("columnModel") && sheetData.get("columnModel").has("columns")) {
+                        JsonNode columns = sheetData.get("columnModel").get("columns");
+                        for (JsonNode column : columns) {
+                            if (column.has("name") && columnName.equals(column.get("name").asText())) {
+                                if (column.has("cellIndex")) {
+                                    return column.get("cellIndex").asInt();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to find column index: " + columnName + " in sheet: " + sheetId, e);
+        }
+        return null;
     }
 
     /**

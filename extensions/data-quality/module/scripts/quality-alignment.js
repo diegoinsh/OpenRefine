@@ -394,15 +394,55 @@ QualityAlignment.setUpTabs = function() {
   this._rightPanel = $('#right-panel');
   this._viewPanel = $('#view-panel').addClass('main-view-panel-tab');
   this._toolPanel = $('#tool-panel');
-  this._summaryBar = $('#summary-bar')
-    .addClass('main-view-panel-tab-header')
-    .addClass('active')
-    .css('cursor', 'default')
-    .css('pointer-events', 'none')
-    .removeAttr('href');
 
-  // Register quality tab group
-  TabManager.registerTabGroup('quality-tabs', '#tool-panel');
+  // Get sheet name for display
+  var sheetName = '数据';
+  var isMultiSheet = false;
+
+  if (theProject.sheetDataMap) {
+    var sheetIds = Object.keys(theProject.sheetDataMap);
+    isMultiSheet = sheetIds.length > 1;
+    if (sheetIds.length === 1) {
+      var sheetData = theProject.sheetDataMap[sheetIds[0]];
+      if (sheetData && sheetData.sheetName) {
+        sheetName = sheetData.sheetName;
+      }
+    }
+  }
+
+  // For single sheet, create a data tab with sheet name
+  if (!isMultiSheet) {
+    // Create a data tab for single sheet
+    this._dataTab = $('<div></div>')
+      .addClass('main-view-panel-tab-header')
+      .addClass('quality-data-tab')
+      .attr('href', '#view-panel')
+      .text(sheetName)
+      .insertBefore('#summary-bar');
+
+    // Keep summary bar visible and make it clickable
+    this._summaryBar = $('#summary-bar')
+      .addClass('main-view-panel-tab-header')
+      .attr('href', '#view-panel')
+      .css('cursor', 'pointer')
+      .css('pointer-events', 'auto');
+
+    // Register the data tab
+    TabManager.registerTabGroup('quality-tabs', '#tool-panel');
+    TabManager.registerTab('quality-tabs', this._dataTab, '#view-panel', function(e) {
+      // View panel tab click handler
+    }, 0);
+  } else {
+    // Multi-sheet project, use original behavior
+    this._summaryBar = $('#summary-bar')
+      .addClass('main-view-panel-tab-header')
+      .addClass('active')
+      .css('cursor', 'default')
+      .css('pointer-events', 'none')
+      .removeAttr('href');
+
+    TabManager.registerTabGroup('quality-tabs', '#tool-panel');
+  }
 
   // Create Quality Rules Panel
   this._rulesPanel = $('<div id="quality-rules-panel"></div>')
@@ -439,7 +479,9 @@ QualityAlignment.setUpTabs = function() {
     .hide();
 
   // Register quality tabs with TabManager
-  TabManager.registerTab('quality-tabs', this._summaryBar, '#view-panel', function(e) {
+  // For single sheet, use the data tab instead of summary bar
+  var viewTab = this._dataTab || this._summaryBar;
+  TabManager.registerTab('quality-tabs', viewTab, '#view-panel', function(e) {
     // View panel tab click handler
   }, 0);
   
@@ -666,22 +708,92 @@ QualityAlignment._refreshFormatRulesTable = function() {
     return;
   }
 
-  // Get project column names for matching check
-  var projectColumnNames = theProject.columnModel.columns.map(function(col) { return col.name; });
+  // Get all project column names for matching check
+  var projectColumnNames = [];
+  var columnNameToSheetMap = {};
+  
+  var isMultiSheet = theProject.sheetDataMap && Object.keys(theProject.sheetDataMap).length > 1;
+  
+  if (isMultiSheet) {
+    var sheets = theProject.sheetDataMap;
+    for (var sheetId in sheets) {
+      if (sheets.hasOwnProperty(sheetId)) {
+        var sheetData = sheets[sheetId];
+        if (sheetData.columnModel && sheetData.columnModel.columns) {
+          sheetData.columnModel.columns.forEach(function(col) {
+            if (projectColumnNames.indexOf(col.name) === -1) {
+              projectColumnNames.push(col.name);
+            }
+            // Store all sheet IDs for this column name
+            if (!columnNameToSheetMap[col.name]) {
+              columnNameToSheetMap[col.name] = [];
+            }
+            if (columnNameToSheetMap[col.name].indexOf(sheetId) === -1) {
+              columnNameToSheetMap[col.name].push(sheetId);
+            }
+          });
+        }
+      }
+    }
+  } else {
+    projectColumnNames = theProject.columnModel.columns.map(function(col) { return col.name; });
+  }
 
-  ruleKeys.forEach(function(columnName) {
-    var rule = self._formatRules[columnName];
+  ruleKeys.forEach(function(key) {
+    var rule = self._formatRules[key];
     var row = $('<tr></tr>').appendTo(self._formatRulesBody);
+
+    // Parse key to get column name and sheet ID
+    var columnName = key;
+    var sheetId = '';
+    if (key.indexOf('|') !== -1) {
+      var parts = key.split('|');
+      columnName = parts[0];
+      sheetId = parts[1];
+    }
 
     // Column name - add * if not matched
     var displayName = columnName;
-    var isMatched = projectColumnNames.indexOf(columnName) !== -1;
+    var isMatched = rule._matched !== false;
+    var sheetNames = [];
+    
+    // Get sheet name from rule if available
+    if (sheetId && theProject.sheetDataMap && theProject.sheetDataMap[sheetId]) {
+      sheetNames.push(theProject.sheetDataMap[sheetId].sheetName);
+    } else if (rule._sheetIds && Array.isArray(rule._sheetIds) && rule._sheetIds.length > 0) {
+      // Fallback to _sheetIds if available
+      rule._sheetIds.forEach(function(sid) {
+        if (theProject.sheetDataMap && theProject.sheetDataMap[sid]) {
+          sheetNames.push(theProject.sheetDataMap[sid].sheetName);
+        }
+      });
+    } else if (columnNameToSheetMap[columnName]) {
+      // Fallback to columnNameToSheetMap
+      var sheetIds = columnNameToSheetMap[columnName];
+      if (Array.isArray(sheetIds)) {
+        sheetIds.forEach(function(sid) {
+          if (theProject.sheetDataMap && theProject.sheetDataMap[sid]) {
+            sheetNames.push(theProject.sheetDataMap[sid].sheetName);
+          }
+        });
+      }
+    }
+    
     if (!isMatched) {
       displayName = columnName + ' *';
       row.addClass('unmatched-column');
     }
     var nameCell = $('<td></td>').appendTo(row);
     $('<span></span>').text(displayName).appendTo(nameCell);
+    
+    // Add sheet names if available
+    if (sheetNames.length > 0) {
+      var badgeText = '[' + sheetNames.join(', ') + ']';
+      $('<span class="sheet-name-badge"></span>')
+        .text(badgeText)
+        .appendTo(nameCell);
+    }
+    
     if (!isMatched) {
       $('<span class="unmatched-hint"></span>')
         .text(' (' + $.i18n('data-quality-extension/unmatched') + ')')
@@ -712,7 +824,7 @@ QualityAlignment._refreshFormatRulesTable = function() {
         .attr('title', $.i18n('data-quality-extension/click-to-view'))
         .on('click', function(e) {
           e.stopPropagation();
-          self._showValueListPopup(columnName, rule.valueList, $(this));
+          self._showValueListPopup(key, rule.valueList, $(this));
         })
         .appendTo(checkItemsCell);
     }
@@ -726,13 +838,13 @@ QualityAlignment._refreshFormatRulesTable = function() {
     $('<button class="button small-button"></button>')
       .text($.i18n('data-quality-extension/edit'))
       .on('click', function() {
-        self._editFormatRule(columnName);
+        self._editFormatRule(key);
       })
       .appendTo(actionsCell);
     $('<button class="button small-button danger-button"></button>')
       .text($.i18n('data-quality-extension/delete'))
       .on('click', function() {
-        self._deleteFormatRule(columnName);
+        self._deleteFormatRule(key);
       })
       .appendTo(actionsCell);
   });
@@ -741,7 +853,13 @@ QualityAlignment._refreshFormatRulesTable = function() {
 /**
  * Show value list popup
  */
-QualityAlignment._showValueListPopup = function(columnName, valueList, anchorElement) {
+QualityAlignment._showValueListPopup = function(key, valueList, anchorElement) {
+  var columnName = key;
+  if (key.indexOf('|') !== -1) {
+    var parts = key.split('|');
+    columnName = parts[0];
+  }
+
   // Remove any existing popup
   $('.value-list-popup').remove();
 
@@ -1359,7 +1477,7 @@ QualityAlignment._showAimpConfigDialog = function() {
   // Service URL
   var urlRow = $('<div class="dialog-row"></div>').appendTo(body);
   $('<label></label>').text($.i18n('data-quality-extension/aimp-service-url') + ': ').appendTo(urlRow);
-  var urlInput = $('<input type="text" size="40" placeholder="http://localhost:8080">').appendTo(urlRow);
+  var urlInput = $('<input type="text" size="40" placeholder="http://localhost:7998">').appendTo(urlRow);
 
   // Load current config
   if (this._aimpConfig) {
@@ -1471,6 +1589,17 @@ QualityAlignment._refreshContentRulesTable = function() {
     // Column name with unmatched indicator
     var columnCell = $('<td></td>').appendTo(row);
     var columnText = rule.column;
+    
+    // Get sheet names if available
+    var sheetNames = [];
+    if (rule.sheetIds && Array.isArray(rule.sheetIds) && rule.sheetIds.length > 0) {
+      rule.sheetIds.forEach(function(sheetId) {
+        if (theProject.sheetDataMap && theProject.sheetDataMap[sheetId]) {
+          sheetNames.push(theProject.sheetDataMap[sheetId].sheetName);
+        }
+      });
+    }
+    
     if (isUnmatched) {
       columnText += ' *';
       $('<span></span>').text(columnText).appendTo(columnCell);
@@ -1479,6 +1608,14 @@ QualityAlignment._refreshContentRulesTable = function() {
         .appendTo(columnCell);
     } else {
       columnCell.text(columnText);
+    }
+    
+    // Add sheet names if available
+    if (sheetNames.length > 0) {
+      var badgeText = '[' + sheetNames.join(', ') + ']';
+      $('<span class="sheet-name-badge"></span>')
+        .text(badgeText)
+        .appendTo(columnCell);
     }
 
     $('<td></td>').text(rule.extractLabel).appendTo(row);
@@ -2694,58 +2831,169 @@ QualityAlignment._getColumnNameMapping = function() {
     '时间': ['Shijian', 'shijian', 'SJ', 'sj', 'Time', 'time'],
     '文号': ['Wenhao', 'wenhao', 'WH', 'wh', 'DocNo', 'docno', 'DocumentNo', 'documentno'],
     '保管期限': ['Baoguanqixian', 'baoguanqixian', 'RetentionPeriod', 'retentionperiod', 'Period', 'period', 'BGQX', 'bgqx'],
-    '密级': ['Miji', 'miji', 'SecurityLevel', 'securitylevel', 'Level', 'level', 'Classification', 'classification', 'MJ', 'mj']
+    '密级': ['Miji', 'miji', 'SecurityLevel', 'securitylevel', 'Level', 'level', 'Classification', 'classification', 'MJ', 'mj', '保密期限', '保密级别', '密级标识', 'Baomiqixian', 'baomiqixian', 'BMQX', 'bmqx'],
+    '卷号': ['Juanhao', 'juanha', 'JH', 'jh', 'VolumeNo', 'volumeno', 'VolumeNumber', 'volumenumber', '案卷号', 'AJH', 'ajh'],
+    '件号': ['Jianhao', 'jianha', 'JH', 'jh', 'ItemNo', 'itemno', 'ItemNumber', 'itemnumber', 'FileNumber', 'filenumber', 'JJH', 'jjh']
   };
 };
 
 /**
- * Find matching column name in project columns
- * Returns { matched: true/false, columnName: actualColumnName, displayName: displayName }
+ * Find all matching columns in all project sheets
+ * Returns array of { matched: true/false, columnName: actualColumnName, displayName: displayName, sheetId: sheetId }
  */
-QualityAlignment._findMatchingColumn = function(templateColumnName) {
-  var columns = theProject.columnModel.columns;
-  var columnNames = columns.map(function(col) { return col.name; });
+QualityAlignment._findMatchingColumns = function(templateColumnName) {
+  var allColumns = [];
+  var columnNames = [];
+  var columnToSheetMap = {};
+  
+  var isMultiSheet = theProject.sheetDataMap && Object.keys(theProject.sheetDataMap).length > 1;
+  
+  if (isMultiSheet) {
+    var sheets = theProject.sheetDataMap;
+    for (var sheetId in sheets) {
+      if (sheets.hasOwnProperty(sheetId)) {
+        var sheetData = sheets[sheetId];
+        if (sheetData.columnModel && sheetData.columnModel.columns) {
+          sheetData.columnModel.columns.forEach(function(col) {
+            if (columnNames.indexOf(col.name) === -1) {
+              columnNames.push(col.name);
+              allColumns.push(col);
+            }
+            // Store all sheet IDs for this column name
+            if (!columnToSheetMap[col.name]) {
+              columnToSheetMap[col.name] = [];
+            }
+            if (columnToSheetMap[col.name].indexOf(sheetId) === -1) {
+              columnToSheetMap[col.name].push(sheetId);
+            }
+          });
+        }
+      }
+    }
+  } else {
+    var columns = theProject.columnModel.columns;
+    columnNames = columns.map(function(col) { return col.name; });
+    allColumns = columns;
+  }
+  
   var mapping = this._getColumnNameMapping();
+  var matches = [];
+
+  console.log('[_findMatchingColumns] templateColumnName:', templateColumnName, 'columnNames:', columnNames);
 
   // Define fallback mappings: if primary not found, try these alternatives
   var fallbacks = {
-    '成文时间': ['成文日期', '时间', '日期']  // If "成文时间" not found, try these alternatives
+    '题名': ['案卷题名', '卷内题名', '文件题名', '档案题名'],
+    '成文时间': ['成文日期', '时间', '日期', '发文日期', '发文时间'],
+    '文号': ['文件级档号', '文件号', '发文号', '文档号'],
+    '责任者': ['作者', '发文单位', '拟稿人'],
+    '密级': ['保密期限', '保密级别', '密级标识']
   };
 
   // First try exact match with Chinese name
-  if (columnNames.indexOf(templateColumnName) !== -1) {
-    return { matched: true, columnName: templateColumnName, displayName: templateColumnName };
+  for (var i = 0; i < columnNames.length; i++) {
+    var colName = columnNames[i];
+    if (colName === templateColumnName) {
+      var sheetIds = columnToSheetMap[colName] || [];
+      console.log('[_findMatchingColumns] Exact match found:', colName);
+      matches.push({
+        matched: true,
+        columnName: colName,
+        displayName: colName,
+        sheetIds: sheetIds
+      });
+    }
+  }
+
+  // Try matching with suffix (column name ends with template name)
+  for (var j = 0; j < columnNames.length; j++) {
+    var colName = columnNames[j];
+    if (colName.length > templateColumnName.length && colName.endsWith(templateColumnName)) {
+      // Check if this column is already matched by exact match
+      var alreadyMatched = matches.some(function(m) { return m.columnName === colName; });
+      if (!alreadyMatched) {
+        var sheetIds = columnToSheetMap[colName] || [];
+        console.log('[_findMatchingColumns] Suffix match found:', colName, 'ends with:', templateColumnName);
+        matches.push({
+          matched: true,
+          columnName: colName,
+          displayName: colName,
+          sheetIds: sheetIds
+        });
+      }
+    }
   }
 
   // Try matching with English/pinyin variants
   var variants = mapping[templateColumnName] || [];
-  for (var i = 0; i < variants.length; i++) {
-    var variant = variants[i];
+  console.log('[_findMatchingColumns] Trying variants for', templateColumnName, ':', variants);
+  for (var k = 0; k < variants.length; k++) {
+    var variant = variants[k];
     if (columnNames.indexOf(variant) !== -1) {
-      return { matched: true, columnName: variant, displayName: variant };
+      var alreadyMatched = matches.some(function(m) { return m.columnName === variant; });
+      if (!alreadyMatched) {
+        var sheetIds = columnToSheetMap[variant] || [];
+        console.log('[_findMatchingColumns] Variant match found:', variant);
+        matches.push({
+          matched: true,
+          columnName: variant,
+          displayName: variant,
+          sheetIds: sheetIds
+        });
+      }
     }
   }
 
   // Try fallback Chinese names and their variants
   var fallbackNames = fallbacks[templateColumnName] || [];
-  for (var j = 0; j < fallbackNames.length; j++) {
-    var fallbackName = fallbackNames[j];
+  console.log('[_findMatchingColumns] Trying fallbacks for', templateColumnName, ':', fallbackNames);
+  for (var l = 0; l < fallbackNames.length; l++) {
+    var fallbackName = fallbackNames[l];
     // Try exact Chinese fallback
     if (columnNames.indexOf(fallbackName) !== -1) {
-      return { matched: true, columnName: fallbackName, displayName: fallbackName };
+      var alreadyMatched = matches.some(function(m) { return m.columnName === fallbackName; });
+      if (!alreadyMatched) {
+        var sheetIds = columnToSheetMap[fallbackName] || [];
+        console.log('[_findMatchingColumns] Fallback exact match found:', fallbackName);
+        matches.push({
+          matched: true,
+          columnName: fallbackName,
+          displayName: fallbackName,
+          sheetIds: sheetIds
+        });
+      }
     }
     // Try fallback's English/pinyin variants
     var fallbackVariants = mapping[fallbackName] || [];
-    for (var k = 0; k < fallbackVariants.length; k++) {
-      var fbVariant = fallbackVariants[k];
+    for (var m = 0; m < fallbackVariants.length; m++) {
+      var fbVariant = fallbackVariants[m];
       if (columnNames.indexOf(fbVariant) !== -1) {
-        return { matched: true, columnName: fbVariant, displayName: fbVariant };
+        var alreadyMatched = matches.some(function(m) { return m.columnName === fbVariant; });
+        if (!alreadyMatched) {
+          var sheetIds = columnToSheetMap[fbVariant] || [];
+          console.log('[_findMatchingColumns] Fallback variant match found:', fbVariant);
+          matches.push({
+            matched: true,
+            columnName: fbVariant,
+            displayName: fbVariant,
+            sheetIds: sheetIds
+          });
+        }
       }
     }
   }
 
-  // No match found - return original template name (not undefined)
-  return { matched: false, columnName: templateColumnName, displayName: templateColumnName + ' *' };
+  // If no matches found, return unmatched result
+  if (matches.length === 0) {
+    return [{
+      matched: false,
+      columnName: templateColumnName,
+      displayName: templateColumnName + ' *',
+      sheetIds: []
+    }];
+  }
+
+  return matches;
 };
 
 /**
@@ -2771,16 +3019,61 @@ QualityAlignment._applyFormatTemplate = function(templateId) {
     var self = this;
     var unmatchedCount = 0;
     this._formatRules = {};
+    
+    // Track matched column names to avoid duplicates
+    var matchedColumnNames = {};
 
     templateRules.forEach(function(item) {
-      var match = self._findMatchingColumn(item.name);
-      // Store rule with additional metadata
-      item.rule._templateName = item.name;  // Keep original template name for reference
-      item.rule._matched = match.matched;
-      self._formatRules[match.columnName] = item.rule;
-      if (!match.matched) {
-        unmatchedCount++;
-      }
+      var matches = self._findMatchingColumns(item.name);
+      
+      matches.forEach(function(match) {
+        if (match.matched) {
+          // For each sheet ID, create a separate rule
+          if (match.sheetIds && Array.isArray(match.sheetIds) && match.sheetIds.length > 0) {
+            match.sheetIds.forEach(function(sheetId) {
+              // Check if this column name + sheet ID combination has already been matched
+              var key = match.columnName + '|' + sheetId;
+              if (matchedColumnNames[key]) {
+                // Same column name + sheet ID already matched, skip this one
+                return;
+              }
+              matchedColumnNames[key] = true;
+              
+              // Store rule with additional metadata
+              var rule = JSON.parse(JSON.stringify(item.rule));
+              rule._templateName = item.name;
+              rule._matched = match.matched;
+              rule._sheetId = sheetId;
+              rule._sheetIds = [sheetId];
+              self._formatRules[key] = rule;
+            });
+          } else {
+            // No sheet IDs, create a single rule
+            if (matchedColumnNames[match.columnName]) {
+              // Same column name already matched, skip this one
+              return;
+            }
+            matchedColumnNames[match.columnName] = true;
+            
+            // Store rule with additional metadata
+            var rule = JSON.parse(JSON.stringify(item.rule));
+            rule._templateName = item.name;
+            rule._matched = match.matched;
+            rule._sheetId = '';
+            rule._sheetIds = [];
+            self._formatRules[match.columnName] = rule;
+          }
+        } else {
+          // Unmatched column, add as is
+          var rule = JSON.parse(JSON.stringify(item.rule));
+          rule._templateName = item.name;
+          rule._matched = match.matched;
+          rule._sheetId = '';
+          rule._sheetIds = [];
+          self._formatRules[match.columnName] = rule;
+          unmatchedCount++;
+        }
+      });
     });
 
     this._hasUnsavedChanges = true;
@@ -2816,17 +3109,174 @@ QualityAlignment._applyContentTemplate = function(templateId) {
 
     var self = this;
     this._contentRules = [];
+    
+    // Track matched column names to avoid duplicates
+    var matchedColumnNames = {};
+
+    // Check if multi-sheet project
+    var isMultiSheet = theProject.sheetDataMap && Object.keys(theProject.sheetDataMap).length > 1;
+    console.log('[ApplyContentTemplate] isMultiSheet:', isMultiSheet);
+    console.log('[ApplyContentTemplate] sheetDataMap:', theProject.sheetDataMap);
+
+    // Identify volume and item sheets
+    var volumeSheetId = null;
+    var itemSheetId = null;
+    
+    if (isMultiSheet) {
+      var mapping = this._getColumnNameMapping();
+      
+      for (var sheetId in theProject.sheetDataMap) {
+        if (theProject.sheetDataMap.hasOwnProperty(sheetId)) {
+          var sheetData = theProject.sheetDataMap[sheetId];
+          console.log('[ApplyContentTemplate] Processing sheet:', sheetId, 'sheetData:', sheetData);
+          if (sheetData && sheetData.columnModel && sheetData.columnModel.columns) {
+            var hasVolumeNumber = false;
+            var hasItemNumber = false;
+            
+            console.log('[ApplyContentTemplate] Sheet columns:', sheetData.columnModel.columns);
+            
+            sheetData.columnModel.columns.forEach(function(col) {
+              var colName = col.name;
+              // Check if column matches volume number (exact match or alias)
+              if (colName === '卷号' || colName === '案卷号' || (mapping['卷号'] && mapping['卷号'].indexOf(colName) !== -1)) {
+                hasVolumeNumber = true;
+              }
+              // Check if column matches item number (exact match or alias)
+              if (colName === '件号' || (mapping['件号'] && mapping['件号'].indexOf(colName) !== -1)) {
+                hasItemNumber = true;
+              }
+            });
+            
+            console.log('[ApplyContentTemplate] Sheet:', sheetId, 'hasVolumeNumber:', hasVolumeNumber, 'hasItemNumber:', hasItemNumber);
+            
+            if (hasVolumeNumber && hasItemNumber) {
+              console.log('[ApplyContentTemplate] Setting itemSheetId to:', sheetId);
+              itemSheetId = sheetId;
+            } else if (hasVolumeNumber) {
+              console.log('[ApplyContentTemplate] Setting volumeSheetId to:', sheetId);
+              volumeSheetId = sheetId;
+            }
+          }
+        }
+      }
+      console.log('[ApplyContentTemplate] Final volumeSheetId:', volumeSheetId, 'itemSheetId:', itemSheetId);
+    }
 
     templateRules.forEach(function(rule) {
-      var matchResult = self._findMatchingColumn(rule.templateField);
-      self._contentRules.push({
-        column: matchResult.columnName,
-        extractLabel: rule.extractLabel,
-        threshold: rule.threshold,
-        templateField: rule.templateField,
-        matched: matchResult.matched
+      var matches = self._findMatchingColumns(rule.templateField);
+      console.log('[ApplyContentTemplate] Rule:', rule.templateField, 'matches:', matches);
+      
+      matches.forEach(function(match) {
+        if (match.matched) {
+          // For each sheet ID, create a separate rule
+          if (match.sheetIds && Array.isArray(match.sheetIds) && match.sheetIds.length > 0) {
+            match.sheetIds.forEach(function(sheetId) {
+              // Check if this column name + sheet ID combination has already been matched
+              var key = match.columnName + '|' + sheetId;
+              if (matchedColumnNames[key]) {
+                // Same column name + sheet ID already matched, skip this one
+                return;
+              }
+              matchedColumnNames[key] = true;
+              
+              console.log('[ApplyContentTemplate] Processing sheetId:', sheetId, 'for rule:', rule.templateField, 'volumeSheetId:', volumeSheetId, 'itemSheetId:', itemSheetId);
+              
+              // For multi-sheet scenario
+              if (isMultiSheet) {
+                // Title rule on volume sheet: use cross_sheet check type
+                if (rule.templateField === '题名' && sheetId === volumeSheetId) {
+                  console.log('[ApplyContentTemplate] Adding cross_sheet rule for title on volume sheet');
+                  self._contentRules.push({
+                    column: match.columnName,
+                    extractLabel: rule.extractLabel,
+                    threshold: rule.threshold,
+                    templateField: rule.templateField,
+                    matched: match.matched,
+                    sheetIds: [sheetId],
+                    _sheetId: sheetId,
+                    checkType: 'cross_sheet'
+                  });
+                } 
+                // Other rules on item sheet: use image check type
+                else if (sheetId === itemSheetId) {
+                  console.log('[ApplyContentTemplate] Adding image rule for', rule.templateField, 'on item sheet');
+                  self._contentRules.push({
+                    column: match.columnName,
+                    extractLabel: rule.extractLabel,
+                    threshold: rule.threshold,
+                    templateField: rule.templateField,
+                    matched: match.matched,
+                    sheetIds: [sheetId],
+                    _sheetId: sheetId,
+                    checkType: 'image'
+                  });
+                }
+                // Title rule on item sheet: also use image check type
+                else if (rule.templateField === '题名' && sheetId === itemSheetId) {
+                  console.log('[ApplyContentTemplate] Adding image rule for title on item sheet');
+                  self._contentRules.push({
+                    column: match.columnName,
+                    extractLabel: rule.extractLabel,
+                    threshold: rule.threshold,
+                    templateField: rule.templateField,
+                    matched: match.matched,
+                    sheetIds: [sheetId],
+                    _sheetId: sheetId,
+                    checkType: 'image'
+                  });
+                }
+                else {
+                  console.log('[ApplyContentTemplate] Skipping rule', rule.templateField, 'on sheetId:', sheetId);
+                }
+              } else {
+                // Single sheet: add all rules with default check type
+                self._contentRules.push({
+                  column: match.columnName,
+                  extractLabel: rule.extractLabel,
+                  threshold: rule.threshold,
+                  templateField: rule.templateField,
+                  matched: match.matched,
+                  sheetIds: [sheetId],
+                  _sheetId: sheetId,
+                  checkType: 'image'
+                });
+              }
+            });
+          } else {
+            // No sheet IDs, create a single rule
+            if (matchedColumnNames[match.columnName]) {
+              // Same column name already matched, skip this one
+              return;
+            }
+            matchedColumnNames[match.columnName] = true;
+            
+            self._contentRules.push({
+              column: match.columnName,
+              extractLabel: rule.extractLabel,
+              threshold: rule.threshold,
+              templateField: rule.templateField,
+              matched: match.matched,
+              sheetIds: [],
+              checkType: 'image'
+            });
+          }
+        } else {
+          // Unmatched column, add as is
+          self._contentRules.push({
+            column: match.columnName,
+            extractLabel: rule.extractLabel,
+            threshold: rule.threshold,
+            templateField: rule.templateField,
+            matched: match.matched,
+            sheetIds: [],
+            checkType: 'image'
+          });
+        }
       });
     });
+
+    console.log('[ApplyContentTemplate] Total rules added:', self._contentRules.length);
+    console.log('[ApplyContentTemplate] Rules:', self._contentRules);
 
     this._hasUnsavedChanges = true;
     if (this._unsavedIndicator) this._unsavedIndicator.show();
@@ -2975,10 +3425,19 @@ QualityAlignment._addFormatRule = function() {
 /**
  * Edit format rule
  */
-QualityAlignment._editFormatRule = function(columnName) {
+QualityAlignment._editFormatRule = function(key) {
   var self = this;
-  var rule = this._formatRules[columnName];
+  var rule = this._formatRules[key];
   if (!rule) return;
+
+  // Parse key to get column name and sheet ID
+  var columnName = key;
+  var sheetId = '';
+  if (key.indexOf('|') !== -1) {
+    var parts = key.split('|');
+    columnName = parts[0];
+    sheetId = parts[1];
+  }
 
   var columns = theProject.columnModel.columns;
 
@@ -3012,6 +3471,14 @@ QualityAlignment._editFormatRule = function(columnName) {
     $('<small></small>')
       .text($.i18n('data-quality-extension/template-field') + ': ' + rule._templateName)
       .appendTo(templateInfo);
+  }
+
+  // Show sheet info if available
+  if (sheetId && theProject.sheetDataMap && theProject.sheetDataMap[sheetId]) {
+    var sheetInfo = $('<div class="dialog-info"></div>').appendTo(body);
+    $('<small></small>')
+      .text($.i18n('data-quality-extension/sheet-name') + ': ' + theProject.sheetDataMap[sheetId].sheetName)
+      .appendTo(sheetInfo);
   }
 
   var checksContainer = $('<div class="dialog-checks"></div>').appendTo(body);
@@ -3135,8 +3602,15 @@ QualityAlignment._editFormatRule = function(columnName) {
       var newColumnName = columnSelect.val();
 
       // If column name changed, delete old rule and create new
+      var newKey = key;
       if (newColumnName !== columnName) {
-        delete self._formatRules[columnName];
+        delete self._formatRules[key];
+        // If sheetId exists, create new key with new column name
+        if (sheetId) {
+          newKey = newColumnName + '|' + sheetId;
+        } else {
+          newKey = newColumnName;
+        }
       }
 
       // Parse value list from textarea
@@ -3160,13 +3634,16 @@ QualityAlignment._editFormatRule = function(columnName) {
         }
       }
 
-      self._formatRules[newColumnName] = {
+      self._formatRules[newKey] = {
         nonEmpty: $('#rule-non-empty').prop('checked'),
         unique: $('#rule-unique').prop('checked'),
         regex: $('#rule-regex-check').prop('checked') ? regexInput.val() : '',
         dateFormat: dateFormatValue,
         valueList: valueList,
-        _templateName: rule._templateName  // Preserve template info
+        _templateName: rule._templateName,
+        _matched: rule._matched,
+        _sheetId: rule._sheetId,
+        _sheetIds: rule._sheetIds
       };
       self._hasUnsavedChanges = true;
       if (self._unsavedIndicator) self._unsavedIndicator.show();
@@ -3181,9 +3658,14 @@ QualityAlignment._editFormatRule = function(columnName) {
 /**
  * Delete format rule
  */
-QualityAlignment._deleteFormatRule = function(columnName) {
+QualityAlignment._deleteFormatRule = function(key) {
+  var columnName = key;
+  if (key.indexOf('|') !== -1) {
+    var parts = key.split('|');
+    columnName = parts[0];
+  }
   if (confirm($.i18n('data-quality-extension/confirm-delete-rule') + ': ' + columnName + '?')) {
-    delete this._formatRules[columnName];
+    delete this._formatRules[key];
     this._hasUnsavedChanges = true;
     if (this._unsavedIndicator) this._unsavedIndicator.show();
     this._refreshFormatRulesTable();
