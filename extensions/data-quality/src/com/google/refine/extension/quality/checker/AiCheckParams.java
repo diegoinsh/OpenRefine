@@ -12,7 +12,7 @@ public class AiCheckParams {
     private String skewTolerance = "0.5";
 
     private boolean checkEdge = false;
-    private int edgeStrictMode = 0;
+    private int edgeStrictMode = 1;
 
     private boolean checkStain = false;
     private int stainThreshold = 10;

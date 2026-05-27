@@ -19,7 +19,7 @@ import com.google.refine.model.Row;
 
 public class EdgeImageChecker implements ImageChecker {
 
-    private static final int DEFAULT_EDGE_STRICT_MODE = 0;
+    private static final int DEFAULT_EDGE_STRICT_MODE = 1;
 
     @Override
     public String getItemCode() {

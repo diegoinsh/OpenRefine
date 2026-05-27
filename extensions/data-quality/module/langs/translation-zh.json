@@ -102,6 +102,9 @@
   "data-quality-extension/check-value-list": "值列表",
   "data-quality-extension/check-regex": "正则",
   "data-quality-extension/check-date-format": "日期格式",
+  "data-quality-extension/check-typo": "错别字检查",
+  "data-quality-extension/typo-check-tab": "错别字检查",
+  "data-quality-extension/error-msg-typo-found": "发现错别字",
 
   "data-quality-extension/add-rule": "添加规则",
   "data-quality-extension/add-column-rule": "添加列规则",

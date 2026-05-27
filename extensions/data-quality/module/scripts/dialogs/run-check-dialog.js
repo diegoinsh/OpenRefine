@@ -397,6 +397,10 @@ RunCheckDialog.prototype._updateProgress = function(progress) {
     statusParts.push('(' + progress.contentCheckProcessed + '/' + progress.contentCheckTotal + ')');
   }
 
+  if (progress.typoCheckTotal > 0) {
+    statusParts.push($.i18n('data-quality-extension/typo-check-tab') + ': ' + progress.typoCheckProcessed + '/' + progress.typoCheckTotal);
+  }
+
   // Show error counts
   var errorParts = [];
   if (progress.formatErrors > 0) {
@@ -439,6 +443,7 @@ RunCheckDialog.prototype._onCheckComplete = function(response) {
     formatErrors: response.summary ? response.summary.formatErrors : 0,
     resourceErrors: response.summary ? response.summary.resourceErrors : 0,
     contentErrors: response.summary ? response.summary.contentErrors : 0,
+    typoErrors: response.summary ? response.summary.typoErrors : 0,
     imageQualityErrors: response.summary ? response.summary.imageQualityErrors : 0,
     // 添加服务不可用状态
     serviceUnavailable: response.serviceUnavailable || false,

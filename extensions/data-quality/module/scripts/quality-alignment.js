@@ -608,6 +608,10 @@ QualityAlignment._switchSubTab = function(tabId, saveState) {
   $('.quality-sub-tab-content').hide();
   $('#quality-' + tabId + '-content').show();
 
+  if (tabId === 'image-quality' && typeof ImageQualityTab !== 'undefined') {
+    ImageQualityTab._initResourceConfig();
+  }
+
   // Save current sub-tab state for page refresh (unless explicitly disabled)
   if (saveState !== false) {
     try {
@@ -809,6 +813,7 @@ QualityAlignment._refreshFormatRulesTable = function() {
     if (rule.unique) checkParts.push($.i18n('data-quality-extension/check-unique'));
     if (rule.regex) checkParts.push($.i18n('data-quality-extension/check-regex') + ': ' + rule.regex);
     if (rule.dateFormat) checkParts.push($.i18n('data-quality-extension/check-date-format') + ': ' + rule.dateFormat);
+    if (rule.typoCheckEnabled) checkParts.push($.i18n('data-quality-extension/check-typo'));
 
     if (checkParts.length > 0) {
       checkItemsContainer.text(checkParts.join(', '));
@@ -1073,6 +1078,9 @@ QualityAlignment._onResourceConfigChange = function() {
     this._unsavedIndicator.show();
   }
   this._updatePathPreview();
+  if (typeof ImageQualityTab !== 'undefined') {
+    ImageQualityTab._initResourceConfig();
+  }
 };
 
 /**
@@ -1761,12 +1769,12 @@ QualityAlignment._renderResultsTab = function() {
     .appendTo(summaryContent);
 
   // Get category counts from result
-  var formatErrors = 0, resourceErrors = 0, contentErrors = 0, imageErrors = 0;
+  var formatErrors = 0, resourceErrors = 0, contentErrors = 0, typoErrors = 0, imageErrors = 0;
   if (result && result.summary) {
     formatErrors = result.summary.formatErrors || 0;
     resourceErrors = result.summary.resourceErrors || 0;
     contentErrors = result.summary.contentErrors || 0;
-    // Use imageQualityErrors (with capital Q) from backend
+    typoErrors = result.summary.typoErrors || 0;
     imageErrors = result.summary.imageQualityErrors || result.summary.imageErrors || 0;
   } else if (result && result.errors) {
     // Calculate from errors if summary not available
@@ -1794,6 +1802,9 @@ QualityAlignment._renderResultsTab = function() {
                errType.indexOf('content') >= 0) {
         contentErrors++;
       }
+      else if (errType === 'typo' || errType.indexOf('typo') >= 0) {
+        formatErrors++;
+      }
       // Image quality errors
       else if (errType === 'image_quality' || errType.indexOf('image') >= 0 ||
                errType === 'blank' || errType === 'bias' || errType === 'stain' ||
@@ -1809,7 +1820,7 @@ QualityAlignment._renderResultsTab = function() {
   }
 
   this._renderPieChart(chartSection, {
-    format: formatErrors,
+    format: formatErrors + typoErrors,
     resource: resourceErrors,
     content: contentErrors,
     image: imageErrors
@@ -1868,6 +1879,7 @@ QualityAlignment._renderResultsTab = function() {
   $('<option value="regex">' + $.i18n('data-quality-extension/check-regex') + '</option>').appendTo(formatGroup);
   $('<option value="date_format">' + $.i18n('data-quality-extension/check-date-format') + '</option>').appendTo(formatGroup);
   $('<option value="value_list">' + $.i18n('data-quality-extension/check-value-list') + '</option>').appendTo(formatGroup);
+  $('<option value="typo">' + $.i18n('data-quality-extension/check-typo') + '</option>').appendTo(formatGroup);
 
   var resourceGroup = $('<optgroup label="' + $.i18n('data-quality-extension/resource-check-tab') + '"></optgroup>').appendTo(typeFilter);
   $('<option value="data_existence">' + $.i18n('data-quality-extension/data-existence') + '</option>').appendTo(resourceGroup);
@@ -2389,6 +2401,8 @@ QualityAlignment._getErrorTypeLabel = function(errorType) {
     'folder_sequence': $.i18n('data-quality-extension/folder-sequential'),
     // Content checks
     'content_mismatch': $.i18n('data-quality-extension/content-check-tab'),
+    // Typo checks
+    'typo': $.i18n('data-quality-extension/check-typo'),
     // Image quality checks - USABILITY category
     'damage': $.i18n('data-quality-extension/damage-check'),
     'blank': $.i18n('data-quality-extension/blank-check'),
@@ -2534,6 +2548,15 @@ QualityAlignment._formatErrorMessage = function(error) {
         .replace('{0}', contentMatch[1])
         .replace('{1}', contentMatch[2]);
     }
+  }
+
+  if (errorType === 'typo' && error.typoInfos && error.typoInfos.length > 0) {
+    var typoParts = [];
+    error.typoInfos.forEach(function(ti) {
+      var part = "'" + ti.typoChar + "'→'" + ti.correctChar + "'(" + ti.errorType + ")";
+      typoParts.push(part);
+    });
+    return $.i18n('data-quality-extension/error-msg-typo-found') + ' ' + typoParts.join(', ');
   }
 
   if (error.category === 'image_quality' || errorType === 'blank' ||
@@ -3379,6 +3402,9 @@ QualityAlignment._addFormatRule = function() {
     }
   });
 
+  var typoCheck = $('<label><input type="checkbox" id="rule-typo-check"> ' + $.i18n('data-quality-extension/check-typo') + '</label><br>')
+    .appendTo(checksContainer);
+
   // Footer
   var footer = $('<div class="dialog-footer"></div>').appendTo(frame);
   $('<button class="button"></button>')
@@ -3410,7 +3436,8 @@ QualityAlignment._addFormatRule = function() {
         unique: $('#rule-unique').prop('checked'),
         regex: $('#rule-regex-check').prop('checked') ? regexInput.val() : '',
         dateFormat: dateFormatValue,
-        valueList: []
+        valueList: [],
+        typoCheckEnabled: $('#rule-typo-check').prop('checked')
       };
       self._hasUnsavedChanges = true;
       if (self._unsavedIndicator) self._unsavedIndicator.show();
@@ -3564,6 +3591,9 @@ QualityAlignment._editFormatRule = function(key) {
     }
   });
 
+  $('<label><input type="checkbox" id="rule-typo-check" ' + (rule.typoCheckEnabled ? 'checked' : '') + '> '
+    + $.i18n('data-quality-extension/check-typo') + '</label><br>').appendTo(checksContainer);
+
   // Value list section
   var valueListRow = $('<div class="dialog-value-list-section"></div>').appendTo(checksContainer);
   var valueListHeader = $('<div class="dialog-value-list-header"></div>').appendTo(valueListRow);
@@ -3640,6 +3670,7 @@ QualityAlignment._editFormatRule = function(key) {
         regex: $('#rule-regex-check').prop('checked') ? regexInput.val() : '',
         dateFormat: dateFormatValue,
         valueList: valueList,
+        typoCheckEnabled: $('#rule-typo-check').prop('checked'),
         _templateName: rule._templateName,
         _matched: rule._matched,
         _sheetId: rule._sheetId,
@@ -3994,11 +4025,15 @@ QualityAlignment._buildExportData = function(result) {
   var formatErrors = 0;
   var resourceErrors = 0;
   var contentErrors = 0;
+  var typoErrors = 0;
   var imageErrors = 0;
 
   errors.forEach(function(err) {
     if (err.category === 'format') {
       formatErrors++;
+      if (err.errorType === 'typo') {
+        typoErrors++;
+      }
     } else if (err.category === 'resource') {
       resourceErrors++;
     } else if (err.category === 'content') {
@@ -4015,6 +4050,7 @@ QualityAlignment._buildExportData = function(result) {
       formatErrors: formatErrors,
       resourceErrors: resourceErrors,
       contentErrors: contentErrors,
+      typoErrors: typoErrors,
       imageQualityErrors: imageErrors
     },
     errors: errors

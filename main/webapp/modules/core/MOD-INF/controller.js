@@ -460,7 +460,6 @@ function init() {
     [
       "externals/jquery-ui/css/ui-lightness/jquery-ui.css",
       "3rdparty/select2/select2.css",
-      "3rdparty/tablesorter/theme.metallic.css",
 
       "styles/theme.css",
       "styles/jquery-ui-overrides.css",
