@@ -305,7 +305,7 @@ public class ListFacet implements Facet {
 
     public void initializeFromConfig(ListFacetConfig config, Project project) {
         _config = config;
-        if (_config.columnName.length() > 0) {
+        if (_config.columnName != null && _config.columnName.length() > 0) {
             Column column = project.columnModel.getColumnByName(_config.columnName);
             if (column != null) {
                 _cellIndex = column.getCellIndex();
@@ -317,7 +317,11 @@ public class ListFacet implements Facet {
         }
 
         try {
-            _eval = MetaParser.parse(_config.expression);
+            if (_config.expression != null && _config.expression.length() > 0) {
+                _eval = MetaParser.parse(_config.expression);
+            } else {
+                _eval = null;
+            }
         } catch (ParsingException e) {
             _errorMessage = e.getMessage();
         }

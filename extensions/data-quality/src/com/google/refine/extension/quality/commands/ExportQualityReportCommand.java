@@ -397,6 +397,8 @@ public class ExportQualityReportCommand extends Command {
             case "edge": return "黑边检测";
             case "illegal_file": return "非法归档文件检测";
             case "empty_folder": return "空文件夹检查";
+            case "typo": return "错别字检查";
+            case "folder_name_format": return "文件夹命名格式";
             default: return errorType;
         }
     }
@@ -626,12 +628,15 @@ public class ExportQualityReportCommand extends Command {
         if (errorType == null) {
             return "";
         }
-        if (errorType.contains("format") || errorType.contains("Format")) {
+        if (errorType.equals("typo")) {
             return "format";
         }
         if (errorType.contains("resource") || errorType.contains("Resource") ||
             errorType.contains("folder") || errorType.contains("file")) {
             return "resource";
+        }
+        if (errorType.contains("format") || errorType.contains("Format")) {
+            return "format";
         }
         if (errorType.contains("content") || errorType.contains("Content")) {
             return "content";
@@ -896,10 +901,15 @@ public class ExportQualityReportCommand extends Command {
         document.add(new Paragraph(" "));
         addContentComparisonChecks(document, smallFont, results, rulesConfig, totalRows);
         document.add(new Paragraph(" "));
-        
+
+        document.add(new Paragraph("错别字检查", smallFont));
+        document.add(new Paragraph(" "));
+        addCheckItemTable(document, smallFont, results, "typo", "错别字检查");
+        document.add(new Paragraph(" "));
+
         int authenticityErrors = countErrorsByType(results, "data_existence", "folder_existence", "file_count", 
-            "empty_check", "unique_check", "content_mismatch");
-        Paragraph summary1 = new Paragraph("小结：真实性检测发现" + authenticityErrors + "个问题，主要涉及数据条目与文件夹的对应关系及内容比对。", normalFont);
+            "empty_check", "unique_check", "content_mismatch", "typo");
+        Paragraph summary1 = new Paragraph("小结：真实性检测发现" + authenticityErrors + "个问题，主要涉及数据条目与文件夹的对应关系、内容比对及错别字检查。", normalFont);
         summary1.setIndentationLeft(20);
         summary1.setSpacingBefore(5);
         summary1.setSpacingAfter(10);
@@ -1250,7 +1260,7 @@ public class ExportQualityReportCommand extends Command {
         }
 
         int existenceChecks = totalRows + totalFolders + totalFiles;
-        int existenceErrors = countErrorsByType(results, "data_existence", "folder_existence", "file_count");
+        int existenceErrors = countErrorsByType(results, "data_existence", "folder_existence", "file_count", "typo");
         addSummaryRow(table, "真实性检测", 3, existenceChecks, existenceErrors, normalFont);
 
         int completenessChecks = totalRows + totalRows + totalFolders + totalFiles + totalFiles + totalFolders + totalFiles;
@@ -1962,6 +1972,7 @@ public class ExportQualityReportCommand extends Command {
             case "counting": return "数量统计";
             case "pageSize": return "尺幅大小统计";
             case "content_mismatch": return "内容比对检查";
+            case "typo": return "错别字检查";
             default: return errorType;
         }
     }

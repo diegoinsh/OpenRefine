@@ -82,7 +82,10 @@ public class GetConfigCommand extends Command {
         config.put("task.threadPoolSize", 4);
         config.put("task.batchSize", 100);
         config.put("task.autosaveInterval", 60);
-        
+
+        // 默认数据格式检查配置
+        config.put("format.batchSize", 20);
+
         // 内容比对配置
         config.put("content.similarityPass", 100);
         config.put("content.similarityWarning", 100);

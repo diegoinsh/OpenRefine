@@ -62,12 +62,12 @@ ExporterManager.MenuItems = [
   {
     "id" : "core/export-excel",
     "label": $.i18n('core-project/excel'),
-    "click": function() { ExporterManager.handlers.exportRows("xls", "xls"); }
+    "click": function() { new MultiSheetExporterDialog("xls", "xls"); }
   },
   {
     "id" : "core/export-excel-xml",
     "label": $.i18n('core-project/excel-xml'),
-    "click": function() { ExporterManager.handlers.exportRows("xlsx", "xlsx"); }
+    "click": function() { new MultiSheetExporterDialog("xlsx", "xlsx"); }
   },
   {
     "id" : "core/export-ods",

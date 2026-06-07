@@ -69,14 +69,18 @@ public class Project {
     final static protected Map<String, Class<? extends OverlayModel>> s_overlayModelClasses = new HashMap<String, Class<? extends OverlayModel>>();
 
     final public long id;
-    final public List<Row> rows = new ArrayList<>();
-    final public ColumnModel columnModel = new ColumnModel();
-    final public RecordModel recordModel = new RecordModel();
+    public List<Row> rows = new ArrayList<>();
+    public ColumnModel columnModel = new ColumnModel();
+    public RecordModel recordModel = new RecordModel();
     final public Map<String, OverlayModel> overlayModels = new HashMap<String, OverlayModel>();
     final public History history;
 
     transient public ProcessManager processManager = new ProcessManager();
     transient private Instant _lastSave = Instant.now();
+
+    public String activeSheetId;
+    public Map<String, SheetData> sheetDataMap = new HashMap<>();
+    public boolean isMultiSheetProject = false;
 
     final static Logger logger = LoggerFactory.getLogger(Project.class);
 
@@ -100,6 +104,8 @@ public class Project {
     protected Project(long id) {
         this.id = id;
         this.history = new History(this);
+        this.sheetDataMap = new HashMap<>();
+        this.isMultiSheetProject = false;
     }
 
     static public void registerOverlayModel(String modelName, Class<? extends OverlayModel> klass) {
@@ -117,8 +123,72 @@ public class Project {
                 logger.warn("Error signaling overlay model before disposing", e);
             }
         }
+        for (SheetData sheetData : sheetDataMap.values()) {
+            try {
+                sheetData.dispose();
+            } catch (Exception e) {
+                logger.warn("Error disposing sheet data", e);
+            }
+        }
         ProjectManager.singleton.getLookupCacheManager().flushLookupsInvolvingProject(this.id);
         // The rest of the project should get garbage collected when we return.
+    }
+
+    public SheetData getActiveSheetData() {
+        if (isMultiSheetProject && activeSheetId != null) {
+            return sheetDataMap.get(activeSheetId);
+        }
+        return null;
+    }
+
+    public void setActiveSheet(String sheetId) {
+        if (sheetDataMap.containsKey(sheetId)) {
+            this.activeSheetId = sheetId;
+            SheetData sheetData = sheetDataMap.get(sheetId);
+            this.rows = sheetData.rows;
+            this.columnModel = sheetData.columnModel;
+            this.recordModel = sheetData.recordModel;
+            logger.info("setActiveSheet: switched to " + sheetId + ", project.rows.size()=" + this.rows.size());
+        } else {
+            logger.warn("setActiveSheet: sheetId not found: " + sheetId);
+        }
+    }
+
+    public void addSheetData(SheetData sheetData) {
+        sheetDataMap.put(sheetData.sheetId, sheetData);
+        if (sheetDataMap.size() > 1) {
+            isMultiSheetProject = true;
+        }
+    }
+
+    public SheetData getSheetData(String sheetId) {
+        return sheetDataMap.get(sheetId);
+    }
+
+    public List<SheetData> getAllSheetData() {
+        return new ArrayList<>(sheetDataMap.values());
+    }
+    
+    private String tempNextSheetLine = null;
+    private boolean hasPendingSheet = false;
+    
+    public void setTempNextSheetLine(String line) {
+        this.tempNextSheetLine = line;
+        this.hasPendingSheet = true;
+        logger.info("setTempNextSheetLine: set to '" + line + "', hasPendingSheet=true");
+    }
+    
+    public String getTempNextSheetLine() {
+        return this.tempNextSheetLine;
+    }
+    
+    public void clearTempNextSheetLine() {
+        this.tempNextSheetLine = null;
+        this.hasPendingSheet = false;
+    }
+    
+    public boolean hasPendingSheet() {
+        return this.hasPendingSheet;
     }
 
     public Instant getLastSave() {
@@ -169,26 +239,59 @@ public class Project {
         writer.write(RefineServlet.VERSION);
         writer.write('\n');
 
-        writer.write("columnModel=\n");
-        columnModel.save(writer, options);
-        writer.write("history=\n");
-        history.save(writer, options);
-
-        for (String modelName : overlayModels.keySet()) {
-            writer.write("overlayModel:");
-            writer.write(modelName);
-            writer.write("=");
-
-            ParsingUtilities.saveWriter.writeValue(writer, overlayModels.get(modelName));
+        if (isMultiSheetProject) {
+            writer.write("isMultiSheetProject=true\n");
+            logger.info("saveToWriter: isMultiSheetProject=true, activeSheetId=" + activeSheetId);
+            if (activeSheetId != null) {
+                writer.write("activeSheetId=");
+                writer.write(activeSheetId);
+                writer.write('\n');
+            }
+            writer.write("sheetCount=");
+            writer.write(Integer.toString(sheetDataMap.size()));
             writer.write('\n');
-        }
+            
+            for (SheetData sheetData : sheetDataMap.values()) {
+                writer.write("sheet:");
+                writer.write(sheetData.sheetId);
+                writer.write("=\n");
+                
+                writer.write("columnModel=\n");
+                sheetData.columnModel.save(writer, options);
+                
+                writer.write("rowCount=");
+                writer.write(Integer.toString(sheetData.rows.size()));
+                writer.write('\n');
+                for (Row row : sheetData.rows) {
+                    row.save(writer, options);
+                    writer.write('\n');
+                }
+            }
+            
+            writer.write("history=\n");
+            history.save(writer, options);
+        } else {
+            writer.write("columnModel=\n");
+            columnModel.save(writer, options);
+            writer.write("history=\n");
+            history.save(writer, options);
 
-        writer.write("rowCount=");
-        writer.write(Integer.toString(rows.size()));
-        writer.write('\n');
-        for (Row row : rows) {
-            row.save(writer, options);
+            for (String modelName : overlayModels.keySet()) {
+                writer.write("overlayModel:");
+                writer.write(modelName);
+                writer.write("=");
+
+                ParsingUtilities.saveWriter.writeValue(writer, overlayModels.get(modelName));
+                writer.write('\n');
+            }
+
+            writer.write("rowCount=");
+            writer.write(Integer.toString(rows.size()));
             writer.write('\n');
+            for (Row row : rows) {
+                row.save(writer, options);
+                writer.write('\n');
+            }
         }
     }
 
@@ -202,8 +305,7 @@ public class Project {
             Pool pool) throws IOException {
         long start = System.currentTimeMillis();
 
-        // version of Refine which wrote the file
-        /* String version = */ reader.readLine();
+        String version = reader.readLine();
 
         Project project = new Project(id);
         int maxCellCount = 0;
@@ -213,29 +315,178 @@ public class Project {
         mapper.setInjectableValues(injections);
 
         String line;
-        while ((line = reader.readLine()) != null) {
+        
+        while (true) {
+            logger.info("loadFromReader: Outer loop iteration start, hasPendingSheet=" + project.hasPendingSheet() + ", tempNextSheetLine=" + (project.getTempNextSheetLine() != null ? "set" : "null"));
+            
+            if (project.hasPendingSheet()) {
+                line = project.getTempNextSheetLine();
+                logger.info("loadFromReader: >>>> USING PENDING SHEET LINE: " + line);
+                project.clearTempNextSheetLine();
+                logger.info("loadFromReader: After clearTempNextSheetLine, hasPendingSheet=" + project.hasPendingSheet());
+            } else {
+                line = reader.readLine();
+                logger.info("loadFromReader: Read line from reader: " + (line == null ? "null" : line.substring(0, Math.min(50, line.length()))));
+            }
+            if (line == null) {
+                logger.info("loadFromReader: End of file reached");
+                break;
+            }
+            
+            if ("/e/".equals(line)) {
+                logger.warn("/e/ found!!!!!!!!!!!!!!!!!!!!!!", line);
+                continue;
+            }
+            
+            if (line.startsWith("sheet:")) {
+                int equal = line.indexOf('=');
+                if (equal == -1) {
+                    logger.warn("Invalid sheet format: " + line);
+                    continue;
+                }
+                String sheetId = line.substring("sheet:".length(), equal);
+                
+                String sheetName = sheetId;
+                String[] parts = sheetId.split("#");
+                if (parts.length > 1) {
+                    sheetName = parts[1];
+                }
+                
+                logger.info("loadFromReader: Processing sheet: " + sheetId);
+                SheetData sheetData = new SheetData(sheetId, sheetName, "");
+                
+                String sheetField;
+                boolean inColumnModel = false;
+                boolean foundRowCount = false;
+                int sheetFieldCount = 0;
+                while ((sheetField = reader.readLine()) != null) {
+                    sheetFieldCount++;
+                    logger.info("loadFromReader: sheetField #" + sheetFieldCount + ": " + (sheetField.length() > 50 ? sheetField.substring(0, 50) + "..." : sheetField));
+                    
+                    if ("/e/".equals(sheetField)) {
+                        inColumnModel = false;
+                        if (foundRowCount) {
+                            logger.info("loadFromReader: /e/ after rowCount, ending sheet processing");
+                            break;
+                        }
+                        logger.info("loadFromReader: /e/ found but rowCount not found yet, continuing");
+                        continue;
+                    }
+                    
+                    if (sheetField.startsWith("sheet:")) {
+                        logger.info("loadFromReader: >>>>> NEXT SHEET DETECTED: " + sheetField + " <<<<<");
+                        logger.info("loadFromReader: Before setTempNextSheetLine, hasPendingSheet=" + project.hasPendingSheet());
+                        project.setTempNextSheetLine(sheetField);
+                        logger.info("loadFromReader: After setTempNextSheetLine, hasPendingSheet=" + project.hasPendingSheet());
+                        logger.debug("loadFromReader: Set tempNextSheetLine to: " + sheetField);
+                        break;
+                    }
+                    
+                    if (inColumnModel) {
+                        logger.debug("loadFromReader: inColumnModel=true, skipping line");
+                        continue;
+                    }
+                    
+                    int sheetFieldEqual = sheetField.indexOf('=');
+                    if (sheetFieldEqual == -1) {
+                        logger.warn("loadFromReader: Invalid line format (missing '='): " + sheetField.substring(0, Math.min(50, sheetField.length())));
+                        continue;
+                    }
+                    String sheetFieldName = sheetField.substring(0, sheetFieldEqual);
+                    String sheetFieldValue = sheetField.substring(sheetFieldEqual + 1);
+                    
+                    if ("columnModel".equals(sheetFieldName)) {
+                        logger.info("Loading columnModel for sheet: " + sheetData.sheetId);
+                        inColumnModel = true;
+                        sheetData.columnModel.load(reader);
+                        logger.info("ColumnModel loaded, columns.size=" + sheetData.columnModel.columns.size());
+                        inColumnModel = false;
+                        
+                        String endMarker = reader.readLine();
+                        logger.info("loadFromReader: After ColumnModel.load(), endMarker=" + endMarker);
+                        if (endMarker == null) {
+                            logger.error("loadFromReader: Unexpected end of file after columnModel");
+                        } else if ("/e/".equals(endMarker)) {
+                            logger.info("loadFromReader: Consumed /e/ after columnModel");
+                        } else {
+                            logger.warn("loadFromReader: Expected /e/ after columnModel, got: " + endMarker);
+                            // If it's rowCount or sheet:, put it back for processing
+                            if (endMarker != null && (endMarker.startsWith("rowCount=") || endMarker.startsWith("sheet:"))) {
+                                project.setTempNextSheetLine(endMarker);
+                                logger.info("loadFromReader: Set tempNextSheetLine to: " + endMarker);
+                            } else {
+                                reader.reset();
+                            }
+                        }
+                    } else if ("rowCount".equals(sheetFieldName)) {
+                        int count = Integer.parseInt(sheetFieldValue);
+                        logger.info("Found rowCount=" + count + " for sheet: " + sheetData.sheetId);
+                        foundRowCount = true;
+                        for (int j = 0; j < count; j++) {
+                            String rowLine = reader.readLine();
+                            if (rowLine != null) {
+                                Row row = Row.load(rowLine, pool);
+                                sheetData.rows.add(row);
+                                maxCellCount = Math.max(maxCellCount, row.cells.size());
+                            }
+                        }
+                        logger.info("Loaded " + sheetData.rows.size() + " rows for sheet: " + sheetData.sheetId);
+                    } else if ("history".equals(sheetFieldName)) {
+                        logger.info("loadFromReader: Found history field, ending sheet processing");
+                        project.setTempNextSheetLine(sheetField);
+                        break;
+                    } else {
+                        logger.info("loadFromReader: Unknown field in sheet: " + sheetFieldName + ", ending sheet processing");
+                        project.setTempNextSheetLine(sheetField);
+                        break;
+                    }
+                }
+                
+                logger.info("loadFromReader: Sheet processing loop ended, sheetFieldCount=" + sheetFieldCount + ", foundRowCount=" + foundRowCount);
+                
+                logger.info("Adding sheet to project: " + sheetData.sheetId + ", rows=" + sheetData.rows.size());
+                project.addSheetData(sheetData);
+                continue;
+            }
+            
             int equal = line.indexOf('=');
+            if (equal == -1) {
+                logger.warn("Invalid line format (missing '='): {}", line);
+                continue;
+            }
             String field = line.substring(0, equal);
             String value = line.substring(equal + 1);
 
-            // backward compatibility
-            if ("protograph".equals(field)) {
-                field = "overlayModel:freebaseProtograph";
-            }
-
-            if ("columnModel".equals(field)) {
-                project.columnModel.load(reader);
+            if ("isMultiSheetProject".equals(field)) {
+                project.isMultiSheetProject = Boolean.parseBoolean(value);
+                logger.info("loadFromReader: isMultiSheetProject=" + project.isMultiSheetProject);
+            } else if ("activeSheetId".equals(field)) {
+                project.activeSheetId = value;
+                logger.info("loadFromReader: activeSheetId=" + project.activeSheetId);
+            } else if ("sheetCount".equals(field)) {
+                int sheetCount = Integer.parseInt(value);
+                logger.info("loadFromReader: sheetCount=" + sheetCount + ", sheets will be processed when 'sheet:' lines are encountered");
+            } else if ("columnModel".equals(field)) {
+                if (!project.isMultiSheetProject) {
+                    project.columnModel.load(reader);
+                }
             } else if ("history".equals(field)) {
-                project.history.load(project, reader);
+                if (!project.isMultiSheetProject) {
+                    project.history.load(project, reader);
+                } else {
+                    logger.info("loadFromReader: Loading history for multi-sheet project");
+                    project.history.load(project, reader);
+                }
             } else if ("rowCount".equals(field)) {
-                int count = Integer.parseInt(value);
-
-                for (int i = 0; i < count; i++) {
-                    line = reader.readLine();
-                    if (line != null) {
-                        Row row = Row.load(line, pool);
-                        project.rows.add(row);
-                        maxCellCount = Math.max(maxCellCount, row.cells.size());
+                if (!project.isMultiSheetProject) {
+                    int count = Integer.parseInt(value);
+                    for (int i = 0; i < count; i++) {
+                        line = reader.readLine();
+                        if (line != null) {
+                            Row row = Row.load(line, pool);
+                            project.rows.add(row);
+                            maxCellCount = Math.max(maxCellCount, row.cells.size());
+                        }
                     }
                 }
             } else if (field.startsWith("overlayModel:")) {
@@ -254,7 +505,28 @@ public class Project {
             }
         }
 
-        project.columnModel.setMaxCellIndex(maxCellCount - 1);
+        if (project.isMultiSheetProject && project.activeSheetId != null) {
+            logger.info("loadFromReader: Calling setActiveSheet with activeSheetId=" + project.activeSheetId);
+            project.setActiveSheet(project.activeSheetId);
+            
+            SheetData activeData = project.getActiveSheetData();
+            if (activeData == null || activeData.rows.isEmpty()) {
+                logger.warn("loadFromReader: activeSheet has no data, switching to first sheet with data");
+                for (SheetData sheetData : project.getAllSheetData()) {
+                    if (!sheetData.rows.isEmpty()) {
+                        logger.info("loadFromReader: Switching to first sheet with data: " + sheetData.sheetId);
+                        project.setActiveSheet(sheetData.sheetId);
+                        break;
+                    }
+                }
+            }
+        } else {
+            logger.info("loadFromReader: NOT calling setActiveSheet. isMultiSheetProject=" + project.isMultiSheetProject + ", activeSheetId=" + project.activeSheetId);
+        }
+
+        if (!project.isMultiSheetProject) {
+            project.columnModel.setMaxCellIndex(maxCellCount - 1);
+        }
 
         logger.info(
                 "Loaded project {} from disk in {} sec(s)", id, Long.toString((System.currentTimeMillis() - start) / 1000));

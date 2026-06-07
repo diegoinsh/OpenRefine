@@ -77,6 +77,7 @@ function registerCommands() {
   RS.registerCommand(module, "rename-project", new Packages.com.google.refine.commands.project.RenameProjectCommand());
   
   RS.registerCommand(module, "get-models", new Packages.com.google.refine.commands.project.GetModelsCommand());
+  RS.registerCommand(module, "switch-sheet", new Packages.com.google.refine.commands.project.SwitchSheetCommand());
   RS.registerCommand(module, "get-rows", new Packages.com.google.refine.commands.row.GetRowsCommand());
   RS.registerCommand(module, "get-processes", new Packages.com.google.refine.commands.history.GetProcessesCommand());
   RS.registerCommand(module, "get-history", new Packages.com.google.refine.commands.history.GetHistoryCommand());
@@ -424,6 +425,7 @@ function init() {
       "scripts/util/sign.js",
       "scripts/util/filter-lists.js",
       "scripts/util/filter-lists-search.js",
+      "scripts/util/tab-manager.js",
 
       "scripts/index.js",
       "scripts/index/open-project-ui.js",
@@ -502,6 +504,7 @@ function init() {
       "scripts/util/custom-suggest.js",
       "scripts/util/encoding.js",
       "scripts/util/sign.js",
+      "scripts/util/tab-manager.js",
 
       "scripts/widgets/histogram-widget.js",
       "scripts/widgets/slider-widget.js",
@@ -532,6 +535,7 @@ function init() {
       "scripts/views/data-table/cell-renderers/registry.js",
 
       "scripts/views/data-table/data-table-view.js",
+      "scripts/views/data-table/sheet-tab-view.js",
       "scripts/views/data-table/cell-ui.js",
       "scripts/views/data-table/column-header-ui.js",
       "scripts/views/data-table/menu-facets.js",
@@ -556,6 +560,7 @@ function init() {
       "scripts/dialogs/common-transform-dialog.js",
       "scripts/dialogs/column-mapping-dialog.js",
       "scripts/dialogs/custom-tabular-exporter-dialog.js",
+      "scripts/dialogs/multi-sheet-exporter-dialog.js",
       "scripts/dialogs/sql-exporter-dialog.js",
       "scripts/dialogs/expression-column-dialog.js",
       "scripts/dialogs/http-headers-dialog.js",

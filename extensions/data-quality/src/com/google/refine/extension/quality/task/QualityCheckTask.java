@@ -68,6 +68,10 @@ public class QualityCheckTask {
     private volatile int imageQualityCheckTotal;
     private final AtomicInteger imageQualityCheckProcessed;
 
+    // Typo check specific progress
+    private volatile int typoCheckTotal;
+    private final AtomicInteger typoCheckProcessed;
+
     // Checkpoint for resume support
     private volatile Checkpoint checkpoint;
 
@@ -105,6 +109,8 @@ public class QualityCheckTask {
         this.contentCheckProcessed = new AtomicInteger(0);
         this.imageQualityCheckTotal = 0;
         this.imageQualityCheckProcessed = new AtomicInteger(0);
+        this.typoCheckTotal = 0;
+        this.typoCheckProcessed = new AtomicInteger(0);
         this.pauseRequested = false;
         this.cancelRequested = false;
         this.checkedRows = 0;
@@ -143,6 +149,8 @@ public class QualityCheckTask {
             @JsonProperty("contentCheckProcessed") int contentCheckProcessed,
             @JsonProperty("imageQualityCheckTotal") int imageQualityCheckTotal,
             @JsonProperty("imageQualityCheckProcessed") int imageQualityCheckProcessed,
+            @JsonProperty("typoCheckTotal") int typoCheckTotal,
+            @JsonProperty("typoCheckProcessed") int typoCheckProcessed,
             @JsonProperty("checkpoint") Checkpoint checkpoint,
             @JsonProperty("ruleId") String ruleId
     ) {
@@ -169,6 +177,8 @@ public class QualityCheckTask {
         this.contentCheckProcessed = new AtomicInteger(contentCheckProcessed);
         this.imageQualityCheckTotal = imageQualityCheckTotal;
         this.imageQualityCheckProcessed = new AtomicInteger(imageQualityCheckProcessed);
+        this.typoCheckTotal = typoCheckTotal;
+        this.typoCheckProcessed = new AtomicInteger(typoCheckProcessed);
         this.checkpoint = checkpoint;
         this.ruleId = ruleId;
         this.pauseRequested = false;
@@ -303,28 +313,33 @@ public class QualityCheckTask {
         if (status == TaskStatus.COMPLETED) return 100;
         if (status == TaskStatus.PENDING) return 0;
 
-        // Weight: format(15%) + resource(15%) + content(35%) + imageQuality(35%)
+        // Weight: format(10%) + resource(10%) + content(30%) + typo(20%) + imageQuality(30%)
         int baseProgress = 0;
 
         if ("格式检查".equals(currentPhase)) {
             baseProgress = 0;
             if (totalRows > 0) {
-                return Math.min(14, baseProgress + (processedRows.get() * 15 / totalRows));
+                return Math.min(9, baseProgress + (processedRows.get() * 10 / totalRows));
             }
         } else if ("资源检查".equals(currentPhase)) {
-            baseProgress = 15;
+            baseProgress = 10;
             if (totalRows > 0) {
-                return Math.min(29, baseProgress + (processedRows.get() * 15 / totalRows));
+                return Math.min(19, baseProgress + (processedRows.get() * 10 / totalRows));
             }
         } else if ("内容检查".equals(currentPhase)) {
-            baseProgress = 30;
+            baseProgress = 20;
             if (contentCheckTotal > 0) {
-                return Math.min(64, baseProgress + (contentCheckProcessed.get() * 35 / contentCheckTotal));
+                return Math.min(49, baseProgress + (contentCheckProcessed.get() * 30 / contentCheckTotal));
+            }
+        } else if ("错别字检查".equals(currentPhase)) {
+            baseProgress = 50;
+            if (typoCheckTotal > 0) {
+                return Math.min(69, baseProgress + (typoCheckProcessed.get() * 20 / typoCheckTotal));
             }
         } else if ("图像质量检查".equals(currentPhase)) {
-            baseProgress = 65;
+            baseProgress = 70;
             if (imageQualityCheckTotal > 0) {
-                return Math.min(99, baseProgress + (imageQualityCheckProcessed.get() * 35 / imageQualityCheckTotal));
+                return Math.min(99, baseProgress + (imageQualityCheckProcessed.get() * 30 / imageQualityCheckTotal));
             }
         }
 
@@ -435,7 +450,16 @@ public class QualityCheckTask {
     @JsonProperty("imageQualityCheckProcessed")
     public int getImageQualityCheckProcessed() { return imageQualityCheckProcessed.get(); }
     public void incrementImageQualityCheckProcessed() { imageQualityCheckProcessed.incrementAndGet(); }
-    public void setImageQualityCheckProcessed(int processed) { imageQualityCheckProcessed.set(processed); }
+    public void setImageQualityCheckProcessed(int processed) { this.imageQualityCheckProcessed.set(processed); }
+
+    @JsonProperty("typoCheckTotal")
+    public int getTypoCheckTotal() { return typoCheckTotal; }
+    public void setTypoCheckTotal(int total) { this.typoCheckTotal = total; }
+
+    @JsonProperty("typoCheckProcessed")
+    public int getTypoCheckProcessed() { return typoCheckProcessed.get(); }
+    public void incrementTypoCheckProcessed() { typoCheckProcessed.incrementAndGet(); }
+    public void setTypoCheckProcessed(int processed) { this.typoCheckProcessed.set(processed); }
 
     @JsonProperty("ruleId")
     public String getRuleId() { return ruleId; }

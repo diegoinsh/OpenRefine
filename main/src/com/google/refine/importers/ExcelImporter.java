@@ -39,11 +39,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.base.CharMatcher;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.ooxml.POIXMLException;
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
@@ -61,10 +64,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.refine.ProjectMetadata;
+import com.google.refine.expr.ExpressionUtils;
 import com.google.refine.importing.ImportingJob;
 import com.google.refine.importing.ImportingUtilities;
 import com.google.refine.model.Cell;
+import com.google.refine.model.Column;
+import com.google.refine.model.ColumnModel;
+import com.google.refine.model.ModelException;
 import com.google.refine.model.Project;
+import com.google.refine.model.Row;
+import com.google.refine.model.SheetData;
 import com.google.refine.util.JSONUtilities;
 import com.google.refine.util.ParsingUtilities;
 
@@ -190,22 +199,51 @@ public class ExcelImporter extends TabularImportingParserBase {
             forceText = false;
         }
         ArrayNode sheets = (ArrayNode) options.get("sheets");
+        ObjectNode sheetOptions = (ObjectNode) options.get("sheetOptions");
+        
+        logger.info("Processing {} sheets from fileSource: {}", sheets.size(), fileSource);
+        logger.info("Sheet options: {}", sheetOptions != null ? sheetOptions.toString() : "null");
+        
+        boolean isMultiSheetImport = sheets.size() > 1;
+        String firstSheetId = null;
 
         for (int i = 0; i < sheets.size(); i++) {
             String[] fileNameAndSheetIndex = new String[2];
             ObjectNode sheetObj = (ObjectNode) sheets.get(i);
             // value is fileName#sheetIndex
             fileNameAndSheetIndex = sheetObj.get("fileNameAndSheetIndex").asText().split("#");
+            int sheetIndex = Integer.parseInt(fileNameAndSheetIndex[1]);
+
+            logger.info("Processing sheet at index {}: fileNameAndSheetIndex[0]={}, fileSource={}", 
+                i, fileNameAndSheetIndex[0], fileSource);
 
             if (!fileNameAndSheetIndex[0].equals(fileSource))
                 continue;
 
-            final Sheet sheet = wb.getSheetAt(Integer.parseInt(fileNameAndSheetIndex[1]));
+            final Sheet sheet = wb.getSheetAt(sheetIndex);
+            final String sheetName = sheet.getSheetName();
+            final String sheetId = fileSource + "#" + sheetName;
             final int lastRow = sheet.getLastRowNum();
+            
+            logger.info("Processing sheet: {} (index: {}, lastRow: {})", sheetName, sheetIndex, lastRow);
+            
+            if (firstSheetId == null) {
+                firstSheetId = sheetId;
+            }
+            
+            ObjectNode currentSheetOptions = null;
+            if (isMultiSheetImport && sheetOptions != null && sheetOptions.has(String.valueOf(sheetIndex))) {
+                currentSheetOptions = (ObjectNode) sheetOptions.get(String.valueOf(sheetIndex));
+                logger.info("Sheet {} has custom options: {}", sheetName, currentSheetOptions.toString());
+            } else {
+                logger.info("Sheet {} using global options, isMultiSheet: {}, sheetOptions: {}", 
+                    sheetName, isMultiSheetImport, sheetOptions != null ? sheetOptions.toString() : "null");
+            }
 
             TableDataReader dataReader = new TableDataReader() {
 
                 int nextRow = 0;
+                int maxColumnCount = 0;
 
                 @Override
                 public List<Object> getNextRowOfCells() throws IOException {
@@ -217,12 +255,42 @@ public class ExcelImporter extends TabularImportingParserBase {
                     org.apache.poi.ss.usermodel.Row row = sheet.getRow(nextRow++);
                     if (row != null) {
                         short lastCell = row.getLastCellNum();
-                        for (short cellIndex = 0; cellIndex < lastCell; cellIndex++) {
+                        short firstCell = row.getFirstCellNum();
+                        int physicalCells = row.getPhysicalNumberOfCells();
+                        logger.info("Row {}: firstCell={}, lastCell={}, physicalCells={}", 
+                            nextRow - 1, firstCell, lastCell, physicalCells);
+                        
+                        int actualLastCell;
+                        if (physicalCells > 0) {
+                            int maxCol = 0;
+                            for (int i = 0; i < physicalCells; i++) {
+                                org.apache.poi.ss.usermodel.Cell cell = row.getCell(firstCell + i);
+                                if (cell != null) {
+                                    int colIndex = cell.getColumnIndex();
+                                    if (colIndex > maxCol) {
+                                        maxCol = colIndex;
+                                    }
+                                }
+                            }
+                            actualLastCell = maxCol + 1;
+                            logger.info("Row {}: actualLastCell={} (based on physical cells)", 
+                                nextRow - 1, actualLastCell);
+                        } else {
+                            actualLastCell = firstCell;
+                        }
+                        
+                        if (actualLastCell > maxColumnCount) {
+                            maxColumnCount = actualLastCell;
+                        }
+                        
+                        for (short cellIndex = firstCell; cellIndex < actualLastCell; cellIndex++) {
                             Cell cell = null;
 
                             org.apache.poi.ss.usermodel.Cell sourceCell = row.getCell(cellIndex);
                             if (sourceCell != null) {
                                 cell = extractCell(sourceCell, forceText);
+                                logger.debug("Cell [{}][{}]: {}", nextRow - 1, cellIndex, 
+                                    cell != null ? cell.value : "null");
                             }
                             cells.add(cell);
                         }
@@ -231,17 +299,247 @@ public class ExcelImporter extends TabularImportingParserBase {
                 }
             };
 
-            // TODO: Do we need to preserve the original filename? Take first piece before #?
-//           JSONUtilities.safePut(options, "fileSource", fileSource + "#" + sheet.getSheetName());
-            TabularImportingParserBase.readTable(
-                    project,
-                    metadata,
-                    job,
-                    dataReader,
-                    fileSource + "#" + sheet.getSheetName(),
-                    limit,
-                    options,
-                    exceptions);
+            if (isMultiSheetImport) {
+                SheetData sheetData = new SheetData(sheetId, sheetName, fileSource);
+                
+                ObjectNode optionsToUse = currentSheetOptions != null ? currentSheetOptions : options;
+                
+                logger.info("Processing sheet {} with options: {}", sheetName, optionsToUse.toString());
+                
+                sheetData.ignoreLines = JSONUtilities.getInt(optionsToUse, "ignoreLines", -1);
+                sheetData.headerLines = JSONUtilities.getInt(optionsToUse, "headerLines", 1);
+                sheetData.skipDataLines = JSONUtilities.getInt(optionsToUse, "skipDataLines", 0);
+                sheetData.limit = JSONUtilities.getInt(optionsToUse, "limit", -1);
+                sheetData.storeBlankRows = JSONUtilities.getBoolean(optionsToUse, "storeBlankRows", true);
+                sheetData.storeBlankColumns = JSONUtilities.getBoolean(optionsToUse, "storeBlankColumns", true);
+                sheetData.storeBlankCellsAsNulls = JSONUtilities.getBoolean(optionsToUse, "storeBlankCellsAsNulls", true);
+                sheetData.forceText = JSONUtilities.getBoolean(optionsToUse, "forceText", false);
+                
+                logger.info("Sheet {} config - headerLines: {}, ignoreLines: {}, skipDataLines: {}, limit: {}", 
+                    sheetName, sheetData.headerLines, sheetData.ignoreLines, sheetData.skipDataLines, sheetData.limit);
+                
+                readTableToSheetData(project, metadata, job, dataReader, sheetData, optionsToUse, exceptions);
+                
+                project.addSheetData(sheetData);
+            } else {
+                TabularImportingParserBase.readTable(
+                        project,
+                        metadata,
+                        job,
+                        dataReader,
+                        fileSource + "#" + sheet.getSheetName(),
+                        limit,
+                        options,
+                        exceptions);
+            }
+        }
+        
+        if (isMultiSheetImport && firstSheetId != null) {
+            project.activeSheetId = firstSheetId;
+            project.isMultiSheetProject = true;
+            
+            SheetData firstSheetData = project.sheetDataMap.get(firstSheetId);
+            if (firstSheetData != null) {
+                project.rows = firstSheetData.rows;
+                project.columnModel = firstSheetData.columnModel;
+                project.recordModel = firstSheetData.recordModel;
+            }
+        }
+    }
+    
+    static protected void readTableToSheetData(
+            Project project,
+            ProjectMetadata metadata,
+            ImportingJob job,
+            TableDataReader reader,
+            SheetData sheetData,
+            ObjectNode options,
+            List<Exception> exceptions) {
+        int ignoreLines = JSONUtilities.getInt(options, "ignoreLines", -1);
+        int headerLines = JSONUtilities.getInt(options, "headerLines", 1);
+        int skipDataLines = JSONUtilities.getInt(options, "skipDataLines", 0);
+        int limit = JSONUtilities.getInt(options, "limit", -1);
+
+        boolean guessCellValueTypes = JSONUtilities.getBoolean(options, "guessCellValueTypes", false);
+        boolean storeBlankRows = JSONUtilities.getBoolean(options, "storeBlankRows", true);
+        boolean storeBlankCellsAsNulls = JSONUtilities.getBoolean(options, "storeBlankCellsAsNulls", true);
+        boolean trimStrings = JSONUtilities.getBoolean(options, "trimStrings", false);
+
+        List<String> columnNames = new ArrayList<String>();
+        boolean hasOurOwnColumnNames = headerLines > 0;
+
+        List<Object> cells = null;
+        int rowsWithData = 0;
+
+        try {
+            while (!job.canceled && (cells = reader.getNextRowOfCells()) != null) {
+                if (ignoreLines > 0) {
+                    ignoreLines--;
+                    continue;
+                }
+
+                if (headerLines > 0) {
+                    for (int c = 0; c < cells.size(); c++) {
+                        Object cell = cells.get(c);
+
+                        String columnName;
+                        if (cell == null) {
+                            columnName = "";
+                        } else if (cell instanceof Cell) {
+                            columnName = CharMatcher.whitespace().trimFrom(((Cell) cell).value.toString());
+                        } else {
+                            columnName = CharMatcher.whitespace().trimFrom(cell.toString());
+                        }
+
+                        ImporterUtilities.appendColumnName(columnNames, c, columnName);
+                    }
+
+                    headerLines--;
+                    if (headerLines == 0) {
+                        setupColumnsForSheetData(sheetData.columnModel, columnNames);
+                    }
+                } else {
+                    Row row = new Row(cells.size());
+
+                    if (storeBlankRows || cells.size() > 0) {
+                        rowsWithData++;
+                    }
+
+                    if (skipDataLines <= 0 || rowsWithData > skipDataLines) {
+                        boolean rowHasData = false;
+                        
+                        logger.info("Processing data row: cells.size()={}, columnModel.getMaxCellIndex()={}, columnNames.size()={}", 
+                            cells.size(), sheetData.columnModel.getMaxCellIndex(), columnNames.size());
+
+                        for (int c = 0; c < cells.size(); c++) {
+                            Column column = getOrAllocateColumnForSheetData(
+                                    sheetData.columnModel, columnNames, c, hasOurOwnColumnNames);
+                            int cellIndex = column.getCellIndex();
+
+                            logger.info("Row cell {}: column={}, cellIndex={}, value={}", 
+                                c, column.getName(), cellIndex, cells.get(c));
+
+                            Object value = cells.get(c);
+                            if (value instanceof Cell) {
+                                row.setCell(cellIndex, (Cell) value);
+                                rowHasData = true;
+                            } else if (ExpressionUtils.isNonBlankData(value)) {
+                                Serializable storedValue;
+                                if (value instanceof String) {
+                                    if (trimStrings) {
+                                        value = CharMatcher.whitespace().trimFrom(((String) value));
+                                    }
+                                    storedValue = guessCellValueTypes ? ImporterUtilities.parseCellValue((String) value) : (String) value;
+
+                                } else {
+                                    storedValue = ExpressionUtils.wrapStorable(value);
+                                }
+
+                                row.setCell(cellIndex, new Cell(storedValue, null));
+                                rowHasData = true;
+                            } else if (!storeBlankCellsAsNulls) {
+                                row.setCell(cellIndex, new Cell("", null));
+                            } else {
+                                row.setCell(cellIndex, null);
+                            }
+                        }
+                        
+                        logger.info("After processing row: row.cells.size()={}, rowHasData={}, columnNames.size()={}", 
+                            row.cells.size(), rowHasData, columnNames.size());
+
+                        if (rowHasData || storeBlankRows) {
+                            sheetData.rows.add(row);
+                        }
+
+                        if (limit > 0 && sheetData.rows.size() >= limit) {
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (IOException e) {
+            exceptions.add(e);
+        }
+    }
+    
+    static protected void setupColumnsForSheetData(ColumnModel columnModel, List<String> columnNames) {
+        Map<String, Integer> nameToIndex = new HashMap<String, Integer>();
+        logger.info("setupColumnsForSheetData: columnNames.size() = {}", columnNames.size());
+        for (int c = 0; c < columnNames.size(); c++) {
+            String cell = CharMatcher.whitespace().trimFrom(columnNames.get(c));
+            if (cell.isEmpty()) {
+                cell = "Column";
+            } else if (cell.startsWith("\"") && cell.endsWith("\"")) {
+                cell = cell.substring(1, cell.length() - 1).trim();
+            }
+
+            if (nameToIndex.containsKey(cell)) {
+                int index = nameToIndex.get(cell);
+                nameToIndex.put(cell, index + 1);
+
+                cell = cell.contains(" ") ? (cell + " " + index) : (cell + index);
+            } else {
+                nameToIndex.put(cell, 2);
+            }
+
+            columnNames.set(c, cell);
+            if (columnModel.getColumnByName(cell) == null) {
+                int cellIndex = columnModel.allocateNewCellIndex();
+                Column column = new Column(cellIndex, cell);
+                logger.info("Creating column: name={}, cellIndex={}", cell, cellIndex);
+                try {
+                    columnModel.addColumn(-1, column, false);
+                } catch (ModelException e) {
+                    // Ignore: shouldn't get in here since we just checked for duplicate names.
+                }
+            } else {
+                Column existingColumn = columnModel.getColumnByName(cell);
+                logger.info("Column already exists: name={}, cellIndex={}", cell, existingColumn.getCellIndex());
+            }
+        }
+        columnModel.update();
+        logger.info("setupColumnsForSheetData: after update, columnModel.columns.size() = {}", columnModel.columns.size());
+    }
+    
+    static protected Column getOrAllocateColumnForSheetData(ColumnModel columnModel, List<String> currentFileColumnNames,
+            int index, boolean hasOurOwnColumnNames) {
+        if (index < currentFileColumnNames.size()) {
+            Column column = columnModel.getColumnByName(currentFileColumnNames.get(index));
+            logger.info("getOrAllocateColumnForSheetData: index={}, columnName={}, cellIndex={}", 
+                index, currentFileColumnNames.get(index), column != null ? column.getCellIndex() : "null");
+            return column;
+        } else if (index >= currentFileColumnNames.size()) {
+            String prefix = "Column ";
+            int i = index + 1;
+            String columnName = prefix + i;
+            while (columnModel.getColumnByName(columnName) != null) {
+                i++;
+                columnName = prefix + i;
+            }
+            
+            Column column = columnModel.getColumnByName(columnName);
+            if (column == null) {
+                int cellIndex = columnModel.allocateNewCellIndex();
+                column = new Column(cellIndex, columnName);
+                logger.info("getOrAllocateColumnForSheetData: creating new column: index={}, columnName={}, cellIndex={}", 
+                    index, columnName, cellIndex);
+                try {
+                    columnModel.addColumn(-1, column, false);
+                } catch (ModelException e) {
+                    // Ignore
+                }
+            } else {
+                logger.info("getOrAllocateColumnForSheetData: column already exists: index={}, columnName={}, cellIndex={}", 
+                    index, columnName, column.getCellIndex());
+            }
+            
+            currentFileColumnNames.add(columnName);
+            logger.info("getOrAllocateColumnForSheetData: added columnName to currentFileColumnNames: index={}, columnName={}, columnNames.size()={}", 
+                index, columnName, currentFileColumnNames.size());
+            
+            return column;
+        } else {
+            return null;
         }
     }
 

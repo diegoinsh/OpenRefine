@@ -52,6 +52,7 @@ import org.slf4j.LoggerFactory;
 
 import com.google.refine.ProjectManager;
 import com.google.refine.model.AbstractOperation;
+import com.google.refine.model.ColumnModel;
 import com.google.refine.model.Project;
 import com.google.refine.util.JsonViews;
 import com.google.refine.util.ParsingUtilities;
@@ -67,6 +68,8 @@ public class HistoryEntry {
     final public long id;
     @JsonIgnore
     final public long projectID;
+    @JsonProperty("sheetId")
+    final public String sheetId;
     @JsonProperty("description")
     final public String description;
     @JsonProperty("time")
@@ -104,27 +107,27 @@ public class HistoryEntry {
     protected HistoryEntry(
             @JsonProperty("id") long id,
             @JacksonInject("projectID") long projectID,
+            @JsonProperty("sheetId") String sheetId,
             @JsonProperty("description") String description,
             @JsonProperty(OPERATION) AbstractOperation operation) {
-        this(id, projectID, description, operation, Instant.now());
+        this(id, projectID, sheetId, description, operation, Instant.now());
     }
 
     public HistoryEntry(long id, Project project, String description, AbstractOperation operation, Change change) {
-        this(id, project.id, description, operation, Instant.now());
+        this(id, project.id, project.activeSheetId, description, operation, Instant.now());
+        logger.info("HistoryEntry created: id=" + id + ", sheetId=" + this.sheetId + ", description=" + description);
         setChange(change);
     }
 
     @Deprecated(since = "3.8")
     protected HistoryEntry(long id, long projectID, String description, AbstractOperation operation, OffsetDateTime time) {
-        // TODO: I'm not sure attempting to preserve this backward compatibility is worthwhile, since:
-        // a) this constructor is unused in the core, and
-        // b) there's a public field which has changed datatype
-        this(id, projectID, description, operation, time.toInstant());
+        this(id, projectID, null, description, operation, time.toInstant());
     }
 
-    protected HistoryEntry(long id, long projectID, String description, AbstractOperation operation, Instant time) {
+    protected HistoryEntry(long id, long projectID, String sheetId, String description, AbstractOperation operation, Instant time) {
         this.id = id;
         this.projectID = projectID;
+        this.sheetId = sheetId;
         this.description = description;
         this.operation = operation;
         this.time = time;
@@ -154,11 +157,21 @@ public class HistoryEntry {
      *            the project the change should be applied to
      */
     public void apply(Project project) {
+        logger.info("HistoryEntry.apply: id=" + this.id + ", sheetId=" + this.sheetId + ", currentActiveSheet=" + project.activeSheetId);
+        
         if (getChange() == null) {
             ProjectManager.singleton.getHistoryEntryManager().loadChange(this);
         }
 
+        String originalActiveSheetId = project.activeSheetId;
+        ColumnModel originalColumnModel = project.columnModel;
+        
         synchronized (project) {
+            if (this.sheetId != null && !this.sheetId.equals(project.activeSheetId)) {
+                logger.info("HistoryEntry.apply: Switching to sheet " + this.sheetId);
+                project.setActiveSheet(this.sheetId);
+            }
+            
             getChange().apply(project);
 
             // When a change is applied, it can hang on to old data (in order to be able
@@ -173,14 +186,33 @@ public class HistoryEntry {
 
                 throw new RuntimeException("Failed to apply change", e);
             }
+            
+            // Restore original sheet (undo/redo handles intermediate switches internally)
+            if (originalActiveSheetId != null && !originalActiveSheetId.equals(project.activeSheetId)) {
+                logger.info("HistoryEntry.apply: Restoring to original sheet " + originalActiveSheetId);
+                project.setActiveSheet(originalActiveSheetId);
+            }
+            
+            project.columnModel = originalColumnModel;
         }
     }
 
     public void revert(Project project) {
+        logger.info("HistoryEntry.revert: id=" + this.id + ", sheetId=" + this.sheetId + ", currentActiveSheet=" + project.activeSheetId);
+        
         if (getChange() == null) {
             _manager.loadChange(this);
         }
+        
+        if (this.sheetId != null && !this.sheetId.equals(project.activeSheetId)) {
+            logger.info("HistoryEntry.revert: Switching to sheet " + this.sheetId);
+            project.setActiveSheet(this.sheetId);
+        }
+        
         getChange().revert(project);
+        
+        // Stay on the sheet where the operation was performed
+        logger.info("HistoryEntry.revert: Finished on sheet " + project.activeSheetId);
     }
 
     static public HistoryEntry load(Project project, String s) throws IOException {
@@ -189,7 +221,9 @@ public class HistoryEntry {
                 .addValue("projectID", project.id);
         mapper.setInjectableValues(injection);
 
-        return mapper.readValue(s, HistoryEntry.class);
+        HistoryEntry entry = mapper.readValue(s, HistoryEntry.class);
+        logger.info("HistoryEntry loaded: id=" + entry.id + ", sheetId=" + entry.sheetId + ", description=" + entry.description);
+        return entry;
     }
 
     public void delete() {

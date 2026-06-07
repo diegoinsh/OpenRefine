@@ -47,6 +47,8 @@ import java.util.List;
 import java.util.Properties;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.refine.ProjectManager;
 import com.google.refine.ProjectMetadata;
@@ -173,6 +175,42 @@ public class History {
         }
     }
 
+    synchronized public List<HistoryEntry> getLastPastEntries(int count, String sheetId) {
+        List<HistoryEntry> filteredEntries = new ArrayList<>();
+        for (HistoryEntry entry : _pastEntries) {
+            if (sheetId == null || sheetId.equals(entry.sheetId)) {
+                filteredEntries.add(entry);
+            }
+        }
+        
+        if (count <= 0) {
+            return new LinkedList<HistoryEntry>(filteredEntries);
+        } else {
+            int start = Math.max(filteredEntries.size() - count, 0);
+            return filteredEntries.subList(start, filteredEntries.size());
+        }
+    }
+
+    synchronized public List<HistoryEntry> getPastEntries(String sheetId) {
+        List<HistoryEntry> filteredEntries = new ArrayList<>();
+        for (HistoryEntry entry : _pastEntries) {
+            if (sheetId == null || sheetId.equals(entry.sheetId)) {
+                filteredEntries.add(entry);
+            }
+        }
+        return filteredEntries;
+    }
+
+    synchronized public List<HistoryEntry> getFutureEntries(String sheetId) {
+        List<HistoryEntry> filteredEntries = new ArrayList<>();
+        for (HistoryEntry entry : _futureEntries) {
+            if (sheetId == null || sheetId.equals(entry.sheetId)) {
+                filteredEntries.add(entry);
+            }
+        }
+        return filteredEntries;
+    }
+
     synchronized public void undoRedo(long lastDoneEntryID) {
         if (lastDoneEntryID == 0) {
             // undo all the way back to the start of the project
@@ -292,25 +330,60 @@ public class History {
     }
 
     synchronized public void load(Project project, LineNumberReader reader) throws IOException {
+        Logger logger = LoggerFactory.getLogger("History");
+        logger.info("History.load() starting...");
+        
         String line;
         while ((line = reader.readLine()) != null && !"/e/".equals(line)) {
+            logger.info("History.load() processing line: " + line);
             int equal = line.indexOf('=');
+            if (equal == -1) {
+                logger.warn("History.load() Invalid line format (missing '='): " + line);
+                continue;
+            }
             CharSequence field = line.subSequence(0, equal);
             String value = line.substring(equal + 1);
 
             if ("pastEntryCount".equals(field)) {
                 int count = Integer.parseInt(value);
+                logger.info("History.load() found pastEntryCount=" + count);
 
                 for (int i = 0; i < count; i++) {
-                    _pastEntries.add(HistoryEntry.load(project, reader.readLine()));
+                    String entryLine = reader.readLine();
+                    logger.info("History.load() reading past entry " + i + ": " + entryLine);
+                    try {
+                        HistoryEntry entry = HistoryEntry.load(project, entryLine);
+                        if (entry != null) {
+                            _pastEntries.add(entry);
+                            logger.info("History.load() added past entry " + i + ": id=" + entry.id + ", sheetId=" + entry.sheetId);
+                        } else {
+                            logger.warn("History.load() failed to load past entry " + i + ": entry is null");
+                        }
+                    } catch (Exception e) {
+                        logger.error("History.load() exception loading past entry " + i + ": " + e.getMessage(), e);
+                    }
                 }
+                logger.info("History.load() total past entries loaded: " + _pastEntries.size());
             } else if ("futureEntryCount".equals(field)) {
                 int count = Integer.parseInt(value);
+                logger.info("History.load() found futureEntryCount=" + count);
 
                 for (int i = 0; i < count; i++) {
-                    _futureEntries.add(HistoryEntry.load(project, reader.readLine()));
+                    String entryLine = reader.readLine();
+                    logger.info("History.load() reading future entry " + i + ": " + entryLine);
+                    try {
+                        HistoryEntry entry = HistoryEntry.load(project, entryLine);
+                        if (entry != null) {
+                            _futureEntries.add(entry);
+                            logger.info("History.load() added future entry " + i + ": id=" + entry.id);
+                        }
+                    } catch (Exception e) {
+                        logger.error("History.load() exception loading future entry " + i + ": " + e.getMessage(), e);
+                    }
                 }
+                logger.info("History.load() total future entries loaded: " + _futureEntries.size());
             }
         }
+        logger.info("History.load() finished. total past=" + _pastEntries.size() + ", total future=" + _futureEntries.size());
     }
 }

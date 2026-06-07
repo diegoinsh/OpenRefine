@@ -25,6 +25,7 @@ import com.google.refine.extension.quality.checker.ContentChecker;
 import com.google.refine.extension.quality.checker.FormatChecker;
 import com.google.refine.extension.quality.checker.ImageQualityChecker;
 import com.google.refine.extension.quality.checker.ResourceChecker;
+import com.google.refine.extension.quality.checker.TypoChecker;
 import com.google.refine.extension.quality.model.CheckResult;
 import com.google.refine.extension.quality.model.QualityRulesConfig;
 import com.google.refine.extension.quality.operations.SaveQualityResultOperation;
@@ -191,6 +192,26 @@ public class RunQualityCheckCommand extends Command {
             contentResult.complete();
         }
 
+        // Run typo checks
+        CheckResult typoResult = new CheckResult("typo");
+        if (aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
+            logger.info("Running typo check with AIMP service: " + aimpServiceUrl);
+            int formatBatchSize = 20;
+            Map<String, Object> globalConfig = GetConfigCommand.loadConfig();
+            if (globalConfig != null && globalConfig.containsKey("format.batchSize")) {
+                Object bsObj = globalConfig.get("format.batchSize");
+                if (bsObj instanceof Number) {
+                    formatBatchSize = ((Number) bsObj).intValue();
+                }
+            }
+            TypoChecker typoChecker = new TypoChecker(project, rules, aimpServiceUrl, formatBatchSize);
+            typoResult = typoChecker.runCheck();
+            logger.info("Typo check completed, errors: " + typoResult.getErrors().size());
+        } else {
+            logger.info("Skipping typo check - no AIMP service URL configured");
+            typoResult.complete();
+        }
+
         // Run image quality checks
         logger.info("Image quality check AIMP service URL: " + aimpServiceUrl);
         CheckResult imageQualityResult = new CheckResult("image_quality");
@@ -208,7 +229,7 @@ public class RunQualityCheckCommand extends Command {
         formatResult.setStartTime(checkStartTime);
         formatResult.setEndTime(checkEndTime);
 
-        return buildResponse(totalRows, formatResult, resourceResult, contentResult, imageQualityResult);
+        return buildResponse(totalRows, formatResult, resourceResult, contentResult, typoResult, imageQualityResult);
     }
 
     /**
@@ -248,7 +269,29 @@ public class RunQualityCheckCommand extends Command {
                 contentResult.complete();
             }
 
-            // Phase 4: Image quality checks
+            // Phase 4: Typo checks
+            task.setCurrentPhase("错别字检查");
+            CheckResult typoResult = new CheckResult("typo");
+            if (aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
+                logger.info("Running async typo check with AIMP service: " + aimpServiceUrl);
+                int formatBatchSize = 20;
+                Map<String, Object> globalConfig = GetConfigCommand.loadConfig();
+                if (globalConfig != null && globalConfig.containsKey("format.batchSize")) {
+                    Object bsObj = globalConfig.get("format.batchSize");
+                    if (bsObj instanceof Number) {
+                        formatBatchSize = ((Number) bsObj).intValue();
+                    }
+                }
+                TypoChecker typoChecker = new TypoChecker(project, rules, aimpServiceUrl, formatBatchSize);
+                typoChecker.setTask(task);
+                typoResult = typoChecker.runCheck();
+                totalErrors += typoResult.getErrors().size();
+                task.setFormatErrors(task.getFormatErrors() + typoResult.getErrors().size());
+            } else {
+                typoResult.complete();
+            }
+
+            // Phase 5: Image quality checks
             task.setCurrentPhase("图像质量检查");
             CheckResult imageQualityResult = new CheckResult("image_quality");
             if (aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
@@ -267,7 +310,7 @@ public class RunQualityCheckCommand extends Command {
             formatResult.setEndTime(checkEndTime);
 
             // Build and store result
-            ObjectNode result = buildResponse(project.rows.size(), formatResult, resourceResult, contentResult, imageQualityResult);
+            ObjectNode result = buildResponse(project.rows.size(), formatResult, resourceResult, contentResult, typoResult, imageQualityResult);
             task.setResult(result);
             task.setStatus(TaskStatus.COMPLETED);
             task.setCompletedAt(checkEndTime);
@@ -284,11 +327,13 @@ public class RunQualityCheckCommand extends Command {
                     formatResult.isServiceUnavailable() || 
                     resourceResult.isServiceUnavailable() || 
                     contentResult.isServiceUnavailable() || 
+                    typoResult.isServiceUnavailable() ||
                     imageQualityResult.isServiceUnavailable()
                 );
-                // 设置serviceUnavailableMessage
                 if (contentResult.isServiceUnavailable()) {
                     combinedResult.setServiceUnavailableMessage(contentResult.getServiceUnavailableMessage());
+                } else if (typoResult.isServiceUnavailable()) {
+                    combinedResult.setServiceUnavailableMessage(typoResult.getServiceUnavailableMessage());
                 } else if (imageQualityResult.isServiceUnavailable()) {
                     combinedResult.setServiceUnavailableMessage(imageQualityResult.getServiceUnavailableMessage());
                 } else if (formatResult.isServiceUnavailable()) {
@@ -315,6 +360,10 @@ public class RunQualityCheckCommand extends Command {
                 }
                 for (CheckResult.CheckError err : contentResult.getErrors()) {
                     err.setCategory("content");
+                    combinedResult.addError(err);
+                }
+                for (CheckResult.CheckError err : typoResult.getErrors()) {
+                    err.setCategory("typo");
                     combinedResult.addError(err);
                 }
                 for (CheckResult.CheckError err : imageQualityResult.getErrors()) {
@@ -350,12 +399,13 @@ public class RunQualityCheckCommand extends Command {
     }
 
     private ObjectNode buildResponse(int totalRows, CheckResult formatResult, CheckResult resourceResult, 
-            CheckResult contentResult, CheckResult imageQualityResult) {
+            CheckResult contentResult, CheckResult typoResult, CheckResult imageQualityResult) {
         ObjectNode responseNode = mapper.createObjectNode();
         responseNode.put("code", "ok");
 
         int totalErrors = formatResult.getErrors().size() + resourceResult.getErrors().size() + 
-                         contentResult.getErrors().size() + imageQualityResult.getErrors().size();
+                         contentResult.getErrors().size() + typoResult.getErrors().size() +
+                         imageQualityResult.getErrors().size();
 
         // 添加开始和结束时间
         responseNode.put("startTime", formatResult.getStartTime());
@@ -365,13 +415,15 @@ public class RunQualityCheckCommand extends Command {
         boolean serviceUnavailable = formatResult.isServiceUnavailable() || 
                                      resourceResult.isServiceUnavailable() || 
                                      contentResult.isServiceUnavailable() || 
+                                     typoResult.isServiceUnavailable() ||
                                      imageQualityResult.isServiceUnavailable();
         responseNode.put("serviceUnavailable", serviceUnavailable);
         
-        // 设置服务不可用消息
         String serviceUnavailableMessage = null;
         if (contentResult.isServiceUnavailable()) {
             serviceUnavailableMessage = contentResult.getServiceUnavailableMessage();
+        } else if (typoResult.isServiceUnavailable()) {
+            serviceUnavailableMessage = typoResult.getServiceUnavailableMessage();
         } else if (imageQualityResult.isServiceUnavailable()) {
             serviceUnavailableMessage = imageQualityResult.getServiceUnavailableMessage();
         } else if (formatResult.isServiceUnavailable()) {
@@ -387,9 +439,10 @@ public class RunQualityCheckCommand extends Command {
         ObjectNode summary = mapper.createObjectNode();
         summary.put("totalRows", totalRows);
         summary.put("totalErrors", totalErrors);
-        summary.put("formatErrors", formatResult.getErrors().size());
+        summary.put("formatErrors", formatResult.getErrors().size() + typoResult.getErrors().size());
         summary.put("resourceErrors", resourceResult.getErrors().size());
         summary.put("contentErrors", contentResult.getErrors().size());
+        summary.put("typoErrors", typoResult.getErrors().size());
         summary.put("imageQualityErrors", imageQualityResult.getErrors().size());
         responseNode.set("summary", summary);
 
@@ -407,6 +460,10 @@ public class RunQualityCheckCommand extends Command {
             err.setCategory("content");
             allErrors.add(mapper.valueToTree(err));
         }
+        for (CheckResult.CheckError err : typoResult.getErrors()) {
+            err.setCategory("format");
+            allErrors.add(mapper.valueToTree(err));
+        }
         for (CheckResult.CheckError err : imageQualityResult.getErrors()) {
             err.setCategory("image_quality");
             allErrors.add(mapper.valueToTree(err));
@@ -417,6 +474,7 @@ public class RunQualityCheckCommand extends Command {
         responseNode.set("formatResult", mapper.valueToTree(formatResult));
         responseNode.set("resourceResult", mapper.valueToTree(resourceResult));
         responseNode.set("contentResult", mapper.valueToTree(contentResult));
+        responseNode.set("typoResult", mapper.valueToTree(typoResult));
         responseNode.set("imageQualityResult", mapper.valueToTree(imageQualityResult));
 
         return responseNode;

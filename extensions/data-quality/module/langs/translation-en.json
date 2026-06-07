@@ -107,6 +107,9 @@
   "data-quality-extension/check-value-list": "Value List",
   "data-quality-extension/check-regex": "Regex",
   "data-quality-extension/check-date-format": "Date Format",
+  "data-quality-extension/check-typo": "Typo Check",
+  "data-quality-extension/typo-check-tab": "Typo Check",
+  "data-quality-extension/error-msg-typo-found": "Typo found",
 
   "data-quality-extension/add-rule": "Add Rule",
   "data-quality-extension/add-column-rule": "Add Column Rule",
@@ -423,6 +426,10 @@
   "data-quality-extension/regex-subitem-empty": "Click format rules on the left to add subitems",
   "data-quality-extension/regex-add-subitem": "Add blank subitem after",
   "data-quality-extension/regex-remove-subitem": "Remove",
-  "data-quality-extension/regex-generated-header": "Smart Generate"
+  "data-quality-extension/regex-generated-header": "Smart Generate",
+
+  "data-quality-extension/resource-config-warning-title": "Resource Configuration Incomplete",
+  "data-quality-extension/resource-config-warning-message": "File resource check, content comparison, or image quality check is enabled, but the resource location path is not configured. Please complete the resource configuration before running the check.",
+  "data-quality-extension/go-to-resource-config": "Go to Resource Configuration"
 }
 

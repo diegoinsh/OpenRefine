@@ -20,20 +20,26 @@ public class ContentComparisonRule {
     @JsonProperty("threshold")
     private int threshold;
 
+    @JsonProperty("checkType")
+    private String checkType;
+
     public ContentComparisonRule() {
         this.column = "";
         this.extractLabel = "";
         this.threshold = 90;
+        this.checkType = "image";
     }
 
     @JsonCreator
     public ContentComparisonRule(
             @JsonProperty("column") String column,
             @JsonProperty("extractLabel") String extractLabel,
-            @JsonProperty("threshold") int threshold) {
+            @JsonProperty("threshold") int threshold,
+            @JsonProperty("checkType") String checkType) {
         this.column = column != null ? column : "";
         this.extractLabel = extractLabel != null ? extractLabel : "";
         this.threshold = threshold > 0 ? threshold : 90;
+        this.checkType = checkType != null ? checkType : "image";
     }
 
     public String getColumn() {
@@ -58,6 +64,14 @@ public class ContentComparisonRule {
 
     public void setThreshold(int threshold) {
         this.threshold = threshold;
+    }
+
+    public String getCheckType() {
+        return checkType;
+    }
+
+    public void setCheckType(String checkType) {
+        this.checkType = checkType;
     }
 }
 

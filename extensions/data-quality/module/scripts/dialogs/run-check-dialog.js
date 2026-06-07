@@ -54,6 +54,109 @@ RunCheckDialog.prototype._createDialog = function() {
 RunCheckDialog.prototype._startCheck = function() {
   var self = this;
 
+  // Check if any resource-dependent check is enabled
+  var hasResourceCheck = false;
+  var hasContentCheck = false;
+  var hasImageQualityCheck = false;
+
+  // Check file resource association check
+  var resourceConfig = QualityAlignment._resourceConfig || {};
+  if (resourceConfig.folderChecks) {
+    var folderChecks = resourceConfig.folderChecks;
+    if (folderChecks.existence || folderChecks.dataExistence || 
+        folderChecks.nameFormat || folderChecks.sequential || folderChecks.emptyFolder) {
+      hasResourceCheck = true;
+    }
+  }
+  if (resourceConfig.fileChecks) {
+    var fileChecks = resourceConfig.fileChecks;
+    if (fileChecks.countMatch || fileChecks.nameFormat || fileChecks.sequential) {
+      hasResourceCheck = true;
+    }
+  }
+
+  // Check content comparison check
+  hasContentCheck = QualityAlignment._contentRules && 
+    QualityAlignment._contentRules.length > 0;
+
+  // Check image quality check - need to load from backend
+  // We'll check this after loading the rule
+
+  console.log('[RunCheckDialog] 调试信息:');
+  console.log('[RunCheckDialog] hasResourceCheck:', hasResourceCheck);
+  console.log('[RunCheckDialog] hasContentCheck:', hasContentCheck);
+
+  // If any resource-dependent check is enabled, verify resource configuration
+  if (hasResourceCheck || hasContentCheck) {
+    var basePath = resourceConfig.basePath || '';
+    var pathFields = resourceConfig.pathFields || [];
+    var isResourceConfigured = basePath && pathFields.length > 0;
+
+    console.log('[RunCheckDialog] basePath:', basePath);
+    console.log('[RunCheckDialog] pathFields:', pathFields);
+    console.log('[RunCheckDialog] isResourceConfigured:', isResourceConfigured);
+
+    if (!isResourceConfigured) {
+      this._isRunning = false;
+      this._showResourceConfigWarning();
+      return;
+    }
+  }
+
+  // Load image quality rule to check if it's enabled
+  this._loadImageQualityRuleAndStartCheck();
+};
+
+RunCheckDialog.prototype._loadImageQualityRuleAndStartCheck = function() {
+  var self = this;
+
+  Refine.wrapCSRF(function(csrfToken) {
+    var url = 'command/data-quality/get-image-quality-rule?' + $.param({ project: theProject.id, csrf_token: csrfToken });
+
+    $.getJSON(url, function(data) {
+      var hasImageQualityCheck = false;
+      if (data.rule && data.rule.categories && data.rule.categories.length > 0) {
+        hasImageQualityCheck = data.rule.categories.some(function(category) {
+          return category.items.some(function(item) {
+            return item.enabled;
+          });
+        });
+      }
+
+      console.log('[RunCheckDialog] hasImageQualityCheck:', hasImageQualityCheck);
+
+      // If image quality check is enabled, verify resource configuration
+      if (hasImageQualityCheck) {
+        var resourceConfig = QualityAlignment._resourceConfig || {};
+        var basePath = resourceConfig.basePath || '';
+        var pathFields = resourceConfig.pathFields || [];
+        var isResourceConfigured = basePath && pathFields.length > 0;
+
+        console.log('[RunCheckDialog] Image quality check enabled, checking resource config...');
+        console.log('[RunCheckDialog] basePath:', basePath);
+        console.log('[RunCheckDialog] pathFields:', pathFields);
+        console.log('[RunCheckDialog] isResourceConfigured:', isResourceConfigured);
+
+        if (!isResourceConfigured) {
+          self._isRunning = false;
+          self._showResourceConfigWarning();
+          return;
+        }
+      }
+
+      // All checks passed, start the check
+      self._doStartCheck();
+    }).fail(function() {
+      // Failed to load image quality rule, but still start the check
+      console.warn('[RunCheckDialog] Failed to load image quality rule, proceeding with check...');
+      self._doStartCheck();
+    });
+  });
+};
+
+RunCheckDialog.prototype._doStartCheck = function() {
+  var self = this;
+
   this._isRunning = true;
   this._isPaused = false;
   this._updateButtonStates();
@@ -72,28 +175,14 @@ RunCheckDialog.prototype._startCheck = function() {
   var hasContentCheck = QualityAlignment._contentRules && 
     QualityAlignment._contentRules.length > 0;
 
-  // Check if image quality check is enabled (has image quality rule with enabled checks)
-  var hasImageQualityCheck = false;
-  if (QualityAlignment._imageQualityRule) {
-    var rule = QualityAlignment._imageQualityRule;
-    hasImageQualityCheck = (
-      rule.enableUsability || rule.enableIntegrity || 
-      rule.enableUniqueness || rule.enableSecurity || 
-      rule.enableOther
-    );
-  }
-
   // Use async mode if any check is enabled (for progress tracking)
   // AI service URL will be passed to backend; if empty, AI checks will be skipped but progress still works
-  var useAsync = hasContentCheck || hasImageQualityCheck;
+  var useAsync = hasContentCheck;
 
-  console.log('[RunCheckDialog] 调试信息:');
   console.log('[RunCheckDialog] aimpServiceUrl:', aimpServiceUrl);
   console.log('[RunCheckDialog] _contentRules:', QualityAlignment._contentRules);
   console.log('[RunCheckDialog] _contentRules.length:', QualityAlignment._contentRules ? QualityAlignment._contentRules.length : 'N/A');
-  console.log('[RunCheckDialog] _imageQualityRule:', QualityAlignment._imageQualityRule);
   console.log('[RunCheckDialog] hasContentCheck:', hasContentCheck);
-  console.log('[RunCheckDialog] hasImageQualityCheck:', hasImageQualityCheck);
   console.log('[RunCheckDialog] useAsync:', useAsync);
 
   // Call backend API to run check
@@ -308,6 +397,10 @@ RunCheckDialog.prototype._updateProgress = function(progress) {
     statusParts.push('(' + progress.contentCheckProcessed + '/' + progress.contentCheckTotal + ')');
   }
 
+  if (progress.typoCheckTotal > 0) {
+    statusParts.push($.i18n('data-quality-extension/typo-check-tab') + ': ' + progress.typoCheckProcessed + '/' + progress.typoCheckTotal);
+  }
+
   // Show error counts
   var errorParts = [];
   if (progress.formatErrors > 0) {
@@ -350,6 +443,7 @@ RunCheckDialog.prototype._onCheckComplete = function(response) {
     formatErrors: response.summary ? response.summary.formatErrors : 0,
     resourceErrors: response.summary ? response.summary.resourceErrors : 0,
     contentErrors: response.summary ? response.summary.contentErrors : 0,
+    typoErrors: response.summary ? response.summary.typoErrors : 0,
     imageQualityErrors: response.summary ? response.summary.imageQualityErrors : 0,
     // 添加服务不可用状态
     serviceUnavailable: response.serviceUnavailable || false,
@@ -451,5 +545,24 @@ RunCheckDialog.prototype._onCheckError = function(message) {
   this._elmts.stopButton.hide();
   this._elmts.startButton.show();
   this._elmts.progressBar.hide();
+};
+
+RunCheckDialog.prototype._showResourceConfigWarning = function() {
+  var self = this;
+  var message = $.i18n('data-quality-extension/resource-config-warning-message');
+
+  if (confirm(message + '\n\n' + $.i18n('data-quality-extension/go-to-resource-config') + '?')) {
+    DialogSystem.dismissUntil(self._level - 1);
+    QualityAlignment.launch(false);
+    setTimeout(function() {
+      QualityAlignment.switchTab('#quality-rules-panel', false);
+      setTimeout(function() {
+        QualityAlignment._switchSubTab('resource-check');
+        setTimeout(function() {
+          QualityAlignment._showPathConfigDialog();
+        }, 200);
+      }, 100);
+    }, 100);
+  }
 };
 

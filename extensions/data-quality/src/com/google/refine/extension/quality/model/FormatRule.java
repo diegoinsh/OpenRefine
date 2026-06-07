@@ -29,12 +29,16 @@ public class FormatRule {
     @JsonProperty("valueList")
     private List<String> valueList;
 
+    @JsonProperty("typoCheckEnabled")
+    private boolean typoCheckEnabled;
+
     public FormatRule() {
         this.nonEmpty = false;
         this.unique = false;
         this.regex = "";
         this.dateFormat = "";
         this.valueList = new ArrayList<>();
+        this.typoCheckEnabled = false;
     }
 
     @JsonCreator
@@ -43,12 +47,14 @@ public class FormatRule {
             @JsonProperty("unique") boolean unique,
             @JsonProperty("regex") String regex,
             @JsonProperty("dateFormat") String dateFormat,
-            @JsonProperty("valueList") List<String> valueList) {
+            @JsonProperty("valueList") List<String> valueList,
+            @JsonProperty("typoCheckEnabled") boolean typoCheckEnabled) {
         this.nonEmpty = nonEmpty;
         this.unique = unique;
         this.regex = regex != null ? regex : "";
         this.dateFormat = dateFormat != null ? dateFormat : "";
         this.valueList = valueList != null ? valueList : new ArrayList<>();
+        this.typoCheckEnabled = typoCheckEnabled;
     }
 
     public boolean isNonEmpty() {
@@ -89,6 +95,14 @@ public class FormatRule {
 
     public void setValueList(List<String> valueList) {
         this.valueList = valueList;
+    }
+
+    public boolean isTypoCheckEnabled() {
+        return typoCheckEnabled;
+    }
+
+    public void setTypoCheckEnabled(boolean typoCheckEnabled) {
+        this.typoCheckEnabled = typoCheckEnabled;
     }
 }
 

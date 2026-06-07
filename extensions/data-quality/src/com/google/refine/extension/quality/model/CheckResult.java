@@ -171,6 +171,9 @@ public class CheckResult implements OverlayModel {
         @JsonProperty("duplicateImagePaths")
         private java.util.List<String> duplicateImagePaths;
 
+        @JsonProperty("typoInfos")
+        private java.util.List<TypoInfo> typoInfos;
+
         public CheckError() {}
 
         public CheckError(int rowIndex, String column, String value, String errorType, String message) {
@@ -248,6 +251,9 @@ public class CheckResult implements OverlayModel {
 
         public java.util.List<String> getDuplicateImagePaths() { return duplicateImagePaths; }
         public void setDuplicateImagePaths(java.util.List<String> duplicateImagePaths) { this.duplicateImagePaths = duplicateImagePaths; }
+
+        public java.util.List<TypoInfo> getTypoInfos() { return typoInfos; }
+        public void setTypoInfos(java.util.List<TypoInfo> typoInfos) { this.typoInfos = typoInfos; }
     }
 }
 

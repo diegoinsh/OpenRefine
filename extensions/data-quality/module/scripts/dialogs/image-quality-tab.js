@@ -208,32 +208,29 @@ ImageQualityTab._initResourceConfig = function() {
   this._resourceConfig = QualityAlignment._resourceConfig || {};
 
   if (this._resourceConfig.basePath && this._resourceConfig.pathFields && this._resourceConfig.pathFields.length > 0) {
-    // Format resource path according to file resource association check style
-    var pathFields = this._resourceConfig.pathFields;
-    var formattedPath = this._resourceConfig.basePath;
-    
-    if (pathFields.length >= 2) {
-      formattedPath += '\\{'+pathFields[0]+'}-{'+pathFields[1]+'}·{'+pathFields[2]+'}\\';
-      
-      if (pathFields.length >= 3) {
-        formattedPath += '{'+pathFields[0]+'}-{'+pathFields[1]+'}·{'+pathFields[2]+'}-{'+pathFields[3]+'}\\';
-        
-        if (pathFields.length >= 4) {
-          formattedPath += '{'+pathFields[0]+'}-{'+pathFields[1]+'}·{'+pathFields[2]+'}-{'+pathFields[3]+'}-{'+pathFields[4]+'}\\';
-        }
-      }
-    } else {
-      formattedPath += ' (' + pathFields.join(', ') + ')';
+    var config = this._resourceConfig;
+    var defaultSep = QualityAlignment._getPathSeparator ? QualityAlignment._getPathSeparator() : '\\';
+    var sep = config.separator || defaultSep;
+    var formattedPath = config.basePath;
+    if (!formattedPath.endsWith('/') && !formattedPath.endsWith('\\')) {
+      formattedPath += sep;
     }
-    
+    if (config.pathMode === 'template' && config.template) {
+      formattedPath += config.template.replace(/\{(\d+)\}/g, function(match, index) {
+        var idx = parseInt(index);
+        return idx < config.pathFields.length ? '{' + config.pathFields[idx] + '}' : match;
+      });
+    } else {
+      formattedPath += config.pathFields.map(function(f) { return '{' + f + '}'; }).join(sep);
+    }
     resourceConfigElmt.text(formattedPath);
     resourceWarning.hide();
   } else {
     resourceConfigElmt.text($.i18n('data-quality-extension/resource-not-configured'));
     resourceWarning.show();
 
-    resourceLink.on('click', function() {
-      QualityAlignment.switchTab('#quality-resource-panel');
+    resourceLink.off('click').on('click', function() {
+      QualityAlignment._switchSubTab('resource-check');
     });
   }
 };
@@ -653,10 +650,19 @@ ImageQualityTab._createParamParts = function(itemCode, paramKey, paramValue, con
       input = $('<select class="quality-text-input"></select>').attr('data-param-key', paramKey);
       
       if (paramKey === 'checkMode') {
-        var options = [
-          { value: 'auto', label: '自动' },
-          { value: 'custom', label: '自定义' }
-        ];
+        var options;
+        if (itemCode === 'edge') {
+          options = [
+            { value: 'simple', label: '简单' },
+            { value: 'standard', label: '标准' },
+            { value: 'strict', label: '严格' }
+          ];
+        } else {
+          options = [
+            { value: 'auto', label: '自动' },
+            { value: 'custom', label: '自定义' }
+          ];
+        }
         options.forEach(function(opt) {
           var option = $('<option></option>').val(opt.value).text(opt.label);
           if (paramValue === opt.value) {
@@ -665,13 +671,15 @@ ImageQualityTab._createParamParts = function(itemCode, paramKey, paramValue, con
           input.append(option);
         });
         
-        input.on('change', function() {
-          var isCustom = $(this).val() === 'custom';
-          var customInput = container.find('.antivirus-process-input');
-          if (customInput.length > 0) {
-            customInput.toggle(isCustom);
-          }
-        });
+        if (itemCode !== 'edge') {
+          input.on('change', function() {
+            var isCustom = $(this).val() === 'custom';
+            var customInput = container.find('.antivirus-process-input');
+            if (customInput.length > 0) {
+              customInput.toggle(isCustom);
+            }
+          });
+        }
       } else if (paramKey === 'dimension') {
         var options = [
           { value: 'short', label: '短边' },

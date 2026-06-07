@@ -53,9 +53,13 @@ HistoryPanel.prototype.resize = function() {
 
 HistoryPanel.prototype.update = function(onDone) {
   var self = this;
+  console.log('[HistoryPanel] Fetching history for project ' + theProject.id);
   Ajax.chainGetJSON(
     "command/core/get-history?" + $.param({ project: theProject.id }), null,
     function(data) {
+      console.log('[HistoryPanel] Received history data:', data);
+      console.log('[HistoryPanel] past entries:', data.past ? data.past.length : 0);
+      console.log('[HistoryPanel] future entries:', data.future ? data.future.length : 0);
       self._data = data;
       self._render();
 
@@ -168,12 +172,49 @@ HistoryPanel.prototype._render = function() {
 
 HistoryPanel.prototype._onClickHistoryEntry = function(evt, entry, lastDoneID) {
   var self = this;
+  var targetSheetId = entry.sheetId || theProject.activeSheetId;
 
   Refine.postCoreProcess(
       "undo-redo",
       { lastDoneID: lastDoneID },
       null,
-      { everythingChanged: true, warnAgainstHistoryErasure: false }
+      { everythingChanged: true, warnAgainstHistoryErasure: false },
+      {
+        onDone: function(o) {
+          console.log('[HistoryPanel] onDone called, switching to sheet:', targetSheetId);
+          
+          $.ajax({
+            url: "command/core/switch-sheet?" + $.param({ project: theProject.id, sheetId: targetSheetId }),
+            type: "POST",
+            dataType: "json",
+            success: function(data) {
+              console.log('[HistoryPanel] Switched to sheet:', data.sheetName);
+              theProject.activeSheetId = data.sheetId;
+            }
+          });
+        },
+        onFinallyDone: function() {
+          console.log('[HistoryPanel] onFinallyDone called');
+          
+          $.getJSON("command/core/get-models?" + $.param({ project: theProject.id }), null, function(models) {
+            console.log('[HistoryPanel] Models received');
+            
+            if (models.columnModel) {
+              theProject.columnModel = models.columnModel;
+            }
+            if (models.recordModel) {
+              theProject.recordModel = models.recordModel;
+            }
+            if (models.activeSheetId) {
+              theProject.activeSheetId = models.activeSheetId;
+            }
+            
+            if (typeof ui !== 'undefined' && ui.dataTableView) {
+              ui.dataTableView._showRows({start: 0});
+            }
+          });
+        }
+      }
   );
 };
 

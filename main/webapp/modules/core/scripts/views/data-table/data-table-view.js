@@ -35,7 +35,7 @@ function DataTableView(div) {
   this._div = div;
 
   this._gridPagesSizes = JSON.parse(Refine.getPreference("ui.browsing.pageSize", null));
-  this._gridPagesSizes = this._checkPaginationSize(this._gridPagesSizes, [ 5, 10, 25, 50, 100, 500, 1000 ]);
+  this._gridPagesSizes = this._checkPaginationSize(this._gridPagesSizes, [ 100, 5, 10, 25, 50, 500, 1000 ]);
   this._pageSize = ( this._gridPagesSizes[0] < 10 ) ? 10 : this._gridPagesSizes[0];
 
   this._showRecon = true;
@@ -43,6 +43,8 @@ function DataTableView(div) {
   this._sorting = { criteria: [] };
   this._columnHeaderUIs = [];
   this._shownulls = false;
+  
+  this._sheetTabView = null;
 
   this._showRows({start: 0});
 }
@@ -635,6 +637,33 @@ DataTableView.prototype._addResizingControls = function(th, index) {
 
 DataTableView.prototype._showRows = function(paginationOptions, onDone) {
   var self = this;
+  
+  console.log('[DataTableView] _showRows called');
+  console.log('[DataTableView] theProject.sheetDataMap:', theProject.sheetDataMap);
+  console.log('[DataTableView] sheetDataMap keys:', theProject.sheetDataMap ? Object.keys(theProject.sheetDataMap) : 'undefined');
+  console.log('[DataTableView] sheetDataMap length:', theProject.sheetDataMap ? Object.keys(theProject.sheetDataMap).length : 0);
+  
+  if (theProject.sheetDataMap && Object.keys(theProject.sheetDataMap).length > 1) {
+    console.log('[DataTableView] Multi-sheet project detected, creating SheetTabView');
+    if (!this._sheetTabView) {
+      console.log('[DataTableView] Creating new SheetTabView');
+      this._sheetTabView = new SheetTabView(theProject);
+      
+      console.log('[DataTableView] Adding sheetChanged event listener');
+      window.addEventListener('sheetChanged', function(e) {
+        console.log('[DataTableView] sheetChanged event received, sheetId:', e.detail.sheetId);
+        self._onSheetChanged(e.detail.sheetId);
+      });
+    }
+    
+    if (this._sheetTabView && theProject.activeSheetId) {
+      console.log('[DataTableView] Setting active sheet:', theProject.activeSheetId);
+      this._sheetTabView.setActiveSheet(theProject.activeSheetId);
+    }
+  } else {
+    console.log('[DataTableView] Not a multi-sheet project or sheetDataMap is empty');
+  }
+  
   Refine.fetchRows(paginationOptions, this._pageSize, function() {
     self.render();
 
@@ -658,6 +687,40 @@ DataTableView.prototype._onClickFirstPage = function(elmt, evt) {
 
 DataTableView.prototype._onClickLastPage = function(elmt, evt) {
   this._showRows({end: theProject.rowModel.totalRows});
+};
+
+DataTableView.prototype._onSheetChanged = function(sheetId) {
+  console.log('[DataTableView] _onSheetChanged called with sheetId:', sheetId);
+  var self = this;
+  console.log('[DataTableView] Switching to sheet:', sheetId);
+  
+  var previousSheetId = theProject.activeSheetId || 'default';
+  console.log('[DataTableView] Previous sheet ID:', previousSheetId);
+  
+  Refine.postCoreProcess(
+    "switch-sheet",
+    { sheetId: sheetId },
+    {},
+    {},
+    {
+      onDone: function(data) {
+        console.log('[DataTableView] Switch sheet response received');
+        console.log('[DataTableView] Switch sheet response:', data);
+        console.log('[DataTableView] Before reinitialize, theProject.activeSheetId:', theProject.activeSheetId);
+        
+        Refine.reinitializeProjectData(function() {
+          console.log('[DataTableView] Project data reinitialized');
+          console.log('[DataTableView] After reinitialize, theProject.activeSheetId:', theProject.activeSheetId);
+          console.log('[DataTableView] After reinitialize, theProject.columnModel:', theProject.columnModel);
+          console.log('[DataTableView] After reinitialize, theProject.rows:', theProject.rows);
+          
+          ui.browsingEngine.loadSheetFacets(sheetId);
+          
+          self._showRows({start: 0});
+        });
+      }
+    }
+  );
 };
 
 DataTableView.prototype._onChangeMinRow = function(elmt, evt) {

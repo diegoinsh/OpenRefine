@@ -45,6 +45,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.refine.browsing.Engine;
 import com.google.refine.browsing.Engine.Mode;
@@ -289,6 +291,9 @@ public class GetRowsCommand extends Command {
             if (nextPageStart != null && nextPageStart >= project.rows.size()) {
                 nextPageStart = null;
             }
+
+            Logger logger = LoggerFactory.getLogger(GetRowsCommand.class);
+            logger.info("GetRowsCommand: project.rows.size()={}, rwv.results.size()={}", project.rows.size(), rwv.results.size());
 
             JsonResult result = new JsonResult(engine.getMode(),
                     rwv.results, rwv.total,

@@ -980,6 +980,8 @@ public class ImageQualityChecker {
                     if (edgeValue != null) {
                         String edgeMode = edgeValue.toString();
                         if ("strict".equals(edgeMode)) {
+                            params.setEdgeStrictMode(2);
+                        } else if ("standard".equals(edgeMode)) {
                             params.setEdgeStrictMode(1);
                         } else {
                             params.setEdgeStrictMode(0);

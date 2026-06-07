@@ -4,17 +4,18 @@
     <td><div class="grid-layout layout-tighter layout-full"><table role="presentation">
       <tr>
         <td style="text-align: right;">&nbsp;</td>
+        <td width="1%"><button class="button" id="open-sheet-selector">选择Sheet</button></td>
         <td width="1%"><button class="button" bind="previewButton"></button></td>
       </tr>
       <tr>
         <td style="..."></td>
-        <td width="1%"><input type="checkbox" bind="disableAutoPreviewCheckbox" id="$disable" />
+        <td colspan="2"><input type="checkbox" bind="disableAutoPreviewCheckbox" id="$disable" />
           <label for="$disable" id="or-disable-auto-preview"></label></td>
       </tr>
     </table></div></td>
   </tr>
-  <tr>
-    <td><div class="grid-layout layout-tightest"><table role="presentation" bind="sheetRecordContainer">
+  <tr id="sheet-selection-row">
+    <td><div class="grid-layout layout-tightest" style="display: none;"><table role="presentation" bind="sheetRecordContainer">
       <tr><td colspan="3" id="or-import-worksheet"></td></tr>
       <tr><td colspan="1"><button class="button" bind="selectAllButton"></button></td>
           <td colspan="1"><button class="button" bind="deselectAllButton"></button></td></tr>
@@ -55,4 +56,28 @@
         <td><label for="$force-text" id="or-force-text"></label></td></tr>
     </table></div></td>
   </tr>
+  <tr id="option-tab-row" style="display: none;">
+    <td colspan="3">
+      <div id="option-tab-container" class="option-tab-container">
+        <div class="option-tab-list" id="option-tab-list"></div>
+      </div>
+      <div id="sheet-options-content" class="sheet-options-content"></div>
+    </td>
+  </tr>
 </table></div>
+
+<div id="sheet-selector-modal" class="modal-overlay" style="display: none;">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>选择要导入的Sheet</h3>
+      <button class="close-button" id="close-sheet-selector">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="sheet-list" id="sheet-selector-list"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="button primary" id="confirm-sheet-selection">确定</button>
+      <button class="button" id="cancel-sheet-selection">取消</button>
+    </div>
+  </div>
+</div>

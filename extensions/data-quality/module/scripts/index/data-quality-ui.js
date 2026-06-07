@@ -912,6 +912,9 @@ Refine.DataQualityUI.DEFAULT_CONFIG = {
   'task.batchSize': 100,
   'task.autosaveInterval': 60,
 
+  // 默认数据格式检查配置
+  'format.batchSize': 20,
+
   // 内容比对配置
   'content.similarityPass': 100,
   'content.similarityWarning': 100,
@@ -964,6 +967,11 @@ Refine.DataQualityUI.prototype._renderSettingsForm = function() {
   this._createNumberInput(taskSection, 'task.batchSize', '批处理大小(行)', this._config['task.batchSize'], 10, 1000);
   this._createNumberInput(taskSection, 'task.autosaveInterval', '自动保存间隔(秒)', this._config['task.autosaveInterval'], 10, 600);
   container.append(taskSection);
+
+  // 默认数据格式检查配置
+  var formatSection = this._createSettingsSection('默认数据格式检查设置');
+  this._createNumberInput(formatSection, 'format.batchSize', '批量检测条数', this._config['format.batchSize'], 1, 100);
+  container.append(formatSection);
 
   // 内容比对配置
   var contentSection = this._createSettingsSection('默认内容比对配置');

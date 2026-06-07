@@ -1,0 +1,48 @@
+<div class="dialog-frame" style="width: 600px;">
+  <div class="dialog-header ui-draggable-handle" bind="dialogHeader"></div>
+  <div class="dialog-body" bind="dialogBody">
+    <div id="multi-sheet-exporter-tabs" class="refine-tabs">
+      <ul>
+        <li><a href="#multi-sheet-exporter-tabs-sheets" bind="selectSheetsTabLabel"></a></li>
+        <li><a href="#multi-sheet-exporter-tabs-options" bind="exportOptionsTabLabel"></a></li>
+      </ul>
+      
+      <div id="multi-sheet-exporter-tabs-sheets"><div class="grid-layout grid-layout-for-ui layout-loose layout-full"><table role="presentation">
+        <tr>
+          <td colspan="2" bind="selectSheetsLabel"></td>
+        </tr>
+        <tr>
+          <td colspan="2">
+            <div class="multi-sheet-exporter-sheet-list" bind="sheetList"></div>
+          </td>
+        </tr>
+        <tr>
+          <td colspan="2">
+            <button class="button" bind="selectAllButton"></button>
+            <button class="button" bind="deselectAllButton"></button>
+          </td>
+        </tr>
+      </table></div></div>
+      
+      <div id="multi-sheet-exporter-tabs-options"><div class="grid-layout grid-layout-for-ui layout-loose layout-full"><table role="presentation">
+        <tr>
+          <td colspan="2" bind="exportOptionsLabel"></td>
+        </tr>
+        <tr>
+          <td colspan="2"><div class="grid-layout layout-tighter layout-full"><table role="presentation">
+            <tr>
+              <td width="1%"><input type="checkbox" bind="outputColumnHeadersCheckbox" checked id="$multi-sheet-exporter-output-column-headers" /></td>
+              <td width="25%"><label for="$multi-sheet-exporter-output-column-headers" bind="outputColumnHeadersLabel"></label></td>
+              <td width="1%"><input type="checkbox" bind="outputEmptyRowsCheckbox" checked id="$multi-sheet-exporter-output-empty-rows" /></td>
+              <td width="25%"><label for="$multi-sheet-exporter-output-empty-rows" bind="outputEmptyRowsLabel"></label></td>
+            </tr>
+          </table></div></td>
+        </tr>
+      </table></div></div>
+    </div>
+  </div>
+  <div class="dialog-footer" bind="dialogFooter">
+    <button class="button" bind="cancelButton"></button>
+    <button class="button button-primary" bind="exportButton"></button>
+  </div>
+</div>
