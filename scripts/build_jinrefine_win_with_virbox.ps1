@@ -248,6 +248,14 @@ foreach ($spec in $jarSpecs) {
 # Copy sjt_agent.jar into server lib dir (used by -javaagent in jinrefine.l4j.ini)
 Copy-Item $sjtAgent.FullName -Destination $serverLibDir -Force
 
+$iniFile = Get-ChildItem $rootDir.FullName -Filter '*.l4j.ini' -Recurse | Select-Object -First 1
+if ($iniFile) {
+    $content = Get-Content $iniFile.FullName -Raw
+    $content = $content -replace '#\s*-javaagent:server/target/lib/sjt_agent.jar', '-javaagent:server/target/lib/sjt_agent.jar'
+    Set-Content $iniFile.FullName $content -NoNewline
+    Write-Host "  Enabled -javaagent in $($iniFile.Name)" -ForegroundColor Green
+}
+
 Write-Host '[6/6] Re-packaging protected Windows release zip...' -ForegroundColor Cyan
 
 $timestamp    = Get-Date -Format 'yyyyMMdd_HHmmss'

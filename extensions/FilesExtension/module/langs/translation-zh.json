@@ -1,5 +1,5 @@
 {
-    "files-import/menu-localdirectory": "本电脑中的文件",
+    "files-import/menu-localdirectory": "本电脑的原始文件",
     "files-import/directory": "本地目录",
     "files-import/fileExtensionsLabel": "从本电脑的一个或多个文件夹加载文件详细信息创建项目:",
     "files-import/fileExtensionsDetails": "包含的文件详细信息有：文件名、扩展名、大小（KB）、创建日期、最后修改日期、权限、SHA-256 校验和、作者和文件路径。",

@@ -17,9 +17,10 @@
     <webapp.dir>../main/webapp</webapp.dir>
     <webapp.target>../main/target</webapp.target>
     <embedded.jre.version>11</embedded.jre.version>
+    <embedded.jre.build>11.0.31_11</embedded.jre.build>
 
     <mac.jre.path>${project.build.directory}/mac_jre</mac.jre.path>
-    <mac.jre.url>https://api.adoptium.net/v3/binary/latest/${embedded.jre.version}/ga/mac/x64/jre/hotspot/normal/eclipse?project=jdk</mac.jre.url>
+    <mac.jre.url>https://mirrors.tuna.tsinghua.edu.cn/Adoptium/${embedded.jre.version}/jre/x64/mac/OpenJDK11U-jre_x64_mac_hotspot_${embedded.jre.build}.tar.gz</mac.jre.url>
     <mac.build.directory>OpenRefine ${project.version}</mac.build.directory>
     <mac.webapp.dir>./target/OpenRefine.app/Contents/Resources/webapp/</mac.webapp.dir>
     <mac.icon.path>../graphics/icon/openrefine.icns</mac.icon.path>
@@ -29,7 +30,7 @@
     <apple.notarization.timeout>15m</apple.notarization.timeout>
 
     <windows.jre.path>${project.build.directory}/windows_jre</windows.jre.path>
-    <windows.jre.url>https://api.adoptium.net/v3/binary/latest/${embedded.jre.version}/ga/windows/x64/jre/hotspot/normal/eclipse?project=jdk</windows.jre.url>
+    <windows.jre.url>https://mirrors.tuna.tsinghua.edu.cn/Adoptium/${embedded.jre.version}/jre/x64/windows/OpenJDK11U-jre_x64_windows_hotspot_${embedded.jre.build}.zip</windows.jre.url>
     <windows.copyright.line>Copyright (c) 2025 JinRefine Team.</windows.copyright.line>
     <windows.fullversion>0.0.0.0</windows.fullversion>
   </properties>
