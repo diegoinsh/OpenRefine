@@ -276,7 +276,7 @@
     "core-project/proj-name": "单击以重命名",
     "core-project/use-facets": "使用归类和过滤器",
     "core-project/use-to-select": "使用归类和筛选器来选择要操作的数据子集。可以在每个数据列头来选择归类或筛选方式。",
-    "core-project/not-sure": "",
+    "core-project/not-sure": " ",
     "core-project/watch-cast": "查看帮助",
     "core-project/refreshing-facet": "正在刷新归类…",
     "core-project/update-facets": "更新所有归类",
