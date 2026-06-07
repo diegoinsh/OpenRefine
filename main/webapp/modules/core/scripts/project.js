@@ -96,6 +96,11 @@ function resize() {
 
   ui.viewPanelDiv.height((height - ui.toolPanelDiv.outerHeight() - rightPanelVPaddings) + "px");
 
+  // Resize file view panel if visible
+  if (typeof FileViewPanel !== 'undefined') {
+    FileViewPanel.resize();
+  }
+
   var processPanelWidth = 400;
   ui.processPanelDiv
   .css("width", processPanelWidth + "px")

@@ -1,0 +1,327 @@
+/*
+ * File View Panel Styles
+ * Inline panel within rightPanelDiv for resource file preview
+ */
+
+.file-view-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 700px;
+  height: 100%;
+  background: #fff;
+  border-left: 1px solid #ccc;
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  box-shadow: -2px 0 6px rgba(0, 0, 0, 0.08);
+  outline: none;
+}
+
+.file-view-panel:focus {
+  border-left-color: #1976d2;
+}
+
+.file-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+  flex-shrink: 0;
+}
+
+.file-view-title {
+  font-weight: 600;
+  color: #333;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.file-view-close-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 18px;
+  color: #666;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.file-view-close-btn:hover {
+  background: #e0e0e0;
+  color: #333;
+}
+
+.file-view-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.file-view-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.file-view-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fafafa;
+  position: relative;
+}
+
+.file-view-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-top: 1px solid #ddd;
+  background: #f5f5f5;
+  flex-shrink: 0;
+}
+
+.file-view-file-info {
+  color: #666;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.file-view-file-counter {
+  background: #e0e0e0;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+.file-view-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.file-view-actions .button {
+  padding: 4px 10px;
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.file-view-actions .button:hover {
+  background: #e8e8e8;
+}
+
+.file-view-zoom-controls {
+  display: flex;
+  gap: 3px;
+  margin-right: 6px;
+}
+
+.file-view-zoom-btn {
+  padding: 3px 8px !important;
+  min-width: 28px;
+}
+
+/* Thumbnails area - right side vertical strip */
+.file-view-thumbnails {
+  width: 80px;
+  flex-shrink: 0;
+  border-left: 1px solid #ddd;
+  background: #f0f0f0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-view-thumb-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px;
+}
+
+.file-view-thumb-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.file-view-thumb-list::-webkit-scrollbar-thumb {
+  background: #bbb;
+  border-radius: 2px;
+}
+
+.file-view-thumb-item {
+  padding: 4px;
+  margin-bottom: 4px;
+  background: #fff;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.2s;
+}
+
+.file-view-thumb-item:hover {
+  border-color: #aaa;
+}
+
+.file-view-thumb-item.active {
+  border-color: #1976d2;
+  background: #e3f2fd;
+}
+
+.file-view-thumb-img {
+  width: 60px;
+  height: 45px;
+  object-fit: cover;
+  border-radius: 2px;
+  display: block;
+  margin: 0 auto;
+}
+
+.file-view-thumb-icon {
+  width: 32px;
+  height: 32px;
+  display: block;
+  margin: 6px auto;
+}
+
+.file-view-thumb-name {
+  font-size: 10px;
+  color: #666;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
+/* Image preview */
+.file-view-image-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.file-view-preview-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transition: transform 0.15s;
+  transform-origin: top left;
+  position: relative;
+  display: block;
+  margin: 0 auto;
+  cursor: grab;
+}
+
+.file-view-preview-image.dragging {
+  cursor: grabbing;
+}
+
+/* PDF preview */
+.file-view-pdf-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-view-pdf-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* Text preview */
+.file-view-text-container {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+}
+
+.file-view-text-preview {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 12px;
+  background: #f8f8f8;
+  border-radius: 4px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* No preview */
+.file-view-no-preview {
+  text-align: center;
+  color: #999;
+  padding: 40px;
+}
+
+.file-view-no-preview-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+/* Loading and error states */
+.file-view-loading {
+  text-align: center;
+  color: #666;
+  padding: 40px;
+}
+
+.file-view-error {
+  text-align: center;
+  color: #d93025;
+  padding: 40px;
+}
+
+/* Row indicator for resource association */
+.file-view-row-indicator {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  cursor: pointer;
+  vertical-align: middle;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.file-view-row-indicator:hover {
+  opacity: 1;
+}
+
+.file-view-row-indicator.has-resource {
+  opacity: 1;
+  color: #1976d2;
+}
+
+/* Data table row highlight when file view is open */
+.data-table tr.file-view-active-row {
+  background-color: #e3f2fd !important;
+}
+
+.data-table tr.file-view-active-row:hover {
+  background-color: #bbdefb !important;
+}

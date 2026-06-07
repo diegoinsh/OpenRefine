@@ -436,6 +436,13 @@
 
   "data-quality-extension/resource-config-warning-title": "资源配置未完成",
   "data-quality-extension/resource-config-warning-message": "当前启用了文件资源关联检查、内容比对检查或图像质量检查，但资源定位方式中的配置路径未完成配置。请先完成资源配置后再运行检查。",
-  "data-quality-extension/go-to-resource-config": "前往资源配置"
+  "data-quality-extension/go-to-resource-config": "前往资源配置",
+
+  "data-quality-extension/file-view-title": "文件预览",
+  "data-quality-extension/file-view-loading": "加载中...",
+  "data-quality-extension/file-view-error": "加载失败",
+  "data-quality-extension/file-view-no-preview": "当前文件无法预览",
+  "data-quality-extension/file-view-download": "下载",
+  "data-quality-extension/file-view-no-resource": "该行未关联资源文件"
 }
 

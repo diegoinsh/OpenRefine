@@ -149,7 +149,8 @@ function init() {
       "scripts/dialogs/run-check-dialog.js",
       "scripts/dialogs/image-quality-tab.js",
       // "scripts/dialogs/image-annotation.js",
-      "scripts/dialogs/regex-editor-dialog.js"
+      "scripts/dialogs/regex-editor-dialog.js",
+      "scripts/file-view-panel.js"
     ]
   );
 
@@ -162,7 +163,8 @@ function init() {
       "styles/dialogs/manage-rules-dialog.css",
       "styles/dialogs/run-check-dialog.css",
       "styles/dialogs/image-quality-tab.css",
-      "styles/dialogs/regex-editor-dialog.css"
+      "styles/dialogs/regex-editor-dialog.css",
+      "styles/file-view-panel.css"
     ]
   );
 

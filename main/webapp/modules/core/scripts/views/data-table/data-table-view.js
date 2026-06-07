@@ -242,6 +242,22 @@ DataTableView.prototype.render = function() {
   this.resize();
   
   elmts.dataTableContainer[0].scrollLeft = scrollLeft;
+
+  // Check if file view panel row is still visible after re-render
+  if (typeof FileViewPanel !== 'undefined' && FileViewPanel.isVisible()) {
+    var currentRow = FileViewPanel._currentRow;
+    var found = false;
+    var rows = theProject.rowModel.rows;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].i === currentRow) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      FileViewPanel.hide();
+    }
+  }
 };
 
 DataTableView.prototype._renderSortingControls = function(sortingControls) {
@@ -518,6 +534,21 @@ DataTableView.prototype._renderDataTables = function(table, tableHeader, colGrou
     }
 
     $(tr).addClass(even ? "even" : "odd");
+
+    // Add row click handler for file view panel
+    $(tr).on('click.fileView', function(e) {
+      if ($(e.target).is('a, button, input, select, textarea')) return;
+      if (typeof FileViewPanel !== 'undefined' && typeof QualityAlignment !== 'undefined') {
+        var resourceConfig = QualityAlignment._resourceConfig;
+        if (resourceConfig && resourceConfig.pathFields && resourceConfig.pathFields.length > 0) {
+          FileViewPanel.toggle(row.i);
+          $('.data-table tr').removeClass('file-view-active-row');
+          if (FileViewPanel.isVisible()) {
+            $(tr).addClass('file-view-active-row');
+          }
+        }
+      }
+    });
 
     for (var i = 0; i < columns.length; i++) {
       var column = columns[i];
