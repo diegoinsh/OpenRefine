@@ -26,7 +26,7 @@ public class ContentComparisonRule {
     public ContentComparisonRule() {
         this.column = "";
         this.extractLabel = "";
-        this.threshold = 90;
+        this.threshold = 100;
         this.checkType = "image";
     }
 

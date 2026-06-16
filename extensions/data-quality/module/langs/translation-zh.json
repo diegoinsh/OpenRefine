@@ -159,7 +159,7 @@
   "data-quality-extension/check-folder-existence": "存在性检查",
   "data-quality-extension/check-file-count": "数量一致性",
 
-  "data-quality-extension/aimp-required": "需要 Jinshu-aimp 信息抽取服务",
+  "data-quality-extension/aimp-required": "需要启动信息抽取服务",
   "data-quality-extension/checking-connection": "检查连接中...",
   "data-quality-extension/connected": "已连接",
   "data-quality-extension/not-connected": "未连接 - 点击配置",

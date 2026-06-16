@@ -38,7 +38,7 @@ var QualityAlignment = {
     }
   },
 
-  // Content comparison rules: [{ column: '', extractLabel: '', threshold: 90 }]
+  // Content comparison rules: [{ column: '', extractLabel: '', threshold: 100 }]
   _contentRules: [],
 
   // AIMP service configuration - supports both 7998 and 7999 interface modes
@@ -3124,9 +3124,9 @@ QualityAlignment._applyContentTemplate = function(templateId) {
   if (templateId === 'content-elements') {
     // 文书档案要素比对规则 - 4个关键要素
     var templateRules = [
-      { templateField: '题名', extractLabel: '题名', threshold: 90 },
-      { templateField: '责任者', extractLabel: '责任者', threshold: 90 },
-      { templateField: '文号', extractLabel: '文号', threshold: 95 },
+      { templateField: '题名', extractLabel: '题名', threshold: 100 },
+      { templateField: '责任者', extractLabel: '责任者', threshold: 100 },
+      { templateField: '文号', extractLabel: '文号', threshold: 100 },
       { templateField: '成文时间', extractLabel: '成文时间', threshold: 100 }
     ];
 
@@ -3733,7 +3733,7 @@ QualityAlignment._addContentRule = function() {
   // Threshold
   var thresholdRow = $('<div class="dialog-row"></div>').appendTo(body);
   $('<label></label>').text($.i18n('data-quality-extension/similarity-threshold') + ' (%): ').appendTo(thresholdRow);
-  var thresholdInput = $('<input type="number" min="0" max="100" value="90">').appendTo(thresholdRow);
+  var thresholdInput = $('<input type="number" min="0" max="100" value="100">').appendTo(thresholdRow);
 
   var footer = $('<div class="dialog-footer"></div>').appendTo(frame);
   $('<button class="button"></button>')
@@ -3752,7 +3752,7 @@ QualityAlignment._addContentRule = function() {
       self._contentRules.push({
         column: colName,
         extractLabel: label,
-        threshold: parseInt(thresholdInput.val()) || 90,
+        threshold: parseInt(thresholdInput.val()) || 100,
         matched: true
       });
       self._hasUnsavedChanges = true;
@@ -3825,7 +3825,7 @@ QualityAlignment._editContentRule = function(index) {
       self._contentRules[index] = {
         column: selectedColumn,
         extractLabel: labelInput.val(),
-        threshold: parseInt(thresholdInput.val()) || 90,
+        threshold: parseInt(thresholdInput.val()) || 100,
         templateField: rule.templateField,
         matched: columnExists
       };
