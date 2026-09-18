@@ -42,9 +42,19 @@ public class AimpLlmClient {
 
     public Map<String, String> extractContent(String filePath, String keyList) {
         Map<String, String> result = new HashMap<>();
+        ExtractPageResult r = extractPage(filePath, keyList, null);
+        if (r.success) result.putAll(r.values);
+        return result;
+    }
+
+    public ExtractPageResult extractPage(String filePath, String keyList, String customElementsJson) {
+        ExtractPageResult result = new ExtractPageResult();
         try {
             File file = new File(filePath);
-            if (!file.exists()) return result;
+            if (!file.exists()) {
+                result.error = "File not found: " + filePath;
+                return result;
+            }
             String boundary = "----WebKitFormBoundary" + System.currentTimeMillis();
             byte[] fileBytes = Files.readAllBytes(file.toPath());
             String fileName = file.getName();
@@ -56,17 +66,23 @@ public class AimpLlmClient {
 
             byte[] bodyStart = bodyBuilder.toString().getBytes(StandardCharsets.UTF_8);
 
-            StringBuilder keyListPart = new StringBuilder();
-            keyListPart.append("\r\n--").append(boundary).append("\r\n");
-            keyListPart.append("Content-Disposition: form-data; name=\"key_list\"\r\n\r\n");
-            keyListPart.append(keyList);
+            StringBuilder parts = new StringBuilder();
+            parts.append("\r\n--").append(boundary).append("\r\n");
+            parts.append("Content-Disposition: form-data; name=\"key_list\"\r\n\r\n");
+            parts.append(keyList);
 
-            keyListPart.append("\r\n--").append(boundary).append("\r\n");
-            keyListPart.append("Content-Disposition: form-data; name=\"sync\"\r\n\r\n");
-            keyListPart.append("true");
+            parts.append("\r\n--").append(boundary).append("\r\n");
+            parts.append("Content-Disposition: form-data; name=\"sync\"\r\n\r\n");
+            parts.append("true");
 
-            keyListPart.append("\r\n--").append(boundary).append("--\r\n");
-            byte[] bodyEnd = keyListPart.toString().getBytes(StandardCharsets.UTF_8);
+            if (customElementsJson != null && !customElementsJson.isEmpty()) {
+                parts.append("\r\n--").append(boundary).append("\r\n");
+                parts.append("Content-Disposition: form-data; name=\"custom_elements\"\r\n\r\n");
+                parts.append(customElementsJson);
+            }
+
+            parts.append("\r\n--").append(boundary).append("--\r\n");
+            byte[] bodyEnd = parts.toString().getBytes(StandardCharsets.UTF_8);
 
             HttpURLConnection c = (HttpURLConnection) new URL(serviceUrl + "/extract/upload").openConnection();
             c.setRequestMethod("POST");
@@ -81,15 +97,24 @@ public class AimpLlmClient {
             }
             if (c.getResponseCode() == 200) {
                 JsonNode json = mapper.readTree(readStream(c.getInputStream()));
-                if (json.has("results") && json.get("results").isObject())
-                    json.get("results").fields().forEachRemaining(e -> result.put(e.getKey(), e.getValue().asText()));
-                if (result.isEmpty() && json.has("extracted_fields"))
-                    json.get("extracted_fields").fields().forEachRemaining(e -> result.put(e.getKey(), e.getValue().asText()));
+                if (json.has("results") && json.get("results").isObject()) {
+                    json.get("results").fields().forEachRemaining(e ->
+                            result.values.put(e.getKey(), e.getValue().asText()));
+                }
+                if (result.values.isEmpty() && json.has("extracted_fields") && json.get("extracted_fields").isObject()) {
+                    json.get("extracted_fields").fields().forEachRemaining(e ->
+                            result.values.put(e.getKey(), e.getValue().asText()));
+                }
+                JsonNode pc = json.get("page_count");
+                if (pc != null && pc.isNumber()) result.pageCount = pc.asInt(1);
+                result.success = true;
             } else {
+                result.error = "HTTP " + c.getResponseCode();
                 logger.warn("AIMP extract failed: HTTP " + c.getResponseCode());
             }
         } catch (Exception e) {
             logger.error("Error extracting: " + filePath, e);
+            result.error = e.getMessage() == null ? e.toString() : e.getMessage();
         }
         return result;
     }
@@ -146,6 +171,13 @@ public class AimpLlmClient {
         public void setResult(JsonNode r) { this.result = r; }
         public String getError() { return error; }
         public void setError(String e) { this.error = e; }
+    }
+
+    public static class ExtractPageResult {
+        public boolean success;
+        public int pageCount = 1;
+        public Map<String, String> values = new HashMap<>();
+        public String error;
     }
 }
 

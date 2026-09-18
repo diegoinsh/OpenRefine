@@ -16,6 +16,29 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
   $('#driveSelectorLabel').text($.i18n('files-import/selectDrive'));
   $('#directorySelectLabel').text($.i18n('files-import/selectDirectory'));
   this._elmts.nextButton.html($.i18n('files-import/next'));
+  this._elmts.modeLabel.text($.i18n('files-import/batch-mode-label'));
+  this._elmts.modeStandardLabel.text($.i18n('files-import/batch-mode-standard'));
+  this._elmts.modeVolumeLabel.text($.i18n('files-import/batch-mode-volume'));
+  this._elmts.modeCaseLabel.text($.i18n('files-import/batch-mode-case'));
+  this._elmts.batchConfigTitle.text($.i18n('files-import/batch-config-title'));
+  this._elmts.batchProjectNameLabel.text($.i18n('files-import/batch-project-name'));
+  this._elmts.batchCustomElementsLabel.text($.i18n('files-import/batch-custom-elements'));
+  this._elmts.elNameHeader.text($.i18n('files-import/batch-el-name'));
+  this._elmts.elKeyHeader.text($.i18n('files-import/batch-el-key'));
+  this._elmts.elActionHeader.text($.i18n('files-import/batch-el-action'));
+  this._elmts.elDescHeader.text($.i18n('files-import/batch-el-desc'));
+  this._elmts.addRowButton.text($.i18n('files-import/batch-add-row'));
+  this._elmts.batchStartButton.text($.i18n('files-import/batch-start'));
+  this._elmts.batchBackButton.text($.i18n('files-import/batch-back'));
+  this._elmts.batchCancelButton.text($.i18n('files-import/batch-cancel'));
+  this._elmts.openProjectButton.text($.i18n('files-import/batch-open-project'));
+  this._elmts.progressLabel.text($.i18n('files-import/batch-progress-label'));
+
+  var self2 = this;
+  $('input[name="extractionMode"]').on('change', function () {
+    var mode = $("input[name='extractionMode']:checked").val();
+    self2._elmts.batchModeNote.toggle(mode !== 'standard');
+  });
 
   getFileSystemDetails();
 
@@ -103,9 +126,185 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
     if (selectedItems.length === 0) {
       errorString += $.i18n('files-import/no-directory-selected') + '\n';
       window.alert($.i18n('files-import/warning-directory-selection') + "\n" + errorString);
-    } else {
+      return;
+    }
+
+    var mode = $("input[name='extractionMode']:checked").val();
+    if (mode !== 'standard' && selectedItems.length > 1) {
+      window.alert($.i18n('files-import/batch-single-dir-alert'));
+      return;
+    }
+
+    if (mode === 'standard') {
       doc.directoryJsonObj = selectedItems;
       self._controller.startImportingDocument(doc);
+    } else {
+      showBatchConfig(mode, selectedItems[0].directory);
+    }
+  });
+
+  var batchMode = null;
+  var batchRootPath = null;
+  var batchProjectId = null;
+  var batchPollTimer = null;
+
+  function showBatchConfig(mode, rootPath) {
+    batchMode = mode;
+    batchRootPath = rootPath;
+    $("#directoryTreePanel").hide();
+    self._elmts.batchConfigPanel.show();
+    self._elmts.batchProgressPanel.hide();
+    self._elmts.batchStartButton.prop('disabled', false);
+    self._elmts.batchBackButton.prop('disabled', false);
+    self._elmts.openProjectButton.hide();
+    self._elmts.batchCancelButton.show();
+    self._elmts.progressBar.css("width", "0%");
+    self._elmts.progressDetail.empty();
+    self._elmts.progressMessage.empty();
+    if (!self._elmts.batchProjectName.val()) {
+      self._elmts.batchProjectName.val($.i18n('files-import/batch-project-default-name'));
+    }
+    if (self._elmts.customElementsBody.children().length === 0) {
+      addCustomElementRow();
+    }
+  }
+
+  function addCustomElementRow(data) {
+    var d = data || {};
+    var $tr = $("<tr></tr>");
+    $tr.append($("<td></td>").append(
+        $("<input type='text' class='batch-el-name'/>").val(d.name || "")));
+    $tr.append($("<td></td>").append(
+        $("<input type='text' class='batch-el-key'/>").val(d.key || "")));
+    var $action = $("<select class='batch-el-action'></select>");
+    $action.append($("<option value='include'></option>").text($.i18n('files-import/batch-el-add')));
+    $action.append($("<option value='exclude'></option>").text($.i18n('files-import/batch-el-exclude')));
+    if (d.action === 'exclude') $action.val('exclude');
+    $tr.append($("<td></td>").append($action));
+    $tr.append($("<td></td>").append(
+        $("<input type='text' class='batch-el-desc'/>").val(d.description || "")));
+    var $del = $("<button type='button' class='button button-light batch-el-remove'>×</button>");
+    $del.on('click', function () { $tr.remove(); });
+    $tr.append($("<td></td>").append($del));
+    self._elmts.customElementsBody.append($tr);
+  }
+
+  this._elmts.addRowButton.on('click', function () {
+    addCustomElementRow();
+  });
+
+  function generateKey(name) {
+    var sb = "";
+    for (var i = 0; i < name.length; i++) {
+      var c = name.charAt(i);
+      if (/[a-zA-Z0-9]/.test(c)) {
+        sb += c.toLowerCase();
+      } else {
+        sb += "_";
+      }
+    }
+    if (sb.length === 0) sb = "custom_";
+    if (/^[0-9]/.test(sb)) sb = "x" + sb;
+    return sb;
+  }
+
+  function collectCustomElements() {
+    var items = [];
+    self._elmts.customElementsBody.find("tr").each(function () {
+      var name = $(this).find(".batch-el-name").val().trim();
+      var key = $(this).find(".batch-el-key").val().trim();
+      var action = $(this).find(".batch-el-action").val();
+      var description = $(this).find(".batch-el-desc").val().trim();
+      if (!name) return;
+      if (!key) key = generateKey(name);
+      items.push({ name: name, key: key, action: action, description: description });
+    });
+    return items;
+  }
+
+  this._elmts.batchBackButton.on('click', function () {
+    self._elmts.batchConfigPanel.hide();
+    $("#directoryTreePanel").show();
+  });
+
+  this._elmts.batchStartButton.on('click', function () {
+    var projectName = self._elmts.batchProjectName.val().trim();
+    if (!projectName) {
+      window.alert($.i18n('files-import/batch-project-name-required'));
+      return;
+    }
+    var payload = {
+      subCommand: "start",
+      rootPath: batchRootPath,
+      template: batchMode === 'batch-case' ? 'batch-title-case' : 'batch-title-volume',
+      projectName: projectName,
+      customElements: JSON.stringify(collectCustomElements())
+    };
+    Refine.wrapCSRF(function (token) {
+      payload.csrf_token = token;
+      $.post("command/files/batch-extraction", payload, function (data) {
+        if (!data || data.code === 'error') {
+          window.alert(data && data.message ? data.message : $.i18n('files-import/batch-start-failed'));
+          return;
+        }
+        batchProjectId = data.projectId;
+        self._elmts.openProjectButton.show();
+        startProgressPolling(data.projectId);
+      }, "json");
+    });
+  });
+
+  function startProgressPolling(projectId) {
+    self._elmts.batchStartButton.prop('disabled', true);
+    self._elmts.batchBackButton.prop('disabled', true);
+    self._elmts.batchProgressPanel.show();
+    if (batchPollTimer) window.clearInterval(batchPollTimer);
+    batchPollTimer = window.setInterval(function () {
+      Refine.wrapCSRF(function (token) {
+        $.post("command/files/batch-extraction", {
+          subCommand: "progress",
+          project: projectId,
+          csrf_token: token
+        }, function (data) {
+          if (!data || data.code === 'error') {
+            window.clearInterval(batchPollTimer);
+            batchPollTimer = null;
+            window.alert(data && data.message ? data.message : $.i18n('files-import/batch-progress-error'));
+            return;
+          }
+          var percent = data.totalPages > 0
+              ? Math.min(100, Math.round(data.processedPages * 100 / data.totalPages)) : 0;
+          self._elmts.progressBar.css("width", percent + "%");
+          self._elmts.progressDetail.text(
+              data.processedPages + " / " + data.totalPages
+              + " · " + (data.currentUnit || "")
+              + " · " + data.rowsAppended + " rows");
+          self._elmts.progressMessage.text(data.message || "");
+          if (data.status !== 'running') {
+            window.clearInterval(batchPollTimer);
+            batchPollTimer = null;
+            self._elmts.batchCancelButton.hide();
+            self._elmts.openProjectButton.show();
+          }
+        }, "json");
+      });
+    }, 2000);
+  }
+
+  this._elmts.batchCancelButton.on('click', function () {
+    if (!batchProjectId) return;
+    Refine.wrapCSRF(function (token) {
+      $.post("command/files/batch-extraction", {
+        subCommand: "cancel",
+        project: batchProjectId,
+        csrf_token: token
+      }, function () {}, "json");
+    });
+  });
+
+  this._elmts.openProjectButton.on('click', function () {
+    if (batchProjectId) {
+      document.location = "project?project=" + batchProjectId;
     }
   });
 

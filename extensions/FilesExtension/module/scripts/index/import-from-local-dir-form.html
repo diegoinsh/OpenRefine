@@ -12,7 +12,55 @@
       <div id="directory-tree-container" class="directory-tree-container">
         <div id="directory-tree"></div>
       </div>
+      <div class="extraction-mode-panel" bind="modePanel">
+        <label bind="modeLabel" class="extraction-mode-label"></label>
+        <div class="extraction-mode-options">
+          <label><input type="radio" name="extractionMode" value="standard" checked><span bind="modeStandardLabel"></span></label>
+          <label><input type="radio" name="extractionMode" value="batch-volume"><span bind="modeVolumeLabel"></span></label>
+          <label><input type="radio" name="extractionMode" value="batch-case"><span bind="modeCaseLabel"></span></label>
+        </div>
+        <div class="extraction-mode-note" bind="batchModeNote" style="display:none"></div>
+      </div>
       <button type="submit" bind="nextButton" class="button button-primary" type="button"></button>
+    </div>
+    <div class="batch-config-panel" id="batch-config-panel" bind="batchConfigPanel" style="display:none">
+      <h3 bind="batchConfigTitle"></h3>
+      <div class="batch-field-row">
+        <label bind="batchProjectNameLabel"></label>
+        <input type="text" bind="batchProjectName" class="batch-project-name-input"/>
+      </div>
+      <div class="batch-field-row">
+        <label bind="batchCustomElementsLabel"></label>
+        <table class="batch-custom-elements-table" bind="customElementsTable">
+          <thead>
+            <tr>
+              <th class="batch-el-name-col" bind="elNameHeader"></th>
+              <th class="batch-el-key-col" bind="elKeyHeader"></th>
+              <th class="batch-el-action-col" bind="elActionHeader"></th>
+              <th class="batch-el-desc-col" bind="elDescHeader"></th>
+              <th class="batch-el-op-col"></th>
+            </tr>
+          </thead>
+          <tbody bind="customElementsBody"></tbody>
+        </table>
+        <button type="button" bind="addRowButton" class="button button-light"></button>
+      </div>
+      <div class="batch-action-row">
+        <button type="button" bind="batchStartButton" class="button button-primary"></button>
+        <button type="button" bind="batchBackButton" class="button button-light"></button>
+      </div>
+      <div class="batch-progress-panel" bind="batchProgressPanel" style="display:none">
+        <div class="batch-progress-label" bind="progressLabel"></div>
+        <div class="batch-progress-track">
+          <div class="batch-progress-bar" bind="progressBar"></div>
+        </div>
+        <div class="batch-progress-detail">
+          <span bind="progressDetail"></span>
+          <button type="button" bind="batchCancelButton" class="button button-light"></button>
+        </div>
+        <div class="batch-progress-message" bind="progressMessage"></div>
+        <button type="button" bind="openProjectButton" class="button button-primary" style="display:none"></button>
+      </div>
     </div>
   </div>
 </form>

@@ -108,3 +108,187 @@
   background: rgba(255, 255, 255, 0.7);
   text-align: center;
 }
+
+.extraction-mode-panel {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fafafa;
+}
+
+.extraction-mode-label {
+  font-weight: bold;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.extraction-mode-options label {
+  margin-right: 16px;
+  font-weight: normal;
+}
+
+.extraction-mode-note {
+  margin-top: 6px;
+  color: #8a6d3b;
+  font-size: 0.95em;
+}
+
+.batch-config-panel {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.batch-config-panel h3 {
+  margin-top: 0;
+}
+
+.batch-field-row {
+  margin-bottom: 12px;
+}
+
+.batch-field-row > label {
+  display: block;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.batch-project-name-input {
+  width: 320px;
+}
+
+.batch-custom-elements-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.batch-custom-elements-table th,
+.batch-custom-elements-table td {
+  border: 1px solid #ddd;
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.batch-custom-elements-table th {
+  background: #f5f5f5;
+  font-weight: bold;
+}
+
+.batch-el-name-col { width: 18%; }
+.batch-el-key-col { width: 16%; }
+.batch-el-action-col { width: 10%; }
+.batch-el-desc-col { width: 44%; }
+.batch-el-op-col { width: 8%; }
+
+.batch-custom-elements-table input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.batch-custom-elements-table select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.batch-action-row {
+  margin: 10px 0;
+}
+
+.batch-action-row .button {
+  margin-right: 8px;
+}
+
+.batch-progress-panel {
+  margin-top: 14px;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #f9f9f9;
+}
+
+.batch-progress-label {
+  font-weight: bold;
+  margin-bottom: 6px;
+}
+
+.batch-progress-track {
+  height: 14px;
+  border: 1px solid #bbb;
+  border-radius: 7px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.batch-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: #2f7ed8;
+  transition: width 0.4s ease;
+}
+
+.batch-progress-detail {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.batch-progress-message {
+  margin-top: 6px;
+  color: #555;
+}
+
+.batch-el-remove {
+  padding: 1px 8px;
+}
+
+/* Project page banner for batch extraction progress */
+.batch-extraction-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 65535;
+  background: #fff8e1;
+  border-bottom: 2px solid #f0c36d;
+  color: #5b4a1f;
+  padding: 6px 40px 6px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.batch-extraction-banner.banner-error {
+  background: #fdecea;
+  border-bottom-color: #e53935;
+  color: #8c1d18;
+}
+
+.batch-extraction-banner-close {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.batch-banner-progress-track {
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 4px;
+}
+
+.batch-banner-progress-bar {
+  transition: width 0.4s ease;
+}
+
+.batch-banner-progress-bar.banner-bar-error {
+  background: #e53935;
+}

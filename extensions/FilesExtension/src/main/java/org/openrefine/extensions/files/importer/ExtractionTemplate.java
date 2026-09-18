@@ -25,7 +25,28 @@ public enum ExtractionTemplate {
     ARCHIVE_VOLUME("档案要素案卷模板",
             new String[]{"条目类型", "档号", "题名", "责任者", "成文日期", "源路径"},
             "档号",
-            true);
+            true),
+
+    /**
+     * 批量题名提取案卷模板（首要场景：法院卷宗材料整理）
+     * 根目录下子文件夹=案卷，卷内图像按标题分件；列：
+     * 案卷号, 件号, 起止页号, 页数, 题名, 责任者, 文号, 成文日期, 文件夹路径, 提取状态, 备注
+     * 提取期项目只读（R-07 方案甲）
+     */
+    BATCH_TITLE_VOLUME("批量题名提取案卷模板",
+            new String[]{"案卷号", "件号", "起止页号", "页数", "题名", "责任者", "文号", "成文日期", "文件夹路径", "提取状态", "备注"},
+            "案卷号",
+            false),
+
+    /**
+     * 批量题名提取案件模板
+     * 根目录下子文件夹/PDF=一件；列（无案卷号与起止页号，R-05）：
+     * 文件夹名, 件号, 页数, 题名, 责任者, 文号, 成文日期, 文件夹路径, 提取状态, 备注
+     */
+    BATCH_TITLE_CASE("批量题名提取案件模板",
+            new String[]{"文件夹名", "件号", "页数", "题名", "责任者", "文号", "成文日期", "文件夹路径", "提取状态", "备注"},
+            "文件夹名",
+            false);
 
     private final String displayName;
     private final String[] columns;
@@ -54,6 +75,10 @@ public enum ExtractionTemplate {
 
     public boolean isGenerateVolumeSummary() {
         return generateVolumeSummary;
+    }
+
+    public boolean isBatchTitle() {
+        return this == BATCH_TITLE_VOLUME || this == BATCH_TITLE_CASE;
     }
 
     /**

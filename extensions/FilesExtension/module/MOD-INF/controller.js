@@ -26,6 +26,14 @@ function init() {
     new Packages.org.openrefine.extensions.files.importer.FilesImportingController()
   );
 
+  // Register batch title extraction command
+  var RS = Packages.com.google.refine.RefineServlet;
+  RS.registerCommand(
+    module,
+    "batch-extraction",
+    new Packages.org.openrefine.extensions.files.importer.BatchExtractionCommand()
+  );
+
   // Script files to inject into /index page
   ClientSideResourceManager.addPaths(
     "index/scripts",
@@ -46,5 +54,22 @@ function init() {
     ]
   );
 
+  // Script files to inject into /project page
+  ClientSideResourceManager.addPaths(
+    "project/scripts",
+    module,
+    [
+      "scripts/project-injection.js"
+    ]
+  );
+
+  // Style files to inject into /project page
+  ClientSideResourceManager.addPaths(
+    "project/styles",
+    module,
+    [
+      "styles/files-importing-controller.css"
+    ]
+  );
 
 }
