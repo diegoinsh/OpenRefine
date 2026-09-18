@@ -36,12 +36,15 @@ package com.google.refine;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintWriter;
 import java.net.HttpURLConnection;
 import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -50,6 +53,8 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import edu.mit.simile.butterfly.Butterfly;
@@ -59,6 +64,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.refine.commands.Command;
+import com.google.refine.commands.CommandGuard;
 import com.google.refine.importing.ImportingManager;
 import com.google.refine.io.FileProjectManager;
 
@@ -185,7 +191,12 @@ public class RefineServlet extends Butterfly {
                         logger.info("POST {}", request.getPathInfo());
                     }
                     logger.trace("> POST {}", commandKey);
-                    command.doPost(request, response);
+                    String veto = checkCommandGuards(request, commandKey);
+                    if (veto != null) {
+                        respondVetoedCommand(request, response, veto);
+                    } else {
+                        command.doPost(request, response);
+                    }
                     logger.trace("< POST {}", commandKey);
                 } else if (request.getMethod().equals("PUT")) {
                     if (!logger.isTraceEnabled() && command.logRequests()) {
@@ -322,11 +333,67 @@ public class RefineServlet extends Butterfly {
      *            command verb for command
      * @param commandObject
      *            object implementing the command
-     * 
+     *
      * @return true if command was loaded and registered successfully
      */
     static public boolean registerCommand(ButterflyModule module, String commandName, Command commandObject) {
         return s_singleton.registerOneCommand(module, commandName, commandObject);
+    }
+
+    // ---- Command guards: extensions may veto mutating POST commands ----
+
+    private static final List<CommandGuard> _commandGuards = new CopyOnWriteArrayList<>();
+
+    /**
+     * Register a guard consulted before every POST command dispatch.
+     * Idempotent: registering the same guard instance twice is a no-op.
+     */
+    static public void registerCommandGuard(CommandGuard guard) {
+        if (guard != null && !_commandGuards.contains(guard)) {
+            _commandGuards.add(guard);
+        }
+    }
+
+    static public void unregisterCommandGuard(CommandGuard guard) {
+        _commandGuards.remove(guard);
+    }
+
+    /**
+     * Run all registered guards. Returns the first veto message, or null to allow.
+     */
+    protected String checkCommandGuards(HttpServletRequest request, String commandKey) {
+        if (_commandGuards.isEmpty()) {
+            return null;
+        }
+        // commandKey format: "module/command-name"
+        int slash = commandKey.indexOf('/');
+        String module = slash > 0 ? commandKey.substring(0, slash) : commandKey;
+        String commandName = slash > 0 ? commandKey.substring(slash + 1) : "";
+        String projectId = request.getParameter("project");
+        Locale locale = request.getLocale();
+        for (CommandGuard guard : _commandGuards) {
+            String veto = guard.intercept(module, commandName, projectId, locale);
+            if (veto != null) {
+                return veto;
+            }
+        }
+        return null;
+    }
+
+    protected void respondVetoedCommand(HttpServletRequest request, HttpServletResponse response, String message)
+            throws IOException {
+        response.setCharacterEncoding("UTF-8");
+        response.setContentType("application/json");
+        PrintWriter writer = response.getWriter();
+        JsonFactory jsonFactory = new JsonFactory();
+        JsonGenerator writerObj = jsonFactory.createGenerator(writer);
+        writerObj.writeStartObject();
+        writerObj.writeStringField("code", "error");
+        writerObj.writeStringField("message", message);
+        writerObj.writeEndObject();
+        writerObj.flush();
+        writerObj.close();
+        writer.flush();
     }
 
     static private class ClassMapping {

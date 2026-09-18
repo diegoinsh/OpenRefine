@@ -35,6 +35,7 @@ public class FilesImportingController implements ImportingController {
     @Override
     public void init(RefineServlet servlet) {
         this.servlet = servlet;
+        ExtractionChangeGuard.register(servlet);
     }
 
     @Override

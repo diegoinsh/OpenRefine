@@ -50,6 +50,7 @@
     "files-import/batch-status-failed": "Extraction failed",
     "files-import/aimp-unavailable": "AI service module is unavailable. Please check or restart the module.",
     "files-import/batch-banner-running": "Batch title extraction in progress: $1 / $2 pages extracted, $3 rows written. The data table refreshes automatically; please avoid editing data during extraction.",
+    "files-import/batch-readonly-hint": "Project is read-only during extraction. Editing is paused and will resume when extraction completes.",
     "files-import/batch-banner-completed": "Batch title extraction completed, $1 rows written.",
     "files-import/batch-banner-cancelled": "Batch title extraction cancelled, $1 rows written.",
     "files-import/batch-banner-failed": "Batch title extraction failed: $1"

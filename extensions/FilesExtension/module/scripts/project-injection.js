@@ -18,7 +18,43 @@ var BatchTitleExtractionMonitor = (function () {
   var lastRowsAppended = -1;
   var $banner = null;
   var bannerHideTimer = null;
+  var runningDismissed = null;
   var i18nReady = false;
+
+  // localStorage记录按项目持久化"用户已关闭的终态横幅"：
+  // 终态（完成/取消/失败）横幅一旦被用户关闭，刷新或重进项目页均不再出现；
+  // 运行中关闭仅静默到下一次进度更新。
+  function dismissedStorageKey(pid) {
+    return 'files-batch-banner-dismissed-' + pid;
+  }
+
+  function isFinalStatus(status) {
+    return status === 'completed' || status === 'cancelled' || status === 'failed';
+  }
+
+  function readDismissedFinal(pid) {
+    try {
+      return window.localStorage.getItem(dismissedStorageKey(pid));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeDismissedFinal(pid, status) {
+    try {
+      window.localStorage.setItem(dismissedStorageKey(pid), status);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function clearDismissedFinal(pid) {
+    try {
+      window.localStorage.removeItem(dismissedStorageKey(pid));
+    } catch (e) {
+      // ignore
+    }
+  }
 
   function loadExtensionMessages() {
     try {
@@ -85,9 +121,28 @@ var BatchTitleExtractionMonitor = (function () {
           )
           .append(
               $('<button type="button" class="batch-extraction-banner-close">&times;</button>')
-                  .on('click', function () { removeBanner(); })
+                  .on('click', function () {
+                    // 终态横幅：关闭后按项目持久化，刷新/重进不再出现；
+                    // 运行中横幅：静默直到下一次进度更新
+                    var pid = getProjectId();
+                    var currentKind = $banner ? $banner.data('banner-kind') : null;
+                    if (isFinalStatus(currentKind) && pid !== null) {
+                      writeDismissedFinal(pid, currentKind);
+                    } else if (currentKind === 'running') {
+                      runningDismissed = {
+                        processedPages: $banner.data('processed-pages') || 0,
+                        rowsAppended: $banner.data('rows-appended') || 0
+                      };
+                    }
+                    removeBanner();
+                  })
           );
       $('body').append($banner);
+    }
+    $banner.data('banner-kind', kind);
+    if (kind === 'running') {
+      $banner.data('processed-pages', d.processedPages || 0);
+      $banner.data('rows-appended', d.rowsAppended || 0);
     }
     $banner.removeClass('banner-error');
     $banner.find('.batch-banner-progress-bar').removeClass('banner-bar-error');
@@ -100,6 +155,10 @@ var BatchTitleExtractionMonitor = (function () {
       var percent = d.totalPages > 0
           ? Math.min(100, Math.round((d.processedPages || 0) * 100 / d.totalPages)) : 0;
       $bar.css('width', percent + '%');
+      if ($banner.find('.batch-extraction-banner-hint').length === 0) {
+        $banner.append($('<span class="batch-extraction-banner-hint">')
+            .text($.i18n('files-import/batch-readonly-hint')));
+      }
     } else if (kind === 'completed') {
       text = $.i18n('files-import/batch-banner-completed', d.rowsAppended || 0);
       $bar.css('width', '100%');
@@ -116,10 +175,28 @@ var BatchTitleExtractionMonitor = (function () {
   }
 
   function showBanner(kind, d) {
+    // 运行中横幅被用户关闭后，进度未变化前保持静默；
+    // 一旦 processedPages/rowsAppended 有更新则重新出现
+    if (kind === 'running' && runningDismissed &&
+        (d.processedPages || 0) === runningDismissed.processedPages &&
+        (d.rowsAppended || 0) === runningDismissed.rowsAppended) {
+      return;
+    }
+    if (kind === 'running') {
+      runningDismissed = null;
+    }
     updateBanner(kind, d);
   }
 
   function showFinalBanner(kind, d) {
+    // 用户已关闭过该终态横幅：不再出现（跨刷新持久化）
+    var pid = getProjectId();
+    if (pid !== null) {
+      var dismissed = readDismissedFinal(pid);
+      if (dismissed === kind) {
+        return;
+      }
+    }
     updateBanner(kind, d);
     if (bannerHideTimer) window.clearTimeout(bannerHideTimer);
     bannerHideTimer = window.setTimeout(function () {
@@ -144,6 +221,9 @@ var BatchTitleExtractionMonitor = (function () {
           return;
         }
         if (data.status === 'running') {
+          // 新任务运行中：清除该项目旧的终态关闭记录，确保新任务的终态横幅可见
+          clearDismissedFinal(pid);
+          setReadonlyMode(true);
           showBanner('running', data);
           if (lastRowsAppended !== -1 && data.rowsAppended !== lastRowsAppended) {
             refreshDataTable();
@@ -151,11 +231,13 @@ var BatchTitleExtractionMonitor = (function () {
           lastRowsAppended = data.rowsAppended;
         } else {
           stop();
+          setReadonlyMode(false);
           refreshDataTable();
           showFinalBanner(data.status, data);
         }
       }, "json").fail(function () {
         stop();
+        setReadonlyMode(false);
       });
     });
   }
@@ -173,8 +255,34 @@ var BatchTitleExtractionMonitor = (function () {
     }
   }
 
+  function setReadonlyMode(on) {
+    try {
+      $(document.body).toggleClass('extraction-readonly', !!on);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function installEditBlockers() {
+    // R-07: during extraction the project is read-only. Block the most common
+    // editing gestures up front (backend guard vetoes Change commands anyway).
+    $(document).on('dblclick.extraction-readonly', '.data-table-cell', function (e) {
+      if ($(document.body).hasClass('extraction-readonly')) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    });
+    $(document).on('click.extraction-readonly', '.data-table-star, .data-table-flag', function (e) {
+      if ($(document.body).hasClass('extraction-readonly')) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    });
+  }
+
   $(function () {
     loadExtensionMessages();
+    installEditBlockers();
     window.setTimeout(start, 1000);
   });
 

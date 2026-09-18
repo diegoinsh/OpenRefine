@@ -153,6 +153,7 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
     batchRootPath = rootPath;
     $("#directoryTreePanel").hide();
     self._elmts.batchConfigPanel.show();
+    self._elmts.batchActionRow.show();
     self._elmts.batchProgressPanel.hide();
     self._elmts.batchStartButton.prop('disabled', false);
     self._elmts.batchBackButton.prop('disabled', false);
@@ -224,7 +225,12 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
 
   this._elmts.batchBackButton.on('click', function () {
     self._elmts.batchConfigPanel.hide();
+    self._elmts.batchActionRow.hide();
     $("#directoryTreePanel").show();
+  });
+
+  this._elmts.batchCustomElementsLabel.on('click', function () {
+    self._elmts.customElementsSection.toggle();
   });
 
   this._elmts.batchStartButton.on('click', function () {
