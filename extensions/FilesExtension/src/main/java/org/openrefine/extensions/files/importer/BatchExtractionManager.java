@@ -36,7 +36,7 @@ public class BatchExtractionManager {
         public final ExtractionTemplate template;
         public final List<CustomElementType> customElements;
         public final List<UnitScanner.Volume> units;
-        public final int totalPages;
+        public volatile int totalPages;
         public volatile boolean cancelRequested;
         public volatile String status = STATUS_RUNNING;
         public volatile String message = "";
@@ -121,6 +121,7 @@ public class BatchExtractionManager {
                         AimpLlmClient.ExtractPageResult r = client.extractPage(pdf, keyList, customJson);
                         task.processedPages += Math.max(1, r.pageCount);
                         if (r.success) {
+                            task.totalPages += Math.max(0, r.pageCount - 1);
                             consecutiveFailures = 0;
                             TitleSplitter.Piece p = new TitleSplitter.Piece();
                             p.startPage = 1;
@@ -143,9 +144,11 @@ public class BatchExtractionManager {
                     List<String> titles = new ArrayList<>();
                     List<Map<String, String>> pageValues = new ArrayList<>();
                     int unitFailedPages = 0;
-                    for (String page : unit.pages) {
+                    for (int i = 0; i < unit.pages.size(); i++) {
+                        String page = unit.pages.get(i);
                         if (task.cancelRequested) break;
-                        AimpLlmClient.ExtractPageResult r = client.extractPage(page, keyList, customJson);
+                        AimpLlmClient.ExtractPageResult r = client.extractPage(page, keyList, customJson,
+                                i + 1, unit.pages.size());
                         if (r.success) {
                             consecutiveFailures = 0;
                         } else {

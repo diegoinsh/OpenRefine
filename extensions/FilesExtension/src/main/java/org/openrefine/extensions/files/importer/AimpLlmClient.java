@@ -48,6 +48,11 @@ public class AimpLlmClient {
     }
 
     public ExtractPageResult extractPage(String filePath, String keyList, String customElementsJson) {
+        return extractPage(filePath, keyList, customElementsJson, null, null);
+    }
+
+    public ExtractPageResult extractPage(String filePath, String keyList, String customElementsJson,
+                                         Integer currentPage, Integer totalPages) {
         ExtractPageResult result = new ExtractPageResult();
         try {
             File file = new File(filePath);
@@ -79,6 +84,15 @@ public class AimpLlmClient {
                 parts.append("\r\n--").append(boundary).append("\r\n");
                 parts.append("Content-Disposition: form-data; name=\"custom_elements\"\r\n\r\n");
                 parts.append(customElementsJson);
+            }
+
+            if (currentPage != null || totalPages != null) {
+                ObjectNode opts = mapper.createObjectNode();
+                if (currentPage != null) opts.put("current_page", currentPage);
+                if (totalPages != null) opts.put("total_pages", totalPages);
+                parts.append("\r\n--").append(boundary).append("\r\n");
+                parts.append("Content-Disposition: form-data; name=\"options\"\r\n\r\n");
+                parts.append(opts.toString());
             }
 
             parts.append("\r\n--").append(boundary).append("--\r\n");
