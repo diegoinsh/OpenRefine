@@ -171,15 +171,16 @@ public class BatchExtractionManager {
                         p.startPage = 1;
                         p.endPage = unit.pages.size();
                         p.title = firstNonEmpty(titles);
-                        Map<String, String> first = pageValues.isEmpty() ? null : pageValues.get(0);
-                        appendUnitRow(task, project, unit, unitSeq, p, first, remark);
+                        Map<String, String> merged = accumulate(pageValues);
+                        appendUnitRow(task, project, unit, unitSeq, p, merged.isEmpty() ? null : merged, remark);
                     } else {
                         List<TitleSplitter.Piece> pieces = TitleSplitter.split(titles);
                         int pieceNo = 1;
                         for (TitleSplitter.Piece p : pieces) {
-                            Map<String, String> first = p.startPage - 1 >= 0 && p.startPage - 1 < pageValues.size()
-                                    ? pageValues.get(p.startPage - 1) : null;
-                            appendUnitRow(task, project, unit, pieceNo, p, first, remark);
+                            List<Map<String, String>> pieceValues =
+                                    pageValues.subList(p.startPage - 1, p.endPage);
+                            Map<String, String> merged = accumulate(pieceValues);
+                            appendUnitRow(task, project, unit, pieceNo, p, merged.isEmpty() ? null : merged, remark);
                             pieceNo++;
                         }
                     }
@@ -275,14 +276,25 @@ public class BatchExtractionManager {
         return "";
     }
 
+    static Map<String, String> accumulate(List<Map<String, String>> pageValues) {
+        Map<String, String> merged = new HashMap<>();
+        for (Map<String, String> pv : pageValues) {
+            if (pv == null) continue;
+            for (Map.Entry<String, String> e : pv.entrySet()) {
+                String v = e.getValue();
+                if (v != null && !v.trim().isEmpty() && !merged.containsKey(e.getKey())) {
+                    merged.put(e.getKey(), v.trim());
+                }
+            }
+        }
+        return merged;
+    }
+
     private String parsePieceNumber(String name, int seq) {
         if (name != null) {
             Matcher m = Pattern.compile("\\d+").matcher(name);
             if (m.find()) {
-                try {
-                    return String.valueOf(Integer.parseInt(m.group()));
-                } catch (NumberFormatException ignored) {
-                }
+                return m.group();
             }
         }
         return String.format("%03d", seq);
@@ -295,12 +307,12 @@ public class BatchExtractionManager {
         try {
             Matcher m = Pattern.compile("(\\d{4})[年./-](\\d{1,2})[月./-](\\d{1,2})日?").matcher(s);
             if (m.find()) {
-                return String.format("%04d-%02d-%02d", Integer.parseInt(m.group(1)),
+                return String.format("%04d%02d%02d", Integer.parseInt(m.group(1)),
                         Integer.parseInt(m.group(2)), Integer.parseInt(m.group(3)));
             }
             m = Pattern.compile("^(\\d{4})(\\d{2})(\\d{2})$").matcher(s);
             if (m.matches()) {
-                return m.group(1) + "-" + m.group(2) + "-" + m.group(3);
+                return s;
             }
         } catch (Exception ignored) {
         }
