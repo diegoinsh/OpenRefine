@@ -152,7 +152,7 @@
 }
 
 .batch-custom-elements-section {
-  margin-left: 10px;
+  /*margin-left: 10px;*/
 }
 
 .batch-field-row {
@@ -284,6 +284,54 @@ body.extraction-readonly .data-table-cell {
   padding: 6px 40px 6px 14px;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.batch-extraction-banner-icon {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
+  vertical-align: -2px;
+  box-sizing: border-box;
+}
+
+/* 运行中：旋转圆环 */
+.batch-extraction-banner-icon.icon-running {
+  border: 2px solid #f0c36d;
+  border-top-color: #d68b00;
+  border-radius: 50%;
+  animation: batch-banner-spin 0.8s linear infinite;
+}
+
+@keyframes batch-banner-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.batch-extraction-banner-icon.icon-completed::before,
+.batch-extraction-banner-icon.icon-cancelled::before,
+.batch-extraction-banner-icon.icon-error::before {
+  display: block;
+  text-align: center;
+  font-size: 14px;
+  line-height: 14px;
+  font-weight: bold;
+}
+
+.batch-extraction-banner-icon.icon-completed::before {
+  content: '\2713';
+  color: #2e7d32;
+}
+
+.batch-extraction-banner-icon.icon-cancelled::before {
+  content: '\00d7';
+  color: #757575;
+}
+
+.batch-extraction-banner-icon.icon-error::before {
+  content: '\0021';
+  color: #c62828;
 }
 
 .batch-extraction-banner.banner-error {

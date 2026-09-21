@@ -14,6 +14,7 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 public class BatchExtractionCommand extends Command {
@@ -49,6 +50,7 @@ public class BatchExtractionCommand extends Command {
             String templateParam = request.getParameter("template");
             String customElementsJson = request.getParameter("customElements");
             String aimpUrl = request.getParameter("aimpUrl");
+            boolean disableCache = "true".equalsIgnoreCase(request.getParameter("disableCache"));
 
             if (rootPath == null || rootPath.trim().isEmpty()) {
                 respondError(response, "缺少 rootPath 参数");
@@ -86,7 +88,7 @@ public class BatchExtractionCommand extends Command {
             int totalPages = 0;
             for (UnitScanner.Volume v : preview) totalPages += v.pages.size();
 
-            BatchExtractionManager.get().start(project.id, rootPath, template, customElements, aimpUrl(aimpUrl));
+            BatchExtractionManager.get().start(project.id, rootPath, template, customElements, aimpUrl(aimpUrl), disableCache);
 
             result.put("code", "ok");
             result.put("projectId", project.id);
@@ -103,15 +105,19 @@ public class BatchExtractionCommand extends Command {
     private Project createEmptyProject(ExtractionTemplate template, String projectName,
                                        List<CustomElementType> customElements) throws Exception {
         Project project = new Project();
-        String[] columns = template.getColumns();
-        for (int i = 0; i < columns.length; i++) {
-            project.columnModel.addColumn(i, new Column(i, columns[i]), false);
+        List<String> columnNames = new ArrayList<>();
+        for (String column : template.getColumns()) {
+            columnNames.add(column);
         }
+        int insertAt = columnNames.indexOf("成文日期");
+        insertAt = insertAt >= 0 ? insertAt + 1 : columnNames.size();
         for (CustomElementType ce : customElements) {
             if (ce.isInclude()) {
-                int idx = project.columnModel.allocateNewCellIndex();
-                project.columnModel.addColumn(idx, new Column(idx, ce.getName()), false);
+                columnNames.add(insertAt++, ce.getName());
             }
+        }
+        for (int i = 0; i < columnNames.size(); i++) {
+            project.columnModel.addColumn(i, new Column(i, columnNames.get(i)), false);
         }
         project.update();
 
@@ -139,8 +145,11 @@ public class BatchExtractionCommand extends Command {
         result.put("status", task.status);
         result.put("processedPages", task.processedPages);
         result.put("totalPages", task.totalPages);
+        result.put("processedFiles", task.processedFiles);
+        result.put("totalFiles", task.totalFiles);
         result.put("failedPages", task.failedPages);
         result.put("currentUnit", task.currentUnit);
+        result.put("unitKind", task.template == ExtractionTemplate.BATCH_TITLE_VOLUME ? "volume" : "case");
         result.put("rowsAppended", task.rowsAppended);
         result.put("message", task.message);
         respondJSON(response, result);

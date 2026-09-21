@@ -45,6 +45,7 @@
             <tbody bind="customElementsBody"></tbody>
           </table>
           <button type="button" bind="addRowButton"></button>
+          <label class="batch-clear-cache"><input type="checkbox" bind="batchClearCache" checked="checked"/><span bind="batchClearCacheLabel"></span></label>
         </div>
       </div>
       <div class="batch-progress-panel" bind="batchProgressPanel" style="display:none">
@@ -55,9 +56,10 @@
         <div class="batch-progress-detail">
           <span bind="progressDetail"></span>
           <button type="button" bind="batchCancelButton"></button>
+          <button type="button" bind="openProjectButton" style="display:none"></button>
         </div>
         <div class="batch-progress-message" bind="progressMessage"></div>
-        <button type="button" bind="openProjectButton" style="display:none"></button>
+        <button type="button" bind="batchRestartButton" style="display:none"></button>
       </div>
     </div>
     <div class="batch-action-row" bind="batchActionRow" style="display:none">

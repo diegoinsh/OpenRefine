@@ -6,7 +6,7 @@ import java.util.List;
 public class CustomElementType {
 
     public static final String ACTION_INCLUDE = "include";
-    public static final String ACTION_EXCLUDE = "exclude";
+    public static final String ACTION_ADJUST = "adjust";
 
     private String name;
     private String key;
@@ -59,8 +59,8 @@ public class CustomElementType {
         return ACTION_INCLUDE.equals(action);
     }
 
-    public boolean isExclude() {
-        return ACTION_EXCLUDE.equals(action);
+    public boolean isAdjust() {
+        return ACTION_ADJUST.equals(action);
     }
 
     public static String generateKeyFromName(String name) {
@@ -75,9 +75,10 @@ public class CustomElementType {
                 sb.append('_');
             }
         }
-        if (sb.length() == 0) return "custom_";
-        if (Character.isDigit(sb.charAt(0))) sb.insert(0, 'x');
-        return sb.toString();
+        String key = sb.toString().replaceAll("_+", "_").replaceAll("^_+|_+$", "");
+        if (key.isEmpty()) return "custom_";
+        if (Character.isDigit(key.charAt(0))) key = "x" + key;
+        return key;
     }
 
     public static List<String> validate(List<CustomElementType> types, ExtractionTemplate template) {
@@ -92,6 +93,16 @@ public class CustomElementType {
         for (int i = 0; i < types.size(); i++) {
             CustomElementType t = types.get(i);
             String prefix = "第" + (i + 1) + "项";
+            if (!t.isInclude() && !t.isAdjust()) {
+                errors.add(prefix + ": 操作必须为 include 或 adjust");
+                continue;
+            }
+            if (t.isAdjust()) {
+                if (t.getDescription() == null || t.getDescription().trim().isEmpty()) {
+                    errors.add(prefix + ": 微调说明不能为空");
+                }
+                continue;
+            }
             if (t.getName() == null || t.getName().trim().isEmpty()) {
                 errors.add(prefix + ": 名称不能为空");
                 continue;
@@ -100,23 +111,17 @@ public class CustomElementType {
                 errors.add(prefix + ": key 不能为空");
                 continue;
             }
-            if (fixedColumns.contains(t.getName())) {
+            if (fixedColumns.contains(t.getName().trim())) {
                 errors.add(prefix + ": 名称 \"" + t.getName() + "\" 与固定列冲突");
-                continue;
-            }
-            if (!t.isInclude() && !t.isExclude()) {
-                errors.add(prefix + ": 操作必须为 include 或 exclude");
                 continue;
             }
             if (!seenKeys.add(t.getKey())) {
                 errors.add(prefix + ": key \"" + t.getKey() + "\" 重复");
                 continue;
             }
-            if (t.isInclude()) {
-                includeCount++;
-                if (includeCount > 10) {
-                    errors.add(prefix + ": include 类型数量超过上限 10");
-                }
+            includeCount++;
+            if (includeCount > 10) {
+                errors.add(prefix + ": include 类型数量超过上限 10");
             }
         }
         return errors;

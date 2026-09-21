@@ -39,6 +39,7 @@ function init() {
     "index/scripts",
     module,
     [
+      "scripts/vendor/tiny-pinyin.js",
       "scripts/index/files-importing-controller.js",
       "scripts/index/import-from-local-dir.js"
     ]

@@ -114,6 +114,7 @@ var BatchTitleExtractionMonitor = (function () {
   function updateBanner(kind, d) {
     if (!$banner) {
       $banner = $('<div class="batch-extraction-banner">')
+          .append($('<span class="batch-extraction-banner-icon icon-running">'))
           .append($('<span class="batch-extraction-banner-text">'))
           .append(
               $('<div class="batch-progress-track batch-banner-progress-track">' +
@@ -150,8 +151,13 @@ var BatchTitleExtractionMonitor = (function () {
     var $bar = $banner.find('.batch-banner-progress-bar');
     var text = '';
     if (kind === 'running') {
+      var hint = d.message ? d.message + '。' : '';
+      var unitLabel = $.i18n(d.unitKind === 'volume'
+          ? 'files-import/batch-unit-volume' : 'files-import/batch-unit-case');
       text = $.i18n('files-import/batch-banner-running',
-          d.processedPages || 0, d.totalPages || 0, d.rowsAppended || 0);
+          d.processedFiles || 0, d.totalFiles || 0, unitLabel,
+          d.processedPages || 0, d.totalPages || 0,
+          d.rowsAppended || 0, hint);
       var percent = d.totalPages > 0
           ? Math.min(100, Math.round((d.processedPages || 0) * 100 / d.totalPages)) : 0;
       $bar.css('width', percent + '%');
@@ -172,6 +178,17 @@ var BatchTitleExtractionMonitor = (function () {
       $bar.css('width', '100%');
     }
     $text.text(text);
+    // 状态图标：运行中转圈，终态切换为静态图标
+    var iconClass = 'icon-running';
+    if (kind === 'completed') {
+      iconClass = 'icon-completed';
+    } else if (kind === 'cancelled') {
+      iconClass = 'icon-cancelled';
+    } else if (kind !== 'running') {
+      iconClass = 'icon-error';
+    }
+    $banner.find('.batch-extraction-banner-icon')
+        .attr('class', 'batch-extraction-banner-icon ' + iconClass);
   }
 
   function showBanner(kind, d) {

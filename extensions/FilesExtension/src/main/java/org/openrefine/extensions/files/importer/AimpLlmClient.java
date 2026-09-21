@@ -12,6 +12,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public class AimpLlmClient {
@@ -20,6 +21,8 @@ public class AimpLlmClient {
     private static final ObjectMapper mapper = new ObjectMapper();
     private static final int CONNECT_TIMEOUT = 30000;
     private static final int READ_TIMEOUT = 120000;
+    /** 异步任务状态查询响应较短，单独设置较小的读取超时，避免网络抖动时长时间阻塞 */
+    private static final int STATUS_READ_TIMEOUT = 15000;
     private final String serviceUrl;
 
     public AimpLlmClient(String serviceUrl) {
@@ -40,6 +43,12 @@ public class AimpLlmClient {
         }
     }
 
+    private boolean disableCache;
+
+    public void setDisableCache(boolean disableCache) {
+        this.disableCache = disableCache;
+    }
+
     public Map<String, String> extractContent(String filePath, String keyList) {
         Map<String, String> result = new HashMap<>();
         ExtractPageResult r = extractPage(filePath, keyList, null);
@@ -53,6 +62,32 @@ public class AimpLlmClient {
 
     public ExtractPageResult extractPage(String filePath, String keyList, String customElementsJson,
                                          Integer currentPage, Integer totalPages) {
+        return extractPage(filePath, keyList, customElementsJson, currentPage, totalPages, null);
+    }
+
+    /**
+     * 提取单页信息。previousExtractionsJson 为卷/件内前面页面的已提取要素
+     * （JSON 数组，元素形如 {"page_index":1,"elements":{"title":{"value":"..."}}}），
+     * 作为 options.previous_extractions 回传给 AIMP 供提示词参考。
+     */
+    public ExtractPageResult extractPage(String filePath, String keyList, String customElementsJson,
+                                         Integer currentPage, Integer totalPages, String previousExtractionsJson) {
+        return extractUpload(filePath, keyList, customElementsJson, currentPage, totalPages,
+                previousExtractionsJson, true);
+    }
+
+    /**
+     * 异步提交整份文档（PDF / 多页 TIFF / OFD）：AIMP 立即返回 task_id，
+     * 调用方通过 {@link #getTaskStatus(String)} 轮询页级进度，完成后取回结果，
+     * 避免同步等待在大页数文档上触发读取超时。
+     */
+    public ExtractPageResult submitAsync(String filePath, String keyList, String customElementsJson) {
+        return extractUpload(filePath, keyList, customElementsJson, null, null, null, false);
+    }
+
+    private ExtractPageResult extractUpload(String filePath, String keyList, String customElementsJson,
+                                            Integer currentPage, Integer totalPages, String previousExtractionsJson,
+                                            boolean sync) {
         ExtractPageResult result = new ExtractPageResult();
         try {
             File file = new File(filePath);
@@ -78,7 +113,7 @@ public class AimpLlmClient {
 
             parts.append("\r\n--").append(boundary).append("\r\n");
             parts.append("Content-Disposition: form-data; name=\"sync\"\r\n\r\n");
-            parts.append("true");
+            parts.append(sync ? "true" : "false");
 
             if (customElementsJson != null && !customElementsJson.isEmpty()) {
                 parts.append("\r\n--").append(boundary).append("\r\n");
@@ -86,10 +121,19 @@ public class AimpLlmClient {
                 parts.append(customElementsJson);
             }
 
-            if (currentPage != null || totalPages != null) {
+            boolean hasPrev = previousExtractionsJson != null && !previousExtractionsJson.isEmpty();
+            if (currentPage != null || totalPages != null || disableCache || hasPrev) {
                 ObjectNode opts = mapper.createObjectNode();
                 if (currentPage != null) opts.put("current_page", currentPage);
                 if (totalPages != null) opts.put("total_pages", totalPages);
+                if (disableCache) opts.put("disable_cache", true);
+                if (hasPrev) {
+                    try {
+                        opts.set("previous_extractions", mapper.readTree(previousExtractionsJson));
+                    } catch (Exception e) {
+                        logger.warn("previous_extractions 不是合法JSON，已忽略: " + e.getMessage());
+                    }
+                }
                 parts.append("\r\n--").append(boundary).append("\r\n");
                 parts.append("Content-Disposition: form-data; name=\"options\"\r\n\r\n");
                 parts.append(opts.toString());
@@ -111,9 +155,20 @@ public class AimpLlmClient {
             }
             if (c.getResponseCode() == 200) {
                 JsonNode json = mapper.readTree(readStream(c.getInputStream()));
+                JsonNode taskIdNode = json.get("task_id");
+                if (taskIdNode != null && !taskIdNode.isNull()) result.taskId = taskIdNode.asText();
                 if (json.has("results") && json.get("results").isObject()) {
                     json.get("results").fields().forEachRemaining(e ->
                             result.values.put(e.getKey(), e.getValue().asText()));
+                }
+                JsonNode dataNode = json.get("data");
+                if (dataNode != null && dataNode.has("results") && dataNode.get("results").isObject()) {
+                    dataNode.get("results").fields().forEachRemaining(e -> {
+                        JsonNode info = e.getValue();
+                        if (info != null && info.isObject() && info.has("confidence")) {
+                            result.confidences.put(e.getKey(), info.get("confidence").asDouble(0.0));
+                        }
+                    });
                 }
                 if (result.values.isEmpty() && json.has("extracted_fields") && json.get("extracted_fields").isObject()) {
                     json.get("extracted_fields").fields().forEachRemaining(e ->
@@ -131,6 +186,59 @@ public class AimpLlmClient {
             result.error = e.getMessage() == null ? e.toString() : e.getMessage();
         }
         return result;
+    }
+
+    /** 查询异步任务状态（含页级进度）；网络抖动等瞬时错误通过 success=false 返回，由调用方决定是否重试 */
+    public TaskStatusResult getTaskStatus(String taskId) {
+        TaskStatusResult r = new TaskStatusResult();
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(serviceUrl + "/task/" + taskId).openConnection();
+            c.setRequestMethod("GET");
+            c.setConnectTimeout(CONNECT_TIMEOUT);
+            c.setReadTimeout(STATUS_READ_TIMEOUT);
+            int code = c.getResponseCode();
+            if (code == 200) {
+                JsonNode json = mapper.readTree(readStream(c.getInputStream()));
+                r.status = json.path("status").asText("");
+                r.progress = json.path("progress").asDouble(0.0);
+                r.processedPages = json.path("processed_pages").asInt(0);
+                r.totalPages = json.path("total_pages").asInt(0);
+                JsonNode errNode = json.get("error");
+                if (errNode != null && !errNode.isNull()) r.error = errNode.asText();
+                JsonNode resultNode = json.get("result");
+                if (resultNode != null && !resultNode.isNull()) r.result = resultNode;
+                r.success = true;
+            } else {
+                r.error = "HTTP " + code;
+            }
+            c.disconnect();
+        } catch (Exception e) {
+            logger.warn("Error querying AIMP task status: " + taskId, e);
+            r.error = e.getMessage() == null ? e.toString() : e.getMessage();
+        }
+        return r;
+    }
+
+    /** 把 /task/{taskId} 返回的 result 解析为提取结果（结构与同步响应中的 results 一致） */
+    public ExtractPageResult parseTaskResult(JsonNode result) {
+        ExtractPageResult r = new ExtractPageResult();
+        if (result == null || !result.has("results") || !result.get("results").isObject()) {
+            r.error = "任务结果为空";
+            return r;
+        }
+        result.get("results").fields().forEachRemaining(e -> {
+            JsonNode info = e.getValue();
+            if (info != null && info.isObject()) {
+                r.values.put(e.getKey(), info.path("value").asText(""));
+                if (info.has("confidence") && !info.get("confidence").isNull()) {
+                    r.confidences.put(e.getKey(), info.get("confidence").asDouble(0.0));
+                }
+            } else if (info != null) {
+                r.values.put(e.getKey(), info.asText(""));
+            }
+        });
+        r.success = true;
+        return r;
     }
 
     public LlmAnalyzeResult llmAnalyze(String prompt, String responseFormat) {
@@ -190,8 +298,22 @@ public class AimpLlmClient {
     public static class ExtractPageResult {
         public boolean success;
         public int pageCount = 1;
+        /** 异步提交时 AIMP 返回的任务号 */
+        public String taskId;
         public Map<String, String> values = new HashMap<>();
+        public Map<String, Double> confidences = new LinkedHashMap<>();
         public String error;
+    }
+
+    public static class TaskStatusResult {
+        public boolean success;
+        public String status = "";
+        public double progress;
+        public int processedPages;
+        public int totalPages;
+        public String error;
+        /** 任务完成时携带的结果（JSON） */
+        public JsonNode result;
     }
 }
 

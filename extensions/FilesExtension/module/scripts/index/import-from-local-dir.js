@@ -31,6 +31,8 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
   this._elmts.batchStartButton.text($.i18n('files-import/batch-start'));
   this._elmts.batchBackButton.text($.i18n('files-import/batch-back'));
   this._elmts.batchCancelButton.text($.i18n('files-import/batch-cancel'));
+  this._elmts.batchRestartButton.text("⟳ " + $.i18n('files-import/batch-restart'));
+  this._elmts.batchClearCacheLabel.text($.i18n('files-import/batch-clear-cache'));
   this._elmts.openProjectButton.text($.i18n('files-import/batch-open-project'));
   this._elmts.progressLabel.text($.i18n('files-import/batch-progress-label'));
 
@@ -173,14 +175,31 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
   function addCustomElementRow(data) {
     var d = data || {};
     var $tr = $("<tr></tr>");
-    $tr.append($("<td></td>").append(
-        $("<input type='text' class='batch-el-name'/>").val(d.name || "")));
-    $tr.append($("<td></td>").append(
-        $("<input type='text' class='batch-el-key'/>").val(d.key || "")));
+    var $name = $("<input type='text' class='batch-el-name'/>").val(d.name || "");
+    var $key = $("<input type='text' class='batch-el-key'/>").val(d.key || "");
+    if (d.key) $key.data('manual', true);
+    $name.on('input', function () {
+      if ($tr.find(".batch-el-action").val() === 'adjust') return;
+      if ($key.data('manual')) return;
+      var name = $name.val().trim();
+      if (!name) {
+        $key.val("");
+        return;
+      }
+      $key.val(generateKey(name, usedKeysExcept($tr)));
+    });
+    $key.on('input', function () {
+      $key.data('manual', true);
+    });
+    $tr.append($("<td></td>").append($name));
+    $tr.append($("<td></td>").append($key));
     var $action = $("<select class='batch-el-action'></select>");
     $action.append($("<option value='include'></option>").text($.i18n('files-import/batch-el-add')));
-    $action.append($("<option value='exclude'></option>").text($.i18n('files-import/batch-el-exclude')));
-    if (d.action === 'exclude') $action.val('exclude');
+    $action.append($("<option value='adjust'></option>").text($.i18n('files-import/batch-el-adjust')));
+    if (d.action === 'adjust') $action.val('adjust');
+    $action.on('change', function () {
+      applyActionState($tr, $name, $key);
+    });
     $tr.append($("<td></td>").append($action));
     $tr.append($("<td></td>").append(
         $("<input type='text' class='batch-el-desc'/>").val(d.description || "")));
@@ -188,13 +207,27 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
     $del.on('click', function () { $tr.remove(); });
     $tr.append($("<td></td>").append($del));
     self._elmts.customElementsBody.append($tr);
+    applyActionState($tr, $name, $key);
+  }
+
+  function applyActionState($tr, $name, $key) {
+    if ($tr.find(".batch-el-action").val() === 'adjust') {
+      $key.val("").prop('disabled', true);
+      $key.removeData('manual');
+      return;
+    }
+    $key.prop('disabled', false);
+    if (!$key.val()) {
+      var name = $name.val().trim();
+      if (name) $key.val(generateKey(name, usedKeysExcept($tr)));
+    }
   }
 
   this._elmts.addRowButton.on('click', function () {
     addCustomElementRow();
   });
 
-  function generateKey(name) {
+  function sanitizeKey(name) {
     var sb = "";
     for (var i = 0; i < name.length; i++) {
       var c = name.charAt(i);
@@ -204,20 +237,69 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
         sb += "_";
       }
     }
-    if (sb.length === 0) sb = "custom_";
+    sb = sb.replace(/_+/g, "_").replace(/^_+|_+$/g, "");
     if (/^[0-9]/.test(sb)) sb = "x" + sb;
     return sb;
   }
 
-  function collectCustomElements() {
-    var items = [];
+  function toPinyin(name) {
+    if (typeof TinyPinyin === 'undefined') return null;
+    try {
+      if (!TinyPinyin.isSupported()) return null;
+      return TinyPinyin.convertToPinyin(name, '', true);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function keyBase(name) {
+    var pinyin = toPinyin(name);
+    return sanitizeKey(pinyin === null ? name : pinyin);
+  }
+
+  function usedKeysExcept($row) {
+    var used = {};
     self._elmts.customElementsBody.find("tr").each(function () {
+      if (this === $row[0]) return;
+      var key = $(this).find(".batch-el-key").val().trim();
+      if (key) used[key] = true;
+    });
+    return used;
+  }
+
+  function generateKey(name, usedKeys) {
+    var base = keyBase(name);
+    var key = (base && !usedKeys[base]) ? base : null;
+    if (!key) {
+      var n = 1;
+      while (usedKeys["custom_" + n]) n++;
+      key = "custom_" + n;
+    }
+    usedKeys[key] = true;
+    return key;
+  }
+
+  function collectCustomElements() {
+    var rows = self._elmts.customElementsBody.find("tr");
+    var usedKeys = {};
+    rows.each(function () {
+      if ($(this).find(".batch-el-action").val() === 'adjust') return;
+      var key = $(this).find(".batch-el-key").val().trim();
+      if (key) usedKeys[key] = true;
+    });
+    var items = [];
+    rows.each(function () {
       var name = $(this).find(".batch-el-name").val().trim();
       var key = $(this).find(".batch-el-key").val().trim();
       var action = $(this).find(".batch-el-action").val();
       var description = $(this).find(".batch-el-desc").val().trim();
+      if (action === 'adjust') {
+        if (!description) return;
+        items.push({ name: name, key: "", action: action, description: description });
+        return;
+      }
       if (!name) return;
-      if (!key) key = generateKey(name);
+      if (!key) key = generateKey(name, usedKeys);
       items.push({ name: name, key: key, action: action, description: description });
     });
     return items;
@@ -244,7 +326,8 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
       rootPath: batchRootPath,
       template: batchMode === 'batch-case' ? 'batch-title-case' : 'batch-title-volume',
       projectName: projectName,
-      customElements: JSON.stringify(collectCustomElements())
+      customElements: JSON.stringify(collectCustomElements()),
+      disableCache: self._elmts.batchClearCache.is(':checked') ? "true" : "false"
     };
     Refine.wrapCSRF(function (token) {
       payload.csrf_token = token;
@@ -263,6 +346,8 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
   function startProgressPolling(projectId) {
     self._elmts.batchStartButton.prop('disabled', true);
     self._elmts.batchBackButton.prop('disabled', true);
+    self._elmts.batchRestartButton.hide();
+    self._elmts.batchCancelButton.show();
     self._elmts.batchProgressPanel.show();
     if (batchPollTimer) window.clearInterval(batchPollTimer);
     batchPollTimer = window.setInterval(function () {
@@ -281,16 +366,21 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
           var percent = data.totalPages > 0
               ? Math.min(100, Math.round(data.processedPages * 100 / data.totalPages)) : 0;
           self._elmts.progressBar.css("width", percent + "%");
-          self._elmts.progressDetail.text(
-              data.processedPages + " / " + data.totalPages
+          var unitLabel = $.i18n(data.unitKind === 'volume'
+              ? 'files-import/batch-unit-volume' : 'files-import/batch-unit-case');
+          var detail = data.totalFiles > 0
+              ? data.processedFiles + " / " + data.totalFiles + " " + unitLabel + " · " : "";
+          detail += data.processedPages + " / " + data.totalPages + " 页"
               + " · " + (data.currentUnit || "")
-              + " · " + data.rowsAppended + " rows");
+              + " · " + data.rowsAppended + " 行";
+          self._elmts.progressDetail.text(detail);
           self._elmts.progressMessage.text(data.message || "");
           if (data.status !== 'running') {
             window.clearInterval(batchPollTimer);
             batchPollTimer = null;
             self._elmts.batchCancelButton.hide();
             self._elmts.openProjectButton.show();
+            self._elmts.batchRestartButton.show();
           }
         }, "json");
       });
@@ -306,6 +396,16 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
         csrf_token: token
       }, function () {}, "json");
     });
+  });
+
+  this._elmts.batchRestartButton.on('click', function () {
+    self._elmts.batchRestartButton.hide();
+    self._elmts.batchStartButton.prop('disabled', false);
+    self._elmts.batchBackButton.prop('disabled', false);
+    self._elmts.batchProgressPanel.hide();
+    self._elmts.progressBar.css("width", "0%");
+    self._elmts.progressDetail.empty();
+    self._elmts.progressMessage.empty();
   });
 
   this._elmts.openProjectButton.on('click', function () {
