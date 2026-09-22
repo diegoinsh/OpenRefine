@@ -62,12 +62,12 @@ ExporterManager.MenuItems = [
   {
     "id" : "core/export-excel",
     "label": $.i18n('core-project/excel'),
-    "click": function() { new MultiSheetExporterDialog("xls", "xls"); }
+    "click": function() { ExporterManager.exportExcel("xls", "xls"); }
   },
   {
     "id" : "core/export-excel-xml",
     "label": $.i18n('core-project/excel-xml'),
-    "click": function() { new MultiSheetExporterDialog("xlsx", "xlsx"); }
+    "click": function() { ExporterManager.exportExcel("xlsx", "xlsx"); }
   },
   {
     "id" : "core/export-ods",
@@ -141,6 +141,14 @@ ExporterManager.handlers.exportRows = function(format, ext) {
     form.submit();
     document.body.removeChild(form);
   });
+};
+
+ExporterManager.exportExcel = function(format, ext) {
+  if (theProject.sheetDataMap && Object.keys(theProject.sheetDataMap).length > 0) {
+    new MultiSheetExporterDialog(format, ext);
+  } else {
+    ExporterManager.handlers.exportRows(format, ext);
+  }
 };
 
 ExporterManager.prepareExportRowsForm = function(format, includeEngine, ext, csrfToken) {
