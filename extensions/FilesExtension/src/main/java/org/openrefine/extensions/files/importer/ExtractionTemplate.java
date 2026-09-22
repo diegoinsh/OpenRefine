@@ -1,5 +1,7 @@
 package org.openrefine.extensions.files.importer;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -30,23 +32,26 @@ public enum ExtractionTemplate {
     /**
      * 批量题名提取案卷模板（首要场景：法院卷宗材料整理）
      * 根目录下子文件夹=案卷，卷内图像按标题分件；列：
-     * 案卷号, 件号, 起止页号, 页数, 题名, 责任者, 文号, 成文日期, 文件夹路径, 提取状态, 备注
+     * 案卷号, 件号, 起止页号, 页数, 题名, 责任者, 文号, 成文日期, 文件名, 文件夹路径, 提取状态, 备注
      * 提取期项目只读（R-07 方案甲）
      */
     BATCH_TITLE_VOLUME("批量题名提取案卷模板",
-            new String[]{"案卷号", "件号", "起止页号", "页数", "题名", "责任者", "文号", "成文日期", "文件夹路径", "提取状态", "备注"},
+            new String[]{"案卷号", "件号", "起止页号", "页数", "题名", "责任者", "文号", "成文日期", "文件名", "文件夹路径", "提取状态", "备注"},
             "案卷号",
             false),
 
     /**
      * 批量题名提取案件模板
      * 根目录下子文件夹/PDF=一件；列（无案卷号与起止页号，R-05）：
-     * 文件夹名, 件号, 页数, 题名, 责任者, 文号, 成文日期, 文件夹路径, 提取状态, 备注
+     * 文件夹名, 件号, 页数, 题名, 责任者, 文号, 成文日期, 文件名, 文件夹路径, 提取状态, 备注
      */
     BATCH_TITLE_CASE("批量题名提取案件模板",
-            new String[]{"文件夹名", "件号", "页数", "题名", "责任者", "文号", "成文日期", "文件夹路径", "提取状态", "备注"},
+            new String[]{"文件夹名", "件号", "页数", "题名", "责任者", "文号", "成文日期", "文件名", "文件夹路径", "提取状态", "备注"},
             "文件夹名",
             false);
+
+    /** 批量模板中用于定位「具体文件」的列，仅在有 PDF 等多页文件时生成 */
+    public static final String FILE_NAME_COLUMN = "文件名";
 
     private final String displayName;
     private final String[] columns;
@@ -67,6 +72,26 @@ public enum ExtractionTemplate {
 
     public String[] getColumns() {
         return columns.clone();
+    }
+
+    /**
+     * 按「本批次是否需要文件名列」返回列清单。
+     *
+     * 提取对象全是单页图片时，一行对应一个文件夹（整目录成件），没有可以定位的具体文件，
+     * 文件名列会整列为空，因此在建项目时直接不生成该列；存在 PDF 等多页文件时保留。
+     * 非批量模板不含文件名列，不受影响。
+     */
+    public String[] getColumns(boolean includeFileNameColumn) {
+        if (includeFileNameColumn || !isBatchTitle()) {
+            return getColumns();
+        }
+        List<String> kept = new ArrayList<>();
+        for (String column : columns) {
+            if (!FILE_NAME_COLUMN.equals(column)) {
+                kept.add(column);
+            }
+        }
+        return kept.toArray(new String[0]);
     }
 
     public String getKeyColumn() {

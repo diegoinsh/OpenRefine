@@ -14,8 +14,10 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -59,6 +61,12 @@ public class BatchExtractionManager {
         public volatile int failedPages;
         public volatile String currentUnit = "";
         public volatile int rowsAppended;
+        /**
+         * 当前件（案卷/件）内的完成度 0..1。
+         * 顶部进度条按「已完成件数 + 件内完成度」推进：PDF 实际页数只能在处理中动态探明，
+         * 若直接用 processedPages/totalPages，分母会后移造成百分比回退（进度条来回跳动）。
+         */
+        public volatile double unitFraction;
 
         public Task(long projectId, String rootPath, ExtractionTemplate template,
                     List<CustomElementType> customElements, List<UnitScanner.Volume> units,
@@ -139,34 +147,40 @@ public class BatchExtractionManager {
         }
         try {
             int consecutiveFailures = 0;
-            int unitSeq = 1;
             for (UnitScanner.Volume unit : task.units) {
                 if (task.cancelRequested) break;
                 task.currentUnit = unit.name;
                 // 件级计数：进入某件即计一件，与件内页数无关
                 task.processedFiles++;
+                task.unitFraction = 0d;
+                // 件号仅在「同一案卷/文件夹」内保证唯一，案卷之间互不影响
+                Set<String> usedPieceNos = new HashSet<>();
+                String lastPieceNo = null;
                 if (unit.pdfMode) {
                     for (int k = 0; k < unit.pages.size(); k++) {
                         if (task.cancelRequested) break;
                         String pdf = unit.pages.get(k);
                         String label = fileLabel(new File(pdf).getName(), k + 1, unit.pages.size());
+                        // 件号：取文件名中“从后往前的 3 位 0 开头数字子串”，取不到或卷内冲突时基于前一件号递推
+                        String pieceNo = allocatePieceNumber(new File(pdf).getName(), usedPieceNos, lastPieceNo);
+                        lastPieceNo = pieceNo;
                         int pagesBefore = task.processedPages;
                         int totalBefore = task.totalPages;
-                        task.message = label + " 提交中…";
+                        task.message = "正在提交： " + label;
 
                         AimpLlmClient.ExtractPageResult r = client.submitAsync(pdf, keyList, customJson);
                         if (!r.success || r.taskId == null || r.taskId.isEmpty()) {
                             consecutiveFailures++;
                             task.failedPages++;
                             task.processedPages = pagesBefore + 1;
+                            task.unitFraction = (k + 1) / (double) Math.max(1, unit.pages.size());
                             TitleSplitter.Piece p = new TitleSplitter.Piece();
-                            appendUnitRow(task, project, unit, unitSeq, p, null,
+                            appendUnitRow(task, project, unit, pieceNo, new File(pdf).getName(), p, null,
                                     r.error != null ? r.error : "提交提取任务失败");
                             if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
                                 fail(task, "AIMP 连续失败 " + consecutiveFailures + " 次，任务中止");
                                 return;
                             }
-                            unitSeq++;
                             continue;
                         }
 
@@ -200,9 +214,12 @@ public class BatchExtractionManager {
                                 corrected = true;
                             }
                             task.processedPages = pagesBefore + st.processedPages;
+                            double pdfRatio = realPages > 0
+                                    ? Math.min(st.processedPages, realPages) / (double) realPages : 0d;
+                            task.unitFraction = (k + pdfRatio) / Math.max(1, unit.pages.size());
                             task.message = realPages > 0
-                                    ? label + " 第 " + Math.min(st.processedPages + 1, realPages) + "/" + realPages + " 页"
-                                    : label + " 解析中";
+                                    ? "正在处理第 " + Math.min(st.processedPages + 1, realPages) + "/" + realPages + " 页： " + label
+                                    : "正在解析： " + label;
                             if ("completed".equals(st.status)) {
                                 AimpLlmClient.ExtractPageResult parsed = client.parseTaskResult(st.result);
                                 parsed.pageCount = realPages > 0 ? realPages : 1;
@@ -223,6 +240,7 @@ public class BatchExtractionManager {
                         int donePages = realPages > 1 ? realPages : Math.max(1, r.pageCount);
                         if (!corrected && donePages > 1) task.totalPages = totalBefore + donePages - 1;
                         task.processedPages = pagesBefore + donePages;
+                        task.unitFraction = (k + 1) / (double) Math.max(1, unit.pages.size());
                         if (timedOut) {
                             r.success = false;
                             r.error = "等待提取结果超时（" + (ASYNC_TASK_DEADLINE_MS / 60000) + " 分钟）";
@@ -235,18 +253,19 @@ public class BatchExtractionManager {
                             p.endPage = Math.max(1, r.pageCount);
                             p.title = r.values.getOrDefault("title", "");
                             Map<String, String> pdfValues = filterLowConfidence(r.values, r.confidences);
-                            appendUnitRow(task, project, unit, unitSeq, p, pdfValues, null);
+                            appendUnitRow(task, project, unit, pieceNo, new File(pdf).getName(), p,
+                                    pdfValues, null);
                         } else {
                             consecutiveFailures++;
                             task.failedPages++;
                             TitleSplitter.Piece p = new TitleSplitter.Piece();
-                            appendUnitRow(task, project, unit, unitSeq, p, null, r.error);
+                            appendUnitRow(task, project, unit, pieceNo, new File(pdf).getName(), p, null,
+                                    r.error);
                             if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
                                 fail(task, "AIMP 连续失败 " + consecutiveFailures + " 次，任务中止");
                                 return;
                             }
                         }
-                        unitSeq++;
                     }
                 } else {
                     List<String> titles = new ArrayList<>();
@@ -256,7 +275,7 @@ public class BatchExtractionManager {
                     for (int i = 0; i < unit.pages.size(); i++) {
                         String page = unit.pages.get(i);
                         if (task.cancelRequested) break;
-                        task.message = new File(page).getName() + " 第 " + (i + 1) + "/" + unit.pages.size() + " 页";
+                        task.message = "正在处理第 " + (i + 1) + "/" + unit.pages.size() + " 页： " + new File(page).getName();
                         AimpLlmClient.ExtractPageResult r = client.extractPage(page, keyList, customJson,
                                 i + 1, unit.pages.size(), buildPreviousExtractions(pageValues, pageConfidences));
                         if (r.success) {
@@ -274,6 +293,7 @@ public class BatchExtractionManager {
                         pageValues.add(r.success ? r.values : null);
                         pageConfidences.add(r.success ? r.confidences : null);
                         task.processedPages++;
+                        task.unitFraction = (i + 1) / (double) Math.max(1, unit.pages.size());
                     }
                     if (task.cancelRequested) break;
                     String remark = unitFailedPages > 0 ? unitFailedPages + " 页提取失败" : null;
@@ -283,7 +303,9 @@ public class BatchExtractionManager {
                         p.endPage = unit.pages.size();
                         p.title = firstNonEmpty(titles);
                         MergedElements merged = accumulateByConfidence(pageValues, pageConfidences);
-                        appendUnitRow(task, project, unit, unitSeq, p,
+                        String casePieceNo = allocatePieceNumber(unit.name, usedPieceNos, lastPieceNo);
+                        lastPieceNo = casePieceNo;
+                        appendUnitRow(task, project, unit, casePieceNo, null, p,
                                 merged.isEmpty() ? null : merged.values, remark);
                     } else {
                         List<TitleSplitter.Piece> pieces = TitleSplitter.split(titles);
@@ -293,13 +315,12 @@ public class BatchExtractionManager {
                                     pageValues.subList(p.startPage - 1, p.endPage);
                             MergedElements merged = accumulateByConfidence(pieceValues,
                                     pageConfidences.subList(p.startPage - 1, p.endPage));
-                            appendUnitRow(task, project, unit, pieceNo, p,
+                            appendUnitRow(task, project, unit, String.format("%03d", pieceNo), null, p,
                                     merged.isEmpty() ? null : merged.values, remark);
                             pieceNo++;
                         }
                     }
                 }
-                unitSeq++;
             }
             if (task.cancelRequested && !STATUS_FAILED.equals(task.status)) {
                 task.status = STATUS_CANCELLED;
@@ -341,8 +362,13 @@ public class BatchExtractionManager {
         return arr.size() == 0 ? null : arr.toString();
     }
 
-    private void appendUnitRow(Task task, Project project, UnitScanner.Volume unit, int seq,
-                               TitleSplitter.Piece piece, Map<String, String> values, String remark) {
+    /**
+     * @param fileName 该行对应的具体文件名（PDF 模式为单个 PDF 文件名）；整目录成件时为 null，
+     *                 前端据此把「文件夹路径 + 文件名」拼成可直达的文件资源
+     */
+    private void appendUnitRow(Task task, Project project, UnitScanner.Volume unit, String pieceNo,
+                               String fileName, TitleSplitter.Piece piece, Map<String, String> values,
+                               String remark) {
         String status;
         if (values == null) {
             status = "失败";
@@ -353,19 +379,21 @@ public class BatchExtractionManager {
             status = "成功";
         }
         Row row = new Row(project.columnModel.getMaxCellIndex() + 1);
+        // 件号在调用前已按“文件名解析 + 卷内去重”分配好
         if (task.template == ExtractionTemplate.BATCH_TITLE_VOLUME) {
             put(project, row, "案卷号", unit.name);
-            put(project, row, "件号", String.format("%03d", seq));
+            put(project, row, "件号", pieceNo);
             put(project, row, "起止页号", String.format("%04d-%04d", piece.startPage, piece.endPage));
         } else {
             put(project, row, "文件夹名", unit.name);
-            put(project, row, "件号", parsePieceNumber(unit.name, seq));
+            put(project, row, "件号", pieceNo);
         }
         put(project, row, "页数", piece.pageCount());
         put(project, row, "题名", piece.title);
         put(project, row, "责任者", get(values, "responsible_party"));
         put(project, row, "文号", get(values, "document_number"));
         put(project, row, "成文日期", normalizeDate(get(values, "date")));
+        put(project, row, "文件名", fileName == null ? "" : fileName);
         put(project, row, "文件夹路径", unit.path);
         put(project, row, "提取状态", status);
         put(project, row, "备注", remark == null ? "" : remark);
@@ -479,14 +507,75 @@ public class BatchExtractionManager {
         return total > 1 ? fileName + "（第 " + index + "/" + total + " 个）" : fileName;
     }
 
-    private String parsePieceNumber(String name, int seq) {
-        if (name != null) {
-            Matcher m = Pattern.compile("\\d+").matcher(name);
-            if (m.find()) {
-                return m.group();
+    /**
+     * 分配件号：优先取文件名中「从后往前的 3 位、0 开头的数字子串」
+     * （如 "立鼎行发（2024-004）号.pdf" → "004"）；
+     * 取不到、或与该案卷/文件夹内已用件号冲突时，以「前一件号」为基准追加 -1、-2 … 递增。
+     *
+     * @param used 当前案卷/文件夹内已占用的件号，调用方维护
+     * @param lastPieceNo 当前案卷/文件夹内上一件最终使用的件号，无则为 null
+     */
+    private String allocatePieceNumber(String fileName, Set<String> used, String lastPieceNo) {
+        String candidate = extractTrailingZeroPrefixed3(fileName);
+        if (candidate != null && !used.contains(candidate)) {
+            used.add(candidate);
+            return candidate;
+        }
+        String base = lastPieceNo != null
+                ? stripConflictSuffix(lastPieceNo) : String.format("%03d", used.size() + 1);
+        // 首件无前一件可参照时，直接用顺序号，不再叠加冲突后缀
+        if (!used.contains(base)) {
+            used.add(base);
+            return base;
+        }
+        for (int n = 1; n < 10000; n++) {
+            String alt = base + "-" + n;
+            if (!used.contains(alt)) {
+                used.add(alt);
+                return alt;
             }
         }
-        return String.format("%03d", seq);
+        String fallback = String.format("%03d", used.size() + 1);
+        used.add(fallback);
+        return fallback;
+    }
+
+    /**
+     * 从文件名末尾方向找出第一个「0 开头的数字串」，取其末 3 位，找不到返回 null。
+     * 例：{@code 立鼎行发（2024-004）号.pdf → 004}、{@code 001-关于2024年清明节的放假通知.pdf → 001}。
+     * 只认「以 0 开头」的连续数字段，是为了避开年份等非件号数字（如 {@code 2024} 中的 {@code 024}）。
+     */
+    static String extractTrailingZeroPrefixed3(String fileName) {
+        if (fileName == null) return null;
+        int cursor = fileName.length();
+        while (cursor > 0) {
+            int end = cursor;
+            while (end > 0 && !isAsciiDigit(fileName.charAt(end - 1))) end--;
+            if (end == 0) return null;
+            int start = end;
+            while (start > 0 && isAsciiDigit(fileName.charAt(start - 1))) start--;
+            if (end - start >= 3 && fileName.charAt(start) == '0') {
+                return fileName.substring(end - 3, end);
+            }
+            cursor = start;
+        }
+        return null;
+    }
+
+    /** 去掉冲突后缀（"-1"、"-2" …），让连续冲突在同一基数上递增 */
+    private static String stripConflictSuffix(String pieceNo) {
+        int idx = pieceNo.lastIndexOf('-');
+        if (idx <= 0) return pieceNo;
+        String tail = pieceNo.substring(idx + 1);
+        if (tail.isEmpty()) return pieceNo;
+        for (int i = 0; i < tail.length(); i++) {
+            if (!isAsciiDigit(tail.charAt(i))) return pieceNo;
+        }
+        return pieceNo.substring(0, idx);
+    }
+
+    private static boolean isAsciiDigit(char c) {
+        return c >= '0' && c <= '9';
     }
 
     private String normalizeDate(String raw) {

@@ -150,6 +150,10 @@ var BatchTitleExtractionMonitor = (function () {
     var $text = $banner.find('.batch-extraction-banner-text');
     var $bar = $banner.find('.batch-banner-progress-bar');
     var text = '';
+    if (kind !== 'running') {
+      // 终态：清除单调进度记忆，下一次提取从头计算
+      $banner.removeData('last-percent');
+    }
     if (kind === 'running') {
       var hint = d.message ? d.message + '。' : '';
       var unitLabel = $.i18n(d.unitKind === 'volume'
@@ -158,8 +162,25 @@ var BatchTitleExtractionMonitor = (function () {
           d.processedFiles || 0, d.totalFiles || 0, unitLabel,
           d.processedPages || 0, d.totalPages || 0,
           d.rowsAppended || 0, hint);
-      var percent = d.totalPages > 0
-          ? Math.min(100, Math.round((d.processedPages || 0) * 100 / d.totalPages)) : 0;
+      // 进度条按件口径推进（已完成件数 + 当前件内完成度）。
+      // 不能直接用 processedPages/totalPages：PDF 实际页数只能在处理中探明，
+      // 分母被动态修正后移会让百分比回退，表现为进度条来回跳动。
+      var percent;
+      if ((d.totalFiles || 0) > 0) {
+        percent = ((d.processedFiles || 0) - 1
+            + (typeof d.unitFraction === 'number' ? d.unitFraction : 0)) * 100 / d.totalFiles;
+      } else if ((d.totalPages || 0) > 0) {
+        percent = (d.processedPages || 0) * 100 / d.totalPages;
+      } else {
+        percent = 0;
+      }
+      percent = Math.max(0, Math.min(100, Math.round(percent)));
+      // 单调保护：同一任务内进度条只前进不后退
+      var lastPercent = $banner.data('last-percent');
+      if (typeof lastPercent === 'number' && percent < lastPercent) {
+        percent = lastPercent;
+      }
+      $banner.data('last-percent', percent);
       $bar.css('width', percent + '%');
       if ($banner.find('.batch-extraction-banner-hint').length === 0) {
         $banner.append($('<span class="batch-extraction-banner-hint">')

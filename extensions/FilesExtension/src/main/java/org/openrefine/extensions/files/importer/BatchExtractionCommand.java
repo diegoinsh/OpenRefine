@@ -84,7 +84,16 @@ public class BatchExtractionCommand extends Command {
                 return;
             }
 
-            Project project = createEmptyProject(template, projectName, customElements);
+            // 只有存在 PDF 等多页文件时才需要「文件名」列：单页图片按整目录成件，该列整列为空
+            boolean includeFileNameColumn = false;
+            for (UnitScanner.Volume v : preview) {
+                if (v.pdfMode) {
+                    includeFileNameColumn = true;
+                    break;
+                }
+            }
+
+            Project project = createEmptyProject(template, projectName, customElements, includeFileNameColumn);
             int totalPages = 0;
             for (UnitScanner.Volume v : preview) totalPages += v.pages.size();
 
@@ -103,10 +112,10 @@ public class BatchExtractionCommand extends Command {
     }
 
     private Project createEmptyProject(ExtractionTemplate template, String projectName,
-                                       List<CustomElementType> customElements) throws Exception {
+                                       List<CustomElementType> customElements, boolean includeFileNameColumn) throws Exception {
         Project project = new Project();
         List<String> columnNames = new ArrayList<>();
-        for (String column : template.getColumns()) {
+        for (String column : template.getColumns(includeFileNameColumn)) {
             columnNames.add(column);
         }
         int insertAt = columnNames.indexOf("成文日期");
@@ -147,6 +156,7 @@ public class BatchExtractionCommand extends Command {
         result.put("totalPages", task.totalPages);
         result.put("processedFiles", task.processedFiles);
         result.put("totalFiles", task.totalFiles);
+        result.put("unitFraction", task.unitFraction);
         result.put("failedPages", task.failedPages);
         result.put("currentUnit", task.currentUnit);
         result.put("unitKind", task.template == ExtractionTemplate.BATCH_TITLE_VOLUME ? "volume" : "case");

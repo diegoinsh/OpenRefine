@@ -57,5 +57,11 @@
     "files-import/batch-readonly-hint": "Project is read-only during extraction. Editing is paused and will resume when extraction completes.",
     "files-import/batch-banner-completed": "Batch title extraction completed, $1 rows written.",
     "files-import/batch-banner-cancelled": "Batch title extraction cancelled, $1 rows written.",
-    "files-import/batch-banner-failed": "Batch title extraction failed: $1"
+    "files-import/batch-banner-failed": "Batch title extraction failed: $1",
+    "files-import/resource-view-loading": "Loading...",
+    "files-import/resource-view-close": "Close",
+    "files-import/resource-view-empty": "No previewable file in this folder",
+    "files-import/resource-view-error": "Failed to read the file resource",
+    "files-import/resource-view-no-preview": "This file cannot be previewed",
+    "files-import/resource-view-download": "Download"
 }

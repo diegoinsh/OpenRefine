@@ -150,6 +150,26 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
   var batchProjectId = null;
   var batchPollTimer = null;
 
+  function pad2(n) {
+    return (n < 10 ? '0' : '') + n;
+  }
+
+  /** 默认项目名：模式名-所选根目录名-年月日时（如 文件级条目提取-0033-2026080314） */
+  function defaultBatchProjectName() {
+    var path = (batchRootPath || '').replace(/[\\/]+$/, '');
+    var idx = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'));
+    var dirName = idx >= 0 ? path.substring(idx + 1) : path;
+    if (!dirName) {
+      dirName = $.i18n('files-import/batch-project-default-name');
+    }
+    var now = new Date();
+    var stamp = '' + now.getFullYear() + pad2(now.getMonth() + 1)
+        + pad2(now.getDate()) + pad2(now.getHours());
+    var modeKey = batchMode === 'batch-case'
+        ? 'files-import/batch-mode-case' : 'files-import/batch-mode-volume';
+    return $.i18n(modeKey) + '-' + dirName + '-' + stamp;
+  }
+
   function showBatchConfig(mode, rootPath) {
     batchMode = mode;
     batchRootPath = rootPath;
@@ -164,8 +184,14 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
     self._elmts.progressBar.css("width", "0%");
     self._elmts.progressDetail.empty();
     self._elmts.progressMessage.empty();
-    if (!self._elmts.batchProjectName.val()) {
-      self._elmts.batchProjectName.val($.i18n('files-import/batch-project-default-name'));
+    // 未手工改过名称时，随所选根目录与提取模式刷新默认名
+    if (!self._elmts.batchProjectName.data('bound')) {
+      self._elmts.batchProjectName.data('bound', true).on('input', function () {
+        $(this).data('edited', true);
+      });
+    }
+    if (!self._elmts.batchProjectName.val() || !self._elmts.batchProjectName.data('edited')) {
+      self._elmts.batchProjectName.val(defaultBatchProjectName());
     }
     if (self._elmts.customElementsBody.children().length === 0) {
       addCustomElementRow();
@@ -350,6 +376,7 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
     self._elmts.batchCancelButton.show();
     self._elmts.batchProgressPanel.show();
     if (batchPollTimer) window.clearInterval(batchPollTimer);
+    self._elmts.progressBar.removeData("last-percent");
     batchPollTimer = window.setInterval(function () {
       Refine.wrapCSRF(function (token) {
         $.post("command/files/batch-extraction", {
@@ -363,8 +390,24 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
             window.alert(data && data.message ? data.message : $.i18n('files-import/batch-progress-error'));
             return;
           }
-          var percent = data.totalPages > 0
-              ? Math.min(100, Math.round(data.processedPages * 100 / data.totalPages)) : 0;
+          var percent;
+          // 与项目页顶部横幅同口径：按件推进（已完成件数 + 当前件内完成度），
+          // 页口径会因 PDF 实际页数动态修正分母而回退
+          if ((data.totalFiles || 0) > 0) {
+            percent = ((data.processedFiles || 0) - 1
+                + (typeof data.unitFraction === 'number' ? data.unitFraction : 0))
+                * 100 / data.totalFiles;
+          } else if ((data.totalPages || 0) > 0) {
+            percent = (data.processedPages || 0) * 100 / data.totalPages;
+          } else {
+            percent = 0;
+          }
+          percent = Math.max(0, Math.min(100, Math.round(percent)));
+          var lastPercent = self._elmts.progressBar.data("last-percent");
+          if (typeof lastPercent === "number" && percent < lastPercent) {
+            percent = lastPercent;
+          }
+          self._elmts.progressBar.data("last-percent", percent);
           self._elmts.progressBar.css("width", percent + "%");
           var unitLabel = $.i18n(data.unitKind === 'volume'
               ? 'files-import/batch-unit-volume' : 'files-import/batch-unit-case');
