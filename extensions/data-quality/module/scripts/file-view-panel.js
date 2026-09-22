@@ -331,7 +331,7 @@ var FileViewPanel = {};
 
       $('<div>')
         .addClass('file-view-thumb-name')
-        .text(file.name)
+        .text(FileViewPanel._truncateFileName(file.name))
         .attr('title', file.name)
         .appendTo(thumb);
 
@@ -364,6 +364,17 @@ var FileViewPanel = {};
     };
     var iconFile = iconMap[ext] || 'file-text.svg';
     return '<img src="' + basePath + iconFile + '" class="file-view-thumb-icon" alt="" />';
+  };
+
+  // 缩略文件名只保留「首部 + 尾部」且不含扩展名，完整文件名由 hover(title) 展示
+  FileViewPanel._truncateFileName = function(filename) {
+    var base = String(filename || '');
+    var dot = base.lastIndexOf('.');
+    if (dot > 0) base = base.substring(0, dot);
+    var headChars = 4;
+    var tailChars = 3;
+    if (base.length <= headChars + tailChars + 1) return base;
+    return base.substring(0, headChars) + '…' + base.substring(base.length - tailChars);
   };
 
   FileViewPanel._updateThumbnailSelection = function() {

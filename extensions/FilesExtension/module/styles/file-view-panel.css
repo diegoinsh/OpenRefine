@@ -1,0 +1,231 @@
+/*
+ * 文件资源预览面板样式（FilesExtension 项目页）
+ * 点击数据表行空白处后在右侧滑出，展示该行对应的文件资源。
+ */
+
+.files-resource-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 700px;
+  height: 100%;
+  background: #fff;
+  border-left: 1px solid #ccc;
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  box-shadow: -2px 0 6px rgba(0, 0, 0, 0.08);
+}
+
+.files-resource-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+  flex-shrink: 0;
+}
+
+.files-resource-title {
+  flex: 1;
+  font-weight: 600;
+  font-size: 13px;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-resource-close-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 18px;
+  color: #666;
+  flex-shrink: 0;
+}
+
+.files-resource-close-btn:hover {
+  background: #e0e0e0;
+  color: #333;
+}
+
+.files-resource-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.files-resource-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.files-resource-content {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+  text-align: center;
+}
+
+.files-resource-image-container {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.files-resource-image {
+  max-width: 100%;
+  height: auto;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.files-resource-pdf-container {
+  width: 100%;
+  height: 100%;
+}
+
+.files-resource-pdf-iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 500px;
+  border: none;
+}
+
+.files-resource-text-container {
+  text-align: left;
+}
+
+.files-resource-text {
+  background: #f8f8f8;
+  padding: 12px;
+  border-radius: 4px;
+  font-family: Consolas, Monaco, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.files-resource-hint,
+.files-resource-empty {
+  color: #888;
+  font-size: 13px;
+  padding: 24px 12px;
+}
+
+.files-resource-empty .files-resource-path {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #999;
+  word-break: break-all;
+}
+
+.files-resource-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid #ddd;
+  background: #fafafa;
+}
+
+.files-resource-info {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: #666;
+}
+
+/* 缩略图条：宽度与样式同步 data-quality 的 .file-view-thumbnails */
+.files-resource-thumbnails {
+  width: 80px;
+  flex-shrink: 0;
+  border-left: 1px solid #ddd;
+  background: #f0f0f0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.files-resource-thumb-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px;
+  outline: none;
+}
+
+.files-resource-thumb-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.files-resource-thumb-list::-webkit-scrollbar-thumb {
+  background: #bbb;
+  border-radius: 2px;
+}
+
+/* 键盘焦点落在缩略图列表上时给出可见反馈（左右键上翻/下翻） */
+.files-resource-thumb-list:focus {
+  box-shadow: inset 0 0 0 2px #c7d9f7;
+}
+
+/* 图片等比缩放：宽度撑满缩略图条目，高度自适应，不做裁剪/拉伸（与 data-quality 实际渲染一致） */
+.files-resource-thumb-img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 2px;
+  margin: 0 auto;
+}
+
+/* PDF 等多页文件用文件类型图标 */
+.files-resource-thumb-icon {
+  width: 32px;
+  height: 32px;
+  display: block;
+  margin: 6px auto;
+}
+
+.files-resource-thumb-name {
+  font-size: 10px;
+  color: #666;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
+.files-resource-thumb-item {
+  flex-shrink: 0;
+  padding: 4px;
+  margin-bottom: 4px;
+  background: #fff;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.2s;
+}
+
+.files-resource-thumb-item:hover {
+  border-color: #aaa;
+}
+
+.files-resource-thumb-item.active {
+  border-color: #1976d2;
+  background: #e3f2fd;
+}
+
+/* 当前预览的行高亮 */
+.data-table tr.files-resource-active-row td {
+  background-color: #e8f0fe;
+}
