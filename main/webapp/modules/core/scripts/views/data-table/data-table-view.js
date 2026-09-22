@@ -544,14 +544,13 @@ DataTableView.prototype._renderDataTables = function(table, tableHeader, colGrou
     // Add row click handler for file view panel
     $(tr).on('click.fileView', function(e) {
       if ($(e.target).is('a, button, input, select, textarea')) return;
-      if (typeof FileViewPanel !== 'undefined' && typeof QualityAlignment !== 'undefined') {
-        var resourceConfig = QualityAlignment._resourceConfig;
-        if (resourceConfig && resourceConfig.pathFields && resourceConfig.pathFields.length > 0) {
-          FileViewPanel.toggle(row.i);
-          $('.data-table tr').removeClass('file-view-active-row');
-          if (FileViewPanel.isVisible()) {
-            $(tr).addClass('file-view-active-row');
-          }
+      if (typeof FileViewPanel === 'undefined' || typeof QualityAlignment === 'undefined') return;
+      // 有资源路径配置时按其定位；条目提取项目没有该配置，由 FileViewPanel 回退到「文件夹路径」列
+      if (FileViewPanel.canPreview()) {
+        FileViewPanel.toggle(row.i);
+        $('.data-table tr').removeClass('file-view-active-row');
+        if (FileViewPanel.isVisible()) {
+          $(tr).addClass('file-view-active-row');
         }
       }
     });

@@ -24,13 +24,39 @@ var FileViewPanel = {};
   FileViewPanel._keyNamespace = '.fileViewKey_' + Math.random().toString(36).substr(2, 9);
   FileViewPanel.PANEL_WIDTH = 700;
 
-  FileViewPanel.show = function(rowIndex) {
-    if (typeof QualityAlignment === 'undefined' || !QualityAlignment._resourceConfig) {
-      return;
-    }
+  /** 条目提取项目的「文件夹路径」列，无资源路径配置时用它兜底定位资源目录 */
+  FileViewPanel.FOLDER_PATH_COLUMN = '文件夹路径';
 
+  FileViewPanel._findFolderPathCellIndex = function() {
+    if (typeof theProject === 'undefined' || !theProject || !theProject.columnModel) {
+      return -1;
+    }
+    var columns = theProject.columnModel.columns;
+    for (var i = 0; i < columns.length; i++) {
+      if (columns[i].name === FileViewPanel.FOLDER_PATH_COLUMN) {
+        return columns[i].cellIndex;
+      }
+    }
+    return -1;
+  };
+
+  /**
+   * 是否可以对当前项目做行级资源预览：
+   * 优先按质量检查的资源路径配置定位；条目提取项目没有该配置，回退到「文件夹路径」列。
+   */
+  FileViewPanel.canPreview = function() {
+    if (typeof QualityAlignment === 'undefined' || !QualityAlignment._resourceConfig) {
+      return false;
+    }
     var resourceConfig = QualityAlignment._resourceConfig;
-    if (!resourceConfig.pathFields || resourceConfig.pathFields.length === 0) {
+    if (resourceConfig.pathFields && resourceConfig.pathFields.length > 0) {
+      return true;
+    }
+    return FileViewPanel._findFolderPathCellIndex() >= 0;
+  };
+
+  FileViewPanel.show = function(rowIndex) {
+    if (!FileViewPanel.canPreview()) {
       return;
     }
 
@@ -187,6 +213,16 @@ var FileViewPanel = {};
     }
 
     var cells = row.cells;
+
+    // 条目提取项目没有资源路径配置，直接用该行「文件夹路径」列的值作为资源目录
+    var configuredFields = resourceConfig.pathFields || [];
+    if (configuredFields.length === 0) {
+      var folderCellIndex = FileViewPanel._findFolderPathCellIndex();
+      var folderCell = (folderCellIndex >= 0 && folderCellIndex < cells.length) ? cells[folderCellIndex] : null;
+      var folderValue = (folderCell && folderCell.v !== undefined && folderCell.v !== null) ? String(folderCell.v).trim() : '';
+      console.log('[FileViewPanel] no pathFields, fallback to folder path column:', folderValue);
+      return folderValue ? folderValue.replace(/\\/g, '/') : null;
+    }
 
     var basePath = resourceConfig.basePath || '';
     var pathFields = resourceConfig.pathFields || [];
