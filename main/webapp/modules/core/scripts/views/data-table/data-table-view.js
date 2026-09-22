@@ -140,6 +140,9 @@ DataTableView.mouseReleaseListener = function(e) {
     var totalMovement = e.pageX - state.originalPosition;
     var newWidth = state.originalWidth + totalMovement;
     state.col.width((Math.floor(newWidth) / state.emFactor) + 'em');
+    // 记录为用户自定义宽度，避免下次刷新被自动展开覆盖
+    DataTableView.userSizedColumns.add(state.columnName);
+    DataTableView.columnWidthCache.set(state.columnName, Math.floor(newWidth) / state.emFactor);
     state.dragging = false;
     $('body')
         .off('mousemove', DataTableView.mouseMoveListener)
@@ -240,7 +243,10 @@ DataTableView.prototype.render = function() {
   $(".data-table-null").toggle(self._shownulls);
 
   this.resize();
-  
+
+  // 表格重建完成后按当前显示内容自动展开列宽，避免刷新操作把长文本列越压越窄
+  this._autoFitColumnWidths(elmts.colGroup);
+
   elmts.dataTableContainer[0].scrollLeft = scrollLeft;
 
   // Check if file view panel row is still visible after re-render
@@ -576,6 +582,9 @@ DataTableView.prototype._renderDataTables = function(table, tableHeader, colGrou
 // cache which remembers the set width of each column (used when the grid is re-rendered)
 DataTableView.columnWidthCache = new Map();
 
+// 用户手动拖动过宽度的列，保留用户设定，不再参与自动展开
+DataTableView.userSizedColumns = new Set();
+
 DataTableView.prototype._renderTableHeader = function(tableHeader, colGroup) {
   var self = this;
   var columns = theProject.columnModel.columns;
@@ -638,6 +647,77 @@ DataTableView.prototype._renderTableHeader = function(tableHeader, colGroup) {
     createColumnHeader(columns[i], i);
   }
 }
+
+/**
+ * 按内容自动展开列宽。
+ *
+ * 背景：列宽由 columnWidthCache 在每次 render 时「保存当前渲染宽度 → 重建后恢复」，
+ * 而渲染宽度受上一次缓存约束（内容溢出被裁剪、不会把列撑开），
+ * 于是换页/排序/撤销重做等任何刷新都可能把长文本列越压越窄，直到只剩列头宽度。
+ *
+ * 这里在表格重建完成后，用「当前显示行中该列最长内容的自然宽度」重新撑开列宽：
+ * 只增不减，上限与 CSS 中 td 的 max-width 一致；用户手动拖动过的列不参与适配。
+ */
+DataTableView.prototype._autoFitColumnWidths = function(colGroup) {
+  if (!colGroup || colGroup.length === 0 || !theProject) return;
+  var rows = this._div.find(".data-table-container tbody tr");
+  if (rows.length === 0) return;
+
+  var emFactor = parseFloat(getComputedStyle(colGroup[0]).fontSize);
+  if (!emFactor) return;
+
+  var CELL_PADDING_PX = 12;   // td 左右 padding + 右边框
+  var HEADER_EXTRA_PX = 26;   // 列表头 padding + 菜单按钮
+  var MIN_COL_PX = 50;        // 与未设置宽度时的 min-width 一致
+  var MAX_COL_PX = 310;       // 与 CSS 中 .data-table td 的 max-width: 300px 一致
+
+  var canvas = document.createElement('canvas');
+  var ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  this._columnHeaderUIs.forEach(function(ui) {
+    var column = ui._column;
+    var name = column.name;
+    if (DataTableView.userSizedColumns.has(name)) return;
+
+    // 行内前 3 个单元格为星标/旗标/行号
+    var cellIndex = column.cellIndex + 3;
+    var longest = '';
+    var font = null;
+    rows.each(function() {
+      var cell = this.cells[cellIndex];
+      if (!cell) return;
+      var text = cell.textContent || '';
+      if (text.length > longest.length) {
+        longest = text;
+        var content = cell.querySelector('.data-table-cell-content') || cell;
+        var style = getComputedStyle(content);
+        font = (style.fontStyle || 'normal') + ' ' + (style.fontWeight || 'normal') + ' ' +
+            (style.fontSize || '13px') + ' ' + (style.fontFamily || 'sans-serif');
+      }
+    });
+
+    var headerStyle = getComputedStyle(ui._td.querySelector('.column-header-name') || ui._td);
+    ctx.font = font || headerStyle.font || '13px sans-serif';
+    var contentPx = longest ? ctx.measureText(longest).width : 0;
+
+    ctx.font = headerStyle.font || '13px sans-serif';
+    var headerPx = ctx.measureText(name).width + HEADER_EXTRA_PX;
+
+    var target = Math.min(Math.max(contentPx + CELL_PADDING_PX, headerPx, MIN_COL_PX), MAX_COL_PX);
+
+    var currentPx = ui._col.width();
+    var styleWidth = ui._col[0].style.width;
+    if (styleWidth && /em$/.test(styleWidth)) {
+      currentPx = parseFloat(styleWidth) * emFactor;
+    }
+    if (target > currentPx + 1) {
+      var widthInEm = target / emFactor;
+      ui._col.width(widthInEm + 'em');
+      DataTableView.columnWidthCache.set(name, widthInEm);
+    }
+  });
+};
 
 DataTableView.prototype._addResizingControls = function(th, index) {
   var self = this;
