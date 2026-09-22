@@ -60,8 +60,7 @@ function init() {
     "project/scripts",
     module,
     [
-      "scripts/project-injection.js",
-      "scripts/project/file-view-panel.js"
+      "scripts/project-injection.js"
     ]
   );
 
@@ -70,8 +69,7 @@ function init() {
     "project/styles",
     module,
     [
-      "styles/files-importing-controller.css",
-      "styles/file-view-panel.css"
+      "styles/files-importing-controller.css"
     ]
   );
 

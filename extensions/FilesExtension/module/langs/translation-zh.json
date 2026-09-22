@@ -57,11 +57,5 @@
     "files-import/batch-readonly-hint": "提取期间项目为只读，编辑操作已暂停，完成后恢复",
     "files-import/batch-banner-completed": "批量题名提取完成，共写入 $1 行。",
     "files-import/batch-banner-cancelled": "批量题名提取已取消，已写入 $1 行。",
-    "files-import/batch-banner-failed": "批量题名提取失败：$1",
-    "files-import/resource-view-loading": "加载中…",
-    "files-import/resource-view-close": "关闭",
-    "files-import/resource-view-empty": "该目录下没有可预览的文件",
-    "files-import/resource-view-error": "读取文件资源失败",
-    "files-import/resource-view-no-preview": "当前文件不支持预览",
-    "files-import/resource-view-download": "下载"
+    "files-import/batch-banner-failed": "批量题名提取失败：$1"
 }
