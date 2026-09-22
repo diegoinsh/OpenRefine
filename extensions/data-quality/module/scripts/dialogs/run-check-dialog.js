@@ -90,7 +90,7 @@ RunCheckDialog.prototype._startCheck = function() {
   if (hasResourceCheck || hasContentCheck) {
     var basePath = resourceConfig.basePath || '';
     var pathFields = resourceConfig.pathFields || [];
-    var isResourceConfigured = basePath && pathFields.length > 0;
+    var isResourceConfigured = pathFields.length > 0 || basePath.length > 0;
 
     console.log('[RunCheckDialog] basePath:', basePath);
     console.log('[RunCheckDialog] pathFields:', pathFields);
@@ -130,7 +130,7 @@ RunCheckDialog.prototype._loadImageQualityRuleAndStartCheck = function() {
         var resourceConfig = QualityAlignment._resourceConfig || {};
         var basePath = resourceConfig.basePath || '';
         var pathFields = resourceConfig.pathFields || [];
-        var isResourceConfigured = basePath && pathFields.length > 0;
+        var isResourceConfigured = pathFields.length > 0 || basePath.length > 0;
 
         console.log('[RunCheckDialog] Image quality check enabled, checking resource config...');
         console.log('[RunCheckDialog] basePath:', basePath);
