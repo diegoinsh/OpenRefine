@@ -11,8 +11,10 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 public class AimpLlmClient {
@@ -237,8 +239,34 @@ public class AimpLlmClient {
                 r.values.put(e.getKey(), info.asText(""));
             }
         });
+        parsePageExtractions(result, r);
         r.success = true;
         return r;
+    }
+
+    /**
+     * 解析多页任务结果中的页级明细（page_extractions），
+     * 每页形如 {"page_index":3,"elements":{"responsible_party":{"value":"...","confidence":0.9}}}，
+     * 转成「要素 → 候选页列表」，供前端点击单元格时定位到取值所在页。
+     */
+    private void parsePageExtractions(JsonNode result, ExtractPageResult r) {
+        JsonNode pages = result.get("page_extractions");
+        if (pages == null || !pages.isArray()) return;
+        for (JsonNode pageNode : pages) {
+            int page = pageNode.path("page_index").asInt(0);
+            JsonNode elements = pageNode.get("elements");
+            if (page <= 0 || elements == null || !elements.isObject()) continue;
+            elements.fields().forEachRemaining(e -> {
+                JsonNode info = e.getValue();
+                if (info == null || !info.isObject()) return;
+                String value = info.path("value").asText("");
+                if (value.trim().isEmpty()) return;
+                Double confidence = info.has("confidence") && !info.get("confidence").isNull()
+                        ? info.get("confidence").asDouble(0.0) : null;
+                r.candidates.computeIfAbsent(e.getKey(), k -> new ArrayList<>())
+                        .add(new ElementCandidate(value.trim(), confidence, page));
+            });
+        }
     }
 
     public LlmAnalyzeResult llmAnalyze(String prompt, String responseFormat) {
@@ -302,7 +330,29 @@ public class AimpLlmClient {
         public String taskId;
         public Map<String, String> values = new HashMap<>();
         public Map<String, Double> confidences = new LinkedHashMap<>();
+        /** 页级候选：要素 key → 该要素在各页出现的取值与置信度（多页任务才有） */
+        public Map<String, List<ElementCandidate>> candidates = new LinkedHashMap<>();
         public String error;
+    }
+
+    /** 某要素在某一页上的取值（page 为该文件/文件夹内的 1 起页序） */
+    public static class ElementCandidate {
+        public final String value;
+        public final Double confidence;
+        public final int page;
+        /** 整目录成件的图片批次：该页对应的文件名，前端据此定位而不依赖目录列举顺序 */
+        public final String fileName;
+
+        public ElementCandidate(String value, Double confidence, int page) {
+            this(value, confidence, page, null);
+        }
+
+        public ElementCandidate(String value, Double confidence, int page, String fileName) {
+            this.value = value;
+            this.confidence = confidence;
+            this.page = page;
+            this.fileName = fileName;
+        }
     }
 
     public static class TaskStatusResult {

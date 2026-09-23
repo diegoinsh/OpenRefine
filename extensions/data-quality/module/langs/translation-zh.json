@@ -443,6 +443,7 @@
   "data-quality-extension/file-view-error": "加载失败",
   "data-quality-extension/file-view-no-preview": "当前文件无法预览",
   "data-quality-extension/file-view-download": "下载",
-  "data-quality-extension/file-view-no-resource": "该行未关联资源文件"
+  "data-quality-extension/file-view-no-resource": "该行未关联资源文件",
+  "data-quality-extension/file-view-page-label": "取值所在页："
 }
 

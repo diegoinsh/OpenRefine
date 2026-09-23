@@ -37,6 +37,8 @@ public class BatchExtractionCommand extends Command {
             doProgress(request, response);
         } else if ("cancel".equals(subCommand)) {
             doCancel(request, response);
+        } else if ("pageMap".equals(subCommand)) {
+            doPageMap(request, response);
         } else {
             respondError(response, "Unknown subCommand: " + subCommand);
         }
@@ -179,6 +181,38 @@ public class BatchExtractionCommand extends Command {
         } else {
             respondError(response, "未找到提取任务: " + projectId);
             return;
+        }
+        respondJSON(response, result);
+    }
+
+    /**
+     * 返回「行 → 列 → 要素取值候选页」映射，供前端点击单元格时定位到该取值所在页。
+     * 映射存于项目 metadata，未做过批量提取的项目返回 pageMap=null。
+     */
+    private void doPageMap(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        ObjectNode result = mapper.createObjectNode();
+        String projectId = request.getParameter("project");
+        if (projectId == null || projectId.isEmpty()) {
+            respondError(response, "缺少 project 参数");
+            return;
+        }
+        Project project = ProjectManager.singleton.getProject(Long.parseLong(projectId));
+        if (project == null) {
+            respondError(response, "未找到项目: " + projectId);
+            return;
+        }
+        Object stored = project.getMetadata() == null ? null
+                : project.getMetadata().getCustomMetadata(BatchExtractionManager.PAGE_MAP_KEY);
+        result.put("code", "ok");
+        if (!(stored instanceof String) || ((String) stored).isEmpty()) {
+            result.putNull("pageMap");
+        } else {
+            try {
+                result.set("pageMap", mapper.readTree((String) stored));
+            } catch (Exception e) {
+                logger.warn("页码映射不是合法JSON，已忽略", e);
+                result.putNull("pageMap");
+            }
         }
         respondJSON(response, result);
     }

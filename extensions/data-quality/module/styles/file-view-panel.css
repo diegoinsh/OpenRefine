@@ -117,6 +117,43 @@
   gap: 6px;
 }
 
+/* 抽取要素的候选页页签 */
+.file-view-page-chips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  margin: 0 8px;
+}
+
+.file-view-page-label {
+  color: #666;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.file-view-page-chip {
+  padding: 3px 8px;
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.file-view-page-chip:hover {
+  background: #e8e8e8;
+}
+
+.file-view-page-chip.active {
+  background: #4374b8;
+  border-color: #4374b8;
+  color: #fff;
+}
+
 .file-view-actions .button {
   padding: 4px 10px;
   border: 1px solid #ddd;
@@ -157,6 +194,12 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding: 4px;
+}
+
+/* 面板打开后焦点默认在此列表，避免浏览器默认轮廓框住整个条带 */
+.file-view-thumb-list:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgba(25, 118, 210, 0.35);
 }
 
 .file-view-thumb-list::-webkit-scrollbar {

@@ -43,6 +43,9 @@ public class BatchExtractionManager {
     public static final String STATUS_CANCELLED = "cancelled";
     public static final String STATUS_FAILED = "failed";
 
+    /** 项目 metadata 中「要素取值所在页码」的键，形如 {行号: {列名: [{v:取值, c:置信度, p:页码}]}} */
+    public static final String PAGE_MAP_KEY = "aimpElementPageMap";
+
     public static class Task {
         public final long projectId;
         public final String rootPath;
@@ -67,6 +70,9 @@ public class BatchExtractionManager {
          * 若直接用 processedPages/totalPages，分母会后移造成百分比回退（进度条来回跳动）。
          */
         public volatile double unitFraction;
+
+        /** 要素取值所在页码：{行号: {列名: [{v,c,p}]}}，随行写入并定期落到项目 metadata */
+        public final ObjectNode pageMap = mapper.createObjectNode();
 
         public Task(long projectId, String rootPath, ExtractionTemplate template,
                     List<CustomElementType> customElements, List<UnitScanner.Volume> units,
@@ -157,6 +163,9 @@ public class BatchExtractionManager {
                 Set<String> usedPieceNos = new HashSet<>();
                 String lastPieceNo = null;
                 if (unit.pdfMode) {
+                    // 卷内全局页号偏移：PDF 件登记的是「卷内第几页到第几页」，
+                    // 而非 PDF 文件内部页号，否则同卷多件的页区间会全部重叠、比对时切错页
+                    int pageOffset = 0;
                     for (int k = 0; k < unit.pages.size(); k++) {
                         if (task.cancelRequested) break;
                         String pdf = unit.pages.get(k);
@@ -175,8 +184,12 @@ public class BatchExtractionManager {
                             task.processedPages = pagesBefore + 1;
                             task.unitFraction = (k + 1) / (double) Math.max(1, unit.pages.size());
                             TitleSplitter.Piece p = new TitleSplitter.Piece();
+                            // 提交失败也按 1 页占位，保证后续件的卷内页号不重叠
+                            p.startPage = pageOffset + 1;
+                            p.endPage = pageOffset + 1;
+                            pageOffset += 1;
                             appendUnitRow(task, project, unit, pieceNo, new File(pdf).getName(), p, null,
-                                    r.error != null ? r.error : "提交提取任务失败");
+                                    r.error != null ? r.error : "提交提取任务失败", null);
                             if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
                                 fail(task, "AIMP 连续失败 " + consecutiveFailures + " 次，任务中止");
                                 return;
@@ -249,18 +262,24 @@ public class BatchExtractionManager {
                         if (r.success) {
                             consecutiveFailures = 0;
                             TitleSplitter.Piece p = new TitleSplitter.Piece();
-                            p.startPage = 1;
-                            p.endPage = Math.max(1, r.pageCount);
+                            int piecePages = Math.max(1, r.pageCount);
+                            p.startPage = pageOffset + 1;
+                            p.endPage = pageOffset + piecePages;
+                            pageOffset += piecePages;
                             p.title = r.values.getOrDefault("title", "");
                             Map<String, String> pdfValues = filterLowConfidence(r.values, r.confidences);
+                            // 页级候选：AIMP 的 page_index 即该 PDF 内部页号，可直接用于浏览器 #page 定位
                             appendUnitRow(task, project, unit, pieceNo, new File(pdf).getName(), p,
-                                    pdfValues, null);
+                                    pdfValues, null, filterCandidates(r.candidates, pdfValues));
                         } else {
                             consecutiveFailures++;
                             task.failedPages++;
                             TitleSplitter.Piece p = new TitleSplitter.Piece();
+                            p.startPage = pageOffset + 1;
+                            p.endPage = pageOffset + 1;
+                            pageOffset += 1;
                             appendUnitRow(task, project, unit, pieceNo, new File(pdf).getName(), p, null,
-                                    r.error);
+                                    r.error, null);
                             if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
                                 fail(task, "AIMP 连续失败 " + consecutiveFailures + " 次，任务中止");
                                 return;
@@ -306,7 +325,8 @@ public class BatchExtractionManager {
                         String casePieceNo = allocatePieceNumber(unit.name, usedPieceNos, lastPieceNo);
                         lastPieceNo = casePieceNo;
                         appendUnitRow(task, project, unit, casePieceNo, null, p,
-                                merged.isEmpty() ? null : merged.values, remark);
+                                merged.isEmpty() ? null : merged.values, remark,
+                                withFileNames(merged.candidates, unit.pages));
                     } else {
                         List<TitleSplitter.Piece> pieces = TitleSplitter.split(titles);
                         int pieceNo = 1;
@@ -314,9 +334,10 @@ public class BatchExtractionManager {
                             List<Map<String, String>> pieceValues =
                                     pageValues.subList(p.startPage - 1, p.endPage);
                             MergedElements merged = accumulateByConfidence(pieceValues,
-                                    pageConfidences.subList(p.startPage - 1, p.endPage));
+                                    pageConfidences.subList(p.startPage - 1, p.endPage), p.startPage);
                             appendUnitRow(task, project, unit, String.format("%03d", pieceNo), null, p,
-                                    merged.isEmpty() ? null : merged.values, remark);
+                                    merged.isEmpty() ? null : merged.values, remark,
+                                    withFileNames(merged.candidates, unit.pages));
                             pieceNo++;
                         }
                     }
@@ -329,6 +350,7 @@ public class BatchExtractionManager {
                 task.status = STATUS_COMPLETED;
                 task.message = "提取完成";
             }
+            flushPageMap(task);
             saveProject(task.projectId);
         } catch (Exception e) {
             logger.error("Batch extraction failed", e);
@@ -365,10 +387,11 @@ public class BatchExtractionManager {
     /**
      * @param fileName 该行对应的具体文件名（PDF 模式为单个 PDF 文件名）；整目录成件时为 null，
      *                 前端据此把「文件夹路径 + 文件名」拼成可直达的文件资源
+     * @param candidates 各要素在页级的取值候选（AIMP 要素 key 维度），用于建立单元格到页的定位关联
      */
     private void appendUnitRow(Task task, Project project, UnitScanner.Volume unit, String pieceNo,
                                String fileName, TitleSplitter.Piece piece, Map<String, String> values,
-                               String remark) {
+                               String remark, Map<String, List<AimpLlmClient.ElementCandidate>> candidates) {
         String status;
         if (values == null) {
             status = "失败";
@@ -402,17 +425,86 @@ public class BatchExtractionManager {
                 put(project, row, ce.getName(), get(values, ce.getKey()));
             }
         }
-        appendRow(task, project, row);
+        int rowIndex = appendRow(task, project, row);
+        recordPageMap(task, rowIndex, candidates);
     }
 
-    private void appendRow(Task task, Project project, Row row) {
+    /** 把该行各抽取要素的候选页按列名写入项目 metadata，供前端点击单元格时定位到取值所在页 */
+    private void recordPageMap(Task task, int rowIndex,
+                               Map<String, List<AimpLlmClient.ElementCandidate>> candidates) {
+        if (candidates == null || candidates.isEmpty()) return;
+        ObjectNode rowNode = mapper.createObjectNode();
+        recordCandidates(rowNode, candidates, "responsible_party", "责任者");
+        recordCandidates(rowNode, candidates, "document_number", "文号");
+        recordCandidates(rowNode, candidates, "date", "成文日期");
+        recordCandidates(rowNode, candidates, "title", "题名");
+        for (CustomElementType ce : task.customElements) {
+            if (ce.isInclude()) {
+                recordCandidates(rowNode, candidates, ce.getKey(), ce.getName());
+            }
+        }
+        if (rowNode.size() == 0) return;
+        synchronized (task.pageMap) {
+            task.pageMap.set(String.valueOf(rowIndex), rowNode);
+        }
+    }
+
+    private static void recordCandidates(ObjectNode rowNode,
+                                         Map<String, List<AimpLlmClient.ElementCandidate>> candidates,
+                                         String key, String columnName) {
+        List<AimpLlmClient.ElementCandidate> list = candidates.get(key);
+        if (list == null || list.isEmpty()) return;
+        ArrayNode arr = rowNode.putArray(columnName);
+        for (AimpLlmClient.ElementCandidate c : list) {
+            ObjectNode node = arr.addObject();
+            node.put("v", c.value);
+            if (c.confidence != null) node.put("c", c.confidence);
+            node.put("p", c.page);
+            if (c.fileName != null) node.put("f", c.fileName);
+        }
+    }
+
+    /**
+     * 整目录成件的图片批次：给候选页补上该页对应的文件名。
+     * 目录列举接口按字典序返回，与扫描时的自然序不一致，前端按文件名定位才可靠。
+     */
+    private static Map<String, List<AimpLlmClient.ElementCandidate>> withFileNames(
+            Map<String, List<AimpLlmClient.ElementCandidate>> candidates, List<String> pages) {
+        Map<String, List<AimpLlmClient.ElementCandidate>> named = new HashMap<>();
+        if (candidates == null) return named;
+        for (Map.Entry<String, List<AimpLlmClient.ElementCandidate>> e : candidates.entrySet()) {
+            List<AimpLlmClient.ElementCandidate> list = new ArrayList<>();
+            for (AimpLlmClient.ElementCandidate c : e.getValue()) {
+                int index = c.page - 1;
+                String fileName = index >= 0 && index < pages.size()
+                        ? new File(pages.get(index)).getName() : null;
+                list.add(new AimpLlmClient.ElementCandidate(c.value, c.confidence, c.page, fileName));
+            }
+            named.put(e.getKey(), list);
+        }
+        return named;
+    }
+
+    private int appendRow(Task task, Project project, Row row) {
         synchronized (rowLock) {
+            int rowIndex = project.rows.size();
             project.rows.add(row);
             task.rowsAppended++;
             if (++rowsSinceSave >= SAVE_EVERY_ROWS) {
                 rowsSinceSave = 0;
+                flushPageMap(task);
                 saveProject(task.projectId);
             }
+            return rowIndex;
+        }
+    }
+
+    private void flushPageMap(Task task) {
+        synchronized (task.pageMap) {
+            if (task.pageMap.size() == 0) return;
+            Project project = ProjectManager.singleton.getProject(task.projectId);
+            if (project == null) return;
+            project.getMetadata().setCustomMetadata(PAGE_MAP_KEY, task.pageMap.toString());
         }
     }
 
@@ -452,6 +544,8 @@ public class BatchExtractionManager {
     static class MergedElements {
         final Map<String, String> values = new HashMap<>();
         final Map<String, Double> confidences = new HashMap<>();
+        /** 各要素在各页的取值候选，首位为最终写入单元格的取值所在页 */
+        final Map<String, List<AimpLlmClient.ElementCandidate>> candidates = new HashMap<>();
 
         boolean isEmpty() {
             return values.isEmpty();
@@ -465,6 +559,16 @@ public class BatchExtractionManager {
      */
     static MergedElements accumulateByConfidence(List<Map<String, String>> pageValues,
                                                  List<Map<String, Double>> pageConfidences) {
+        return accumulateByConfidence(pageValues, pageConfidences, 1);
+    }
+
+    /**
+     * @param startPage 首个元素在所在件（文件夹 / PDF）内的 1 起页序，
+     *                  案卷模板按件切分页区间时用它还原绝对页号
+     */
+    static MergedElements accumulateByConfidence(List<Map<String, String>> pageValues,
+                                                 List<Map<String, Double>> pageConfidences,
+                                                 int startPage) {
         MergedElements merged = new MergedElements();
         for (int i = 0; i < pageValues.size(); i++) {
             Map<String, String> pv = pageValues.get(i);
@@ -476,11 +580,13 @@ public class BatchExtractionManager {
                 String v = e.getValue();
                 if (v == null || v.trim().isEmpty()) continue;
                 Double conf = pc == null ? null : pc.get(key);
+                if (conf != null && conf < MIN_ELEMENT_CONFIDENCE) continue;
+                merged.candidates.computeIfAbsent(key, k -> new ArrayList<>())
+                        .add(new AimpLlmClient.ElementCandidate(v.trim(), conf, startPage + i));
                 if (conf == null) {
                     if (!merged.values.containsKey(key)) merged.values.put(key, v.trim());
                     continue;
                 }
-                if (conf < MIN_ELEMENT_CONFIDENCE) continue;
                 Double best = merged.confidences.get(key);
                 if (best == null || conf > best) {
                     merged.values.put(key, v.trim());
@@ -488,7 +594,47 @@ public class BatchExtractionManager {
                 }
             }
         }
+        orderCandidates(merged.candidates, merged.values);
         return merged;
+    }
+
+    /** 只保留最终写入单元格的要素的候选页 */
+    private static Map<String, List<AimpLlmClient.ElementCandidate>> filterCandidates(
+            Map<String, List<AimpLlmClient.ElementCandidate>> candidates, Map<String, String> winners) {
+        Map<String, List<AimpLlmClient.ElementCandidate>> kept = new HashMap<>();
+        if (candidates == null || winners == null) return kept;
+        for (Map.Entry<String, List<AimpLlmClient.ElementCandidate>> e : candidates.entrySet()) {
+            if (!winners.containsKey(e.getKey())) continue;
+            List<AimpLlmClient.ElementCandidate> list = new ArrayList<>();
+            for (AimpLlmClient.ElementCandidate c : e.getValue()) {
+                if (c.confidence != null && c.confidence < MIN_ELEMENT_CONFIDENCE) continue;
+                list.add(c);
+            }
+            if (!list.isEmpty()) kept.put(e.getKey(), list);
+        }
+        orderCandidates(kept, winners);
+        return kept;
+    }
+
+    /** 候选页按置信度降序，并把最终写入单元格的取值提到最前，作为前端默认定位页 */
+    private static void orderCandidates(Map<String, List<AimpLlmClient.ElementCandidate>> candidates,
+                                        Map<String, String> winners) {
+        for (Map.Entry<String, List<AimpLlmClient.ElementCandidate>> e : candidates.entrySet()) {
+            List<AimpLlmClient.ElementCandidate> list = e.getValue();
+            list.sort((a, b) -> Double.compare(confidenceOf(b), confidenceOf(a)));
+            String winner = winners == null ? null : winners.get(e.getKey());
+            if (winner == null) continue;
+            for (int i = 0; i < list.size(); i++) {
+                if (winner.equals(list.get(i).value)) {
+                    if (i > 0) list.add(0, list.remove(i));
+                    break;
+                }
+            }
+        }
+    }
+
+    private static double confidenceOf(AimpLlmClient.ElementCandidate candidate) {
+        return candidate.confidence == null ? -1d : candidate.confidence;
     }
 
     /** 单次多页结果（AIMP 内部已按置信度选优）同样丢弃低置信度要素 */
@@ -608,6 +754,7 @@ public class BatchExtractionManager {
     private void fail(Task task, String message) {
         task.status = STATUS_FAILED;
         task.message = message;
+        flushPageMap(task);
         saveProject(task.projectId);
         logger.warn("Batch extraction task failed: projectId={}, message={}", task.projectId, message);
     }

@@ -437,6 +437,7 @@
   "data-quality-extension/file-view-error": "Error loading file",
   "data-quality-extension/file-view-no-preview": "Cannot preview this file",
   "data-quality-extension/file-view-download": "Download",
-  "data-quality-extension/file-view-no-resource": "No resource files associated with this row"
+  "data-quality-extension/file-view-no-resource": "No resource files associated with this row",
+  "data-quality-extension/file-view-page-label": "Value found on page:"
 }
 

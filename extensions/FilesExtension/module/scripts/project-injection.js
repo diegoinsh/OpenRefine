@@ -83,6 +83,13 @@ var BatchTitleExtractionMonitor = (function () {
 
   function refreshDataTable() {
     try {
+      if (typeof FileViewPanel !== 'undefined' && typeof FileViewPanel.invalidatePageMap === 'function') {
+        FileViewPanel.invalidatePageMap();
+      }
+    } catch (e) {
+      // ignore
+    }
+    try {
       if (window.ui && ui.dataTableView && typeof ui.dataTableView.update === 'function') {
         ui.dataTableView.update(function () {
           try {

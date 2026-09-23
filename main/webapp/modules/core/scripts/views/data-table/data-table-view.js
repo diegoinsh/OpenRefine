@@ -547,7 +547,17 @@ DataTableView.prototype._renderDataTables = function(table, tableHeader, colGrou
       if (typeof FileViewPanel === 'undefined' || typeof QualityAlignment === 'undefined') return;
       // 有资源路径配置时按其定位；条目提取项目没有该配置，由 FileViewPanel 回退到「文件夹路径」列
       if (FileViewPanel.canPreview()) {
-        FileViewPanel.toggle(row.i);
+        // 单元格级定位：行首依次是星标格、标记格、行号格，其余按列顺序一一对应
+        var td = $(e.target).closest('td')[0];
+        var cellIndex = -1;
+        if (td && td.parentNode === tr) {
+          var prefixCells = tr.cells.length - columns.length;
+          var column = columns[Array.prototype.indexOf.call(tr.cells, td) - prefixCells];
+          if (column) {
+            cellIndex = column.cellIndex;
+          }
+        }
+        FileViewPanel.toggle(row.i, cellIndex);
         $('.data-table tr').removeClass('file-view-active-row');
         if (FileViewPanel.isVisible()) {
           $(tr).addClass('file-view-active-row');
