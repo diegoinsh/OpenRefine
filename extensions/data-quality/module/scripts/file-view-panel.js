@@ -30,6 +30,21 @@ var FileViewPanel = {};
   FileViewPanel._dragStartY = 0;
   FileViewPanel._dragNamespace = '.fileViewDrag_' + Math.random().toString(36).substr(2, 9);
   FileViewPanel._keyNamespace = '.fileViewKey_' + Math.random().toString(36).substr(2, 9);
+  FileViewPanel._docNamespace = '.fileViewDoc_' + Math.random().toString(36).substr(2, 9);
+  /**
+   * 浮窗内的当前操作作用域：'preview'（预览区）| 'list'（右侧文件列表）| null。
+   * 单元格就地编辑时焦点始终留在编辑框内（点击浮窗不转移焦点），所以上下键 / 方向键
+   * 只能靠这个状态而非真实焦点判断作用目标；点到浮窗之外（回到编辑框等）即清空。
+   */
+  FileViewPanel._activeScope = null;
+  /** 多页 PDF 的总页数，由渲染结果回填；未知（0）时不限制翻页 */
+  FileViewPanel._pageCount = 0;
+
+  /** OCR 拉框识别模式：开启后预览区改为位图，可在图上拉框送后台 OCR */
+  FileViewPanel._ocrMode = false;
+  FileViewPanel._ocrBusy = false;
+  FileViewPanel._ocrNamespace = '.fileViewOcr_' + Math.random().toString(36).substr(2, 9);
+
   FileViewPanel.PANEL_WIDTH = 700;
 
   /** 条目提取项目的「文件夹路径」列，无资源路径配置时用它兜底定位资源目录 */
@@ -197,11 +212,11 @@ var FileViewPanel = {};
     });
   };
 
-  /** 取该单元格对应的候选页列表，供 _currentPage 与页签展示使用 */
-  FileViewPanel._resolveCellCandidates = function(rowIndex, cellIndex) {
-    FileViewPanel._pageCandidates = [];
-    FileViewPanel._currentPage = 1;
-    if (cellIndex < 0 || !FileViewPanel._pageMap) return;
+  /** 取该单元格在 pageMap 中的候选页列表；历史提取数据里可能残留无取值 / 无页码的空候选，先剔除 */
+  FileViewPanel._getCellCandidates = function(rowIndex, cellIndex) {
+    if (cellIndex < 0 || !FileViewPanel._pageMap) {
+      return [];
+    }
     var columns = theProject.columnModel.columns;
     var columnName = null;
     for (var i = 0; i < columns.length; i++) {
@@ -210,22 +225,34 @@ var FileViewPanel = {};
         break;
       }
     }
-    if (columnName === null) return;
+    if (columnName === null) {
+      return [];
+    }
     var rowNode = FileViewPanel._pageMap[String(rowIndex)];
-    if (!rowNode) return;
+    if (!rowNode) {
+      return [];
+    }
     var list = rowNode[columnName];
-    if (!list || !list.length) return;
-    // 历史提取数据里可能残留无取值 / 无页码的空候选，先剔除，避免默认落回第 1 页
-    list = list.filter(function(candidate) {
+    if (!list || !list.length) {
+      return [];
+    }
+    return list.filter(function(candidate) {
       return candidate && candidate.v && parseInt(candidate.p, 10) > 0;
     });
+  };
+
+  /** 取该单元格对应的候选页列表，供 _currentPage 与页签展示使用 */
+  FileViewPanel._resolveCellCandidates = function(rowIndex, cellIndex) {
+    FileViewPanel._pageCandidates = [];
+    FileViewPanel._currentPage = 1;
+    var list = FileViewPanel._getCellCandidates(rowIndex, cellIndex);
     if (!list.length) return;
     FileViewPanel._pageCandidates = list;
     var page = parseInt(list[0].p, 10);
     FileViewPanel._currentPage = page > 0 ? page : 1;
   };
 
-  FileViewPanel.show = function(rowIndex, cellIndex) {
+  FileViewPanel.show = function(rowIndex, cellIndex, options) {
     if (!FileViewPanel.canPreview()) {
       return;
     }
@@ -243,10 +270,17 @@ var FileViewPanel = {};
     FileViewPanel._zoomLevel = 1;
     FileViewPanel._currentOffsetX = 0;
     FileViewPanel._currentOffsetY = 0;
+    FileViewPanel._pageCount = 0;
+    FileViewPanel._setActiveScope(null);
+    FileViewPanel._ocrMode = !!(options && options.ocr);
+    FileViewPanel._ocrBusy = false;
+    FileViewPanel._clearOcrSelection();
 
     if (!FileViewPanel._panel) {
       FileViewPanel._createPanel();
     }
+
+    FileViewPanel._syncOcrModeUI();
 
     FileViewPanel._panel.show();
     FileViewPanel._isVisible = true;
@@ -274,7 +308,7 @@ var FileViewPanel = {};
             '<div style="font-size:11px;color:#999;margin-top:8px;word-break:break-all;">' + resourcePath + '</div>' +
             '</div>'
           );
-          FileViewPanel._panel.focus();
+          FileViewPanel._focusThumbList();
           return;
         }
 
@@ -303,6 +337,12 @@ var FileViewPanel = {};
     FileViewPanel._currentPage = 1;
     FileViewPanel._pageCandidates = [];
     FileViewPanel._currentPreviewType = null;
+    FileViewPanel._pageCount = 0;
+    FileViewPanel._setActiveScope(null);
+    FileViewPanel._ocrMode = false;
+    FileViewPanel._ocrBusy = false;
+    FileViewPanel._clearOcrSelection();
+    FileViewPanel._syncOcrModeUI();
 
     FileViewPanel._restoreRightPanel();
 
@@ -320,6 +360,61 @@ var FileViewPanel = {};
 
   FileViewPanel.isVisible = function() {
     return FileViewPanel._isVisible;
+  };
+
+  /**
+   * 双击单元格时调用：打开（或复用）资源预览浮窗并默认进入 OCR 模式。
+   */
+  FileViewPanel.openForOcr = function(rowIndex, cellIndex) {
+    if (!FileViewPanel.canPreview()) {
+      return;
+    }
+    cellIndex = (typeof cellIndex === 'number') ? cellIndex : -1;
+    if (FileViewPanel._isVisible && FileViewPanel._currentRow === rowIndex
+        && FileViewPanel._currentCellIndex === cellIndex) {
+      FileViewPanel._setOcrMode(true);
+      return;
+    }
+    FileViewPanel.show(rowIndex, cellIndex, { ocr: true });
+  };
+
+  /**
+   * 就地编辑按 Tab 切到本行下一个单元格时调用：仅当目标单元格是提取要素格
+   * （在 pageMap 中有取值页映射）时，才把浮窗定位到该取值所在页，并保持 OCR 模式。
+   */
+  FileViewPanel.followCell = function(rowIndex, cellIndex) {
+    if (!FileViewPanel._isVisible) {
+      return;
+    }
+    if (FileViewPanel._currentRow === rowIndex && FileViewPanel._currentCellIndex === cellIndex) {
+      return;
+    }
+    if (FileViewPanel._getCellCandidates(rowIndex, cellIndex).length === 0) {
+      return;
+    }
+    FileViewPanel.show(rowIndex, cellIndex, { ocr: true });
+  };
+
+  /** 切换 OCR 模式；开启时把预览换成位图以便拉框，关闭时恢复常规预览 */
+  FileViewPanel._setOcrMode = function(on) {
+    on = !!on;
+    if (on === FileViewPanel._ocrMode) {
+      return;
+    }
+    FileViewPanel._ocrMode = on;
+    FileViewPanel._ocrBusy = false;
+    FileViewPanel._syncOcrModeUI();
+    if (FileViewPanel._isVisible) {
+      FileViewPanel._loadCurrentFile();
+    }
+  };
+
+  FileViewPanel._syncOcrModeUI = function() {
+    if (!FileViewPanel._panel) {
+      return;
+    }
+    FileViewPanel._panel.toggleClass('ocr-mode', !!FileViewPanel._ocrMode);
+    FileViewPanel._panel.find('.file-view-ocr-btn').toggleClass('active', !!FileViewPanel._ocrMode);
   };
 
   /** 重跑提取任务后页码映射会变化，由外部在数据刷新时调用以清掉缓存 */
@@ -340,6 +435,15 @@ var FileViewPanel = {};
 
     $('<span>')
       .addClass('file-view-title')
+      .appendTo(header);
+
+    $('<button>')
+      .addClass('button file-view-ocr-btn')
+      .text($.i18n('data-quality-extension/file-view-ocr-btn') || 'OCR识别')
+      .attr('title', $.i18n('data-quality-extension/file-view-ocr-btn-title') || 'OCR识别')
+      .on('click', function() {
+        FileViewPanel._setOcrMode(!FileViewPanel._ocrMode);
+      })
       .appendTo(header);
 
     $('<button>')
@@ -376,7 +480,54 @@ var FileViewPanel = {};
       .attr('tabindex', '0')
       .appendTo(thumbArea);
 
-    FileViewPanel._bindPreviewWheelForwarding(content);
+    FileViewPanel._bindPreviewWheel(content);
+
+    // 面板只创建一次，document 级绑定随之只做一次（用独立命名空间，避免与面板内的 _keyNamespace 相互清理）
+    // 点预览区 / 点右侧文件列表：把方向键与滚轮的作用目标切到对应区域。焦点始终留在
+    // 单元格编辑框内（点击浮窗不转移焦点由 data-table 侧白名单保证），故只能用作用域状态判断意图
+    content.on('mousedown' + FileViewPanel._docNamespace, function() {
+      FileViewPanel._setActiveScope('preview');
+    });
+    thumbArea.on('mousedown' + FileViewPanel._docNamespace, function() {
+      FileViewPanel._setActiveScope('list');
+    });
+
+    // 按作用域接管方向键：事件从单元格编辑框冒泡上来，preventDefault 可阻止光标移动
+    //  - preview：上下键翻页
+    //  - list：左右键切换文件，上下键滚动文件列表
+    $(document).on('keydown' + FileViewPanel._docNamespace, function(e) {
+      var scope = FileViewPanel._activeScope;
+      if (!FileViewPanel._isVisible || !scope) return;
+      // 焦点已在浮窗内（非就地编辑场景）时由面板自身的 _handleKeyDown 处理，避免重复触发
+      if ($(e.target).closest('#file-view-panel').length > 0) return;
+      if (scope === 'preview') {
+        if (e.keyCode === 38) {
+          e.preventDefault();
+          FileViewPanel._goToPage(-1);
+        } else if (e.keyCode === 40) {
+          e.preventDefault();
+          FileViewPanel._goToPage(1);
+        }
+      } else if (scope === 'list') {
+        if (e.keyCode === 37) {
+          e.preventDefault();
+          FileViewPanel._navigatePrev();
+        } else if (e.keyCode === 39) {
+          e.preventDefault();
+          FileViewPanel._navigateNext();
+        } else if (e.keyCode === 38 || e.keyCode === 40) {
+          e.preventDefault();
+          FileViewPanel._scrollThumbListBy(e.keyCode === 38 ? -80 : 80);
+        }
+      }
+    });
+
+    // 点到浮窗之外（例如回到单元格编辑框）即清空作用域，方向键还给文本光标
+    $(document).on('mousedown' + FileViewPanel._docNamespace, function(e) {
+      if (!FileViewPanel._isVisible || !FileViewPanel._activeScope) return;
+      if ($(e.target).closest('#file-view-panel').length > 0) return;
+      FileViewPanel._setActiveScope(null);
+    });
 
     var rightPanel = $('#right-panel');
     if (rightPanel.length > 0) {
@@ -635,8 +786,17 @@ var FileViewPanel = {};
       dataType: 'json',
       success: function(data) {
         if (data.status === 'ok' || data.status === 'success') {
-          FileViewPanel._renderFileContent(content, data, file);
-          FileViewPanel._renderFooter(footer, data, file);
+          if (data.previewType) {
+            FileViewPanel._currentPreviewType = data.previewType;
+          }
+          if (FileViewPanel._ocrMode) {
+            // OCR 模式：位图由后端按页渲染（PDF 也能框选），用于拉框裁剪
+            FileViewPanel._renderFooter(footer, { previewType: 'ocr' }, file);
+            FileViewPanel._loadOcrBitmap();
+          } else {
+            FileViewPanel._renderFileContent(content, data, file);
+            FileViewPanel._renderFooter(footer, data, file);
+          }
         } else {
           content.html('<div class="file-view-error">' + (data.message || 'Error') + '</div>');
         }
@@ -653,6 +813,10 @@ var FileViewPanel = {};
     var previewType = data.previewType || 'unknown';
     var preview = data.preview;
     FileViewPanel._currentPreviewType = previewType;
+    // 预览接口若给出总页数（PDF），一并记录，供翻页判断上界；不返回则保持原值
+    if (data.pageCount) {
+      FileViewPanel._pageCount = parseInt(data.pageCount, 10) || 0;
+    }
 
     if (previewType === 'image' && preview) {
       var imgContainer = $('<div>').addClass('file-view-image-container').appendTo(container);
@@ -691,6 +855,244 @@ var FileViewPanel = {};
         '<div>' + ($.i18n('data-quality-extension/file-view-no-preview') || '当前文件无法预览') + '</div>' +
         '</div>'
       );
+    }
+  };
+
+  FileViewPanel._clearOcrSelection = function() {
+    $(document).off(FileViewPanel._ocrNamespace);
+  };
+
+  /** 取当前文件/当前页的位图，作为拉框裁剪的底图（PDF 由后端 PDFBox 渲染） */
+  FileViewPanel._loadOcrBitmap = function() {
+    if (!FileViewPanel._panel || FileViewPanel._currentFiles.length === 0) {
+      return;
+    }
+    var file = FileViewPanel._currentFiles[FileViewPanel._currentFileIndex];
+    var content = FileViewPanel._panel.find('.file-view-content');
+    var page = FileViewPanel._currentPage > 0 ? FileViewPanel._currentPage : 1;
+
+    FileViewPanel._clearOcrSelection();
+    content.html('<div class="file-view-loading">' + ($.i18n('data-quality-extension/file-view-loading') || 'Loading...') + '</div>');
+
+    $.ajax({
+      url: '/command/data-quality/render-file-page',
+      type: 'GET',
+      data: { root: file.rootPath, path: file.name, page: page },
+      dataType: 'json',
+      success: function(data) {
+        if (data && data.status === 'ok' && data.preview) {
+          FileViewPanel._renderOcrStage(content, data);
+        } else {
+          content.html('<div class="file-view-error">' +
+            ((data && data.message) || $.i18n('data-quality-extension/file-view-error') || 'Error') + '</div>');
+        }
+      },
+      error: function() {
+        content.html('<div class="file-view-error">' + ($.i18n('data-quality-extension/file-view-error') || 'Error') + '</div>');
+      }
+    });
+  };
+
+  FileViewPanel._renderOcrStage = function(container, data) {
+    container.empty();
+
+    // 记录总页数，供上下键 / 滚轮翻页判断上界
+    FileViewPanel._pageCount = parseInt(data.pageCount, 10) || 0;
+
+    var stage = $('<div>').addClass('file-view-ocr-stage').appendTo(container);
+    var img = $('<img>')
+      .addClass('file-view-ocr-bitmap')
+      .attr('src', data.preview)
+      .appendTo(stage);
+    var sel = $('<div>').addClass('file-view-ocr-selection').hide().appendTo(stage);
+    stage.data('naturalWidth', parseInt(data.width, 10) || 0);
+
+    $('<div>').addClass('file-view-ocr-hint')
+      .text($.i18n('data-quality-extension/file-view-ocr-hint') || '在图上按住鼠标左键拉框，松开后自动识别')
+      .appendTo(stage);
+
+    FileViewPanel._bindOcrSelection(stage, img, sel);
+  };
+
+  FileViewPanel._bindOcrSelection = function(stage, img, sel) {
+    var ns = FileViewPanel._ocrNamespace;
+    var imgEl = img[0];
+    var dragging = false;
+    var startX = 0;
+    var startY = 0;
+    var startDrawX = 0;
+    var startDrawY = 0;
+
+    // 鼠标位置换算为「原图像素坐标」与「相对 stage 的绘制坐标」
+    var locate = function(e) {
+      var imgRect = imgEl.getBoundingClientRect();
+      var stageRect = stage[0].getBoundingClientRect();
+      var x = Math.max(0, Math.min(e.clientX - imgRect.left, imgRect.width));
+      var y = Math.max(0, Math.min(e.clientY - imgRect.top, imgRect.height));
+      return {
+        x: x,
+        y: y,
+        drawX: imgRect.left - stageRect.left + x,
+        drawY: imgRect.top - stageRect.top + y
+      };
+    };
+
+    $(document).off(ns);
+
+    img.on('mousedown' + ns, function(e) {
+      if (e.which !== 1 || FileViewPanel._ocrBusy) {
+        return;
+      }
+      e.preventDefault();
+      var p = locate(e);
+      dragging = true;
+      startX = p.x;
+      startY = p.y;
+      startDrawX = p.drawX;
+      startDrawY = p.drawY;
+      sel.show().css({ left: startDrawX + 'px', top: startDrawY + 'px', width: '0px', height: '0px' });
+    });
+
+    $(document).on('mousemove' + ns, function(e) {
+      if (!dragging) {
+        return;
+      }
+      e.preventDefault();
+      var p = locate(e);
+      sel.css({
+        left: Math.min(startDrawX, p.drawX) + 'px',
+        top: Math.min(startDrawY, p.drawY) + 'px',
+        width: Math.abs(p.drawX - startDrawX) + 'px',
+        height: Math.abs(p.drawY - startDrawY) + 'px'
+      });
+    });
+
+    $(document).on('mouseup' + ns, function(e) {
+      if (!dragging) {
+        return;
+      }
+      dragging = false;
+      var p = locate(e);
+      var imgWidth = imgEl.getBoundingClientRect().width;
+      var naturalWidth = stage.data('naturalWidth') || imgEl.naturalWidth || imgWidth;
+      var scale = imgWidth > 0 ? (naturalWidth / imgWidth) : 1;
+
+      var x = Math.round(Math.min(startX, p.x) * scale);
+      var y = Math.round(Math.min(startY, p.y) * scale);
+      var width = Math.round(Math.abs(p.x - startX) * scale);
+      var height = Math.round(Math.abs(p.y - startY) * scale);
+
+      if (width < 4 || height < 4) {
+        sel.hide();
+        return;
+      }
+      FileViewPanel._submitOcrCrop(x, y, width, height, sel);
+    });
+
+    stage.on('remove', function() {
+      $(document).off(ns);
+    });
+  };
+
+  FileViewPanel._submitOcrCrop = function(x, y, width, height, sel) {
+    if (FileViewPanel._currentFiles.length === 0) {
+      return;
+    }
+    var file = FileViewPanel._currentFiles[FileViewPanel._currentFileIndex];
+    var page = FileViewPanel._currentPage > 0 ? FileViewPanel._currentPage : 1;
+    var stage = FileViewPanel._panel.find('.file-view-ocr-stage');
+
+    FileViewPanel._ocrBusy = true;
+    stage.addClass('busy');
+
+    Refine.wrapCSRF(function(token) {
+      $.ajax({
+        url: '/command/data-quality/ocr-crop',
+        type: 'POST',
+        data: {
+          root: file.rootPath,
+          path: file.name,
+          page: page,
+          x: x,
+          y: y,
+          width: width,
+          height: height,
+          mode: 'auto',
+          csrf_token: token
+        },
+        dataType: 'json',
+        success: function(data) {
+          FileViewPanel._ocrBusy = false;
+          stage.removeClass('busy');
+          if (data && data.status === 'ok') {
+            sel.hide();
+            var text = (data.text === null || data.text === undefined) ? '' : String(data.text);
+            if (!text) {
+              // 空结果不能走写回：就地编辑框默认全选，插入空串会把单元格清空
+              var emptyMsg = $.i18n('data-quality-extension/file-view-ocr-empty');
+              if (!emptyMsg || emptyMsg.indexOf('data-quality-extension/') === 0) {
+                emptyMsg = '未识别到文字，请调整框选范围或改选纯文字模式后重试。';
+              }
+              alert(emptyMsg);
+              return;
+            }
+            FileViewPanel._applyOcrResult(text);
+          } else {
+            alert((data && data.message) || ($.i18n('data-quality-extension/file-view-ocr-failed') || 'OCR 识别失败'));
+          }
+        },
+        error: function() {
+          FileViewPanel._ocrBusy = false;
+          stage.removeClass('busy');
+          alert($.i18n('data-quality-extension/file-view-ocr-failed') || 'OCR 识别失败');
+        }
+      });
+    });
+  };
+
+  /**
+   * 写回识别结果：有就地编辑框则替换选区 / 插入光标后；
+   * 否则弹提示并把结果放到剪贴板，供用户自行粘贴。
+   */
+  FileViewPanel._applyOcrResult = function(text) {
+    text = (text === null || text === undefined) ? '' : String(text);
+
+    var editor = (typeof DataTableCellUI !== 'undefined') ? DataTableCellUI.activeInlineEditor : null;
+    if (editor && typeof editor.insertText === 'function') {
+      editor.insertText(text);
+      return;
+    }
+
+    FileViewPanel._copyTextToClipboard(text);
+    var message = $.i18n('data-quality-extension/file-view-ocr-result-copied');
+    if (!message || message.indexOf('data-quality-extension/') === 0) {
+      message = 'OCR结果：$1。结果已拷贝供粘贴。';
+    }
+    alert(message.replace('$1', text));
+  };
+
+  FileViewPanel._copyTextToClipboard = function(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) {
+      // 非安全上下文不支持 Clipboard API，回退到 execCommand
+    }
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      return true;
+    } catch (e) {
+      return false;
     }
   };
 
@@ -792,9 +1194,45 @@ var FileViewPanel = {};
     }
   };
 
+  /** 切换浮窗内的操作作用域（'preview' / 'list' / null），并给对应区域描边反馈 */
+  FileViewPanel._setActiveScope = function(scope) {
+    FileViewPanel._activeScope = scope || null;
+    if (FileViewPanel._panel) {
+      FileViewPanel._panel
+        .toggleClass('preview-active', FileViewPanel._activeScope === 'preview')
+        .toggleClass('list-active', FileViewPanel._activeScope === 'list');
+    }
+  };
+
+  /** 滚动右侧文件列表：预览区滚轮转发与「列表作用域」下的上下键共用同一入口 */
+  FileViewPanel._scrollThumbListBy = function(delta) {
+    var thumbList = FileViewPanel._panel.find('.file-view-thumb-list');
+    thumbList.scrollTop(thumbList.scrollTop() + delta);
+  };
+
+  /**
+   * 预览区翻页：delta 为 -1（上一页）或 +1（下一页）。
+   * PDF 按文件内页号，整目录成件的图片按目录内文件序号，两者都复用 _jumpToPage。
+   */
+  FileViewPanel._goToPage = function(delta) {
+    var page = (FileViewPanel._currentPage > 0 ? FileViewPanel._currentPage : 1) + delta;
+    if (page < 1) {
+      return;
+    }
+    if (FileViewPanel._currentPreviewType === 'pdf') {
+      if (FileViewPanel._pageCount > 0 && page > FileViewPanel._pageCount) {
+        return;
+      }
+    } else if (FileViewPanel._currentFiles.length > 0 && page > FileViewPanel._currentFiles.length) {
+      return;
+    }
+    FileViewPanel._jumpToPage(page);
+  };
+
   FileViewPanel._applyZoom = function() {
     if (!FileViewPanel._panel) return;
-    var img = FileViewPanel._panel.find('.file-view-preview-image');
+    // 普通图片预览与 OCR 位图共用同一套缩放 / 平移参数
+    var img = FileViewPanel._panel.find('.file-view-preview-image, .file-view-ocr-bitmap');
     if (img.length) {
       img.css('transform', 'translate(' + FileViewPanel._currentOffsetX + 'px, ' +
               FileViewPanel._currentOffsetY + 'px) scale(' + FileViewPanel._zoomLevel + ')');
@@ -837,20 +1275,7 @@ var FileViewPanel = {};
       }
     });
 
-    imgContainer.on('wheel' + ns, function(e) {
-      var originalEvent = e.originalEvent;
-      // 文件列表可见时普通滚轮不缩放，交由预览区转发去滚动文件列表；
-      // 需要缩放图像时按住 Ctrl/Alt + 滚轮
-      if (FileViewPanel._isThumbListVisible() && !originalEvent.ctrlKey && !originalEvent.altKey) {
-        return;
-      }
-      e.preventDefault();
-      var delta = originalEvent.deltaY;
-      var zoomStep = delta > 0 ? -0.1 : 0.1;
-      FileViewPanel._zoomLevel = Math.max(0.1, Math.min(5, FileViewPanel._zoomLevel + zoomStep));
-      FileViewPanel._applyZoom();
-    });
-
+    // 滚轮缩放统一由预览区 _bindPreviewWheel 处理（Ctrl/Alt + 滚轮），此处只管拖拽平移
     imgContainer.on('remove', function() {
       $(document).off(ns);
       img.off(ns);
@@ -927,6 +1352,8 @@ var FileViewPanel = {};
   /** 面板打开后把焦点交给右侧文件列表；无列表（单文件）时退回面板本身 */
   FileViewPanel._focusThumbList = function() {
     if (!FileViewPanel._panel) return;
+    // 单元格就地编辑进行中时不抢焦点，否则 Tab 连跳与 OCR 写回会被打断
+    if (typeof DataTableCellUI !== 'undefined' && DataTableCellUI.activeInlineEditor) return;
     if (FileViewPanel._isThumbListVisible()) {
       FileViewPanel._panel.find('.file-view-thumb-list').focus();
     } else {
@@ -935,18 +1362,75 @@ var FileViewPanel = {};
   };
 
   /**
-   * 预览区滚轮转发给文件列表：鼠标停在图像/PDF 预览上滚动时也默认浏览文件，
-   * 而不是缩放图像或翻动 PDF（图像缩放改为 Ctrl/Alt + 滚轮，见 _initImageDrag）。
+   * 预览区滚轮：
+   *  - Ctrl/Alt + 滚轮：缩放当前预览图片（必须 preventDefault，否则浏览器会整页缩放）
+   *  - 非预览作用域：维持原有行为，鼠标停在预览上滚动即浏览右侧文件列表
+   *  - 预览作用域：优先在页面内滚动（放大态平移图像），滚到边界或无法滚动时翻页
    */
-  FileViewPanel._bindPreviewWheelForwarding = function(content) {
+  FileViewPanel._bindPreviewWheel = function(content) {
     content.off('wheel' + FileViewPanel._dragNamespace).on('wheel' + FileViewPanel._dragNamespace, function(e) {
-      if (!FileViewPanel._isThumbListVisible()) return;
+      var originalEvent = e.originalEvent;
       // 文本预览自身可滚动，保留其滚动行为
       if ($(e.target).closest('.file-view-text-container').length > 0) return;
-      var thumbList = FileViewPanel._panel.find('.file-view-thumb-list');
-      thumbList.scrollTop(thumbList.scrollTop() + e.originalEvent.deltaY);
+
       e.preventDefault();
+      if (originalEvent.ctrlKey || originalEvent.altKey) {
+        FileViewPanel._zoomPreview(originalEvent.deltaY > 0 ? -0.1 : 0.1);
+        return;
+      }
+
+      if (FileViewPanel._activeScope !== 'preview') {
+        if (FileViewPanel._isThumbListVisible()) {
+          FileViewPanel._scrollThumbListBy(originalEvent.deltaY);
+        }
+        return;
+      }
+
+      if (FileViewPanel._scrollPreviewBy(originalEvent.deltaY)) {
+        return;
+      }
+      FileViewPanel._goToPage(originalEvent.deltaY > 0 ? 1 : -1);
     });
+  };
+
+  /** Ctrl/Alt + 滚轮：按步进缩放当前预览图片（0.1 ~ 5 倍），OCR 位图同样适用 */
+  FileViewPanel._zoomPreview = function(step) {
+    FileViewPanel._zoomLevel = Math.max(0.1, Math.min(5, FileViewPanel._zoomLevel + step));
+    FileViewPanel._applyZoom();
+  };
+
+  /**
+   * 在预览区内滚动内容（放大后的图像上下平移）。
+   * 返回 true 表示本次滚轮已被内容滚动消费；false 表示已到边界或无法滚动，应转交翻页。
+   */
+  FileViewPanel._scrollPreviewBy = function(deltaY) {
+    if (FileViewPanel._zoomLevel <= 1) {
+      return false;
+    }
+    // 普通图片预览与 OCR 舞台都可滚动，两者都是 overflow:hidden 的居中容器
+    var container = FileViewPanel._panel.find('.file-view-image-container, .file-view-ocr-stage').first();
+    var img = container.find('.file-view-preview-image, .file-view-ocr-bitmap').first();
+    if (container.length === 0 || img.length === 0) {
+      return false;
+    }
+    var viewHeight = container.height();
+    // transform 不参与布局，所以放大后的实际高度要拿布局高度乘缩放比
+    var scaledHeight = img.outerHeight() * FileViewPanel._zoomLevel;
+    if (scaledHeight <= viewHeight) {
+      return false;
+    }
+    // 图片在容器内未必贴顶（flex 居中），偏移边界以图片自身位置为基准
+    var imgTop = img[0].offsetTop;
+    // 向上滚看更靠上的内容（offsetY 增大），向下滚看更靠下的内容（offsetY 减小）
+    var minOffsetY = viewHeight - imgTop - scaledHeight;
+    var maxOffsetY = -imgTop;
+    var clamped = Math.max(minOffsetY, Math.min(maxOffsetY, FileViewPanel._currentOffsetY - deltaY));
+    if (Math.abs(clamped - FileViewPanel._currentOffsetY) < 0.5) {
+      return false;   // 已在边界，交给翻页
+    }
+    FileViewPanel._currentOffsetY = clamped;
+    FileViewPanel._applyZoom();
+    return true;
   };
 
   FileViewPanel._adjustRightPanel = function() {

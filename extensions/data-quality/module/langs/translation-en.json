@@ -180,6 +180,8 @@
   "data-quality-extension/add-comparison-rule": "Add Comparison Rule",
   "data-quality-extension/edit-comparison-rule": "Edit Comparison Rule",
   "data-quality-extension/please-fill-all-fields": "Please fill all required fields",
+  "data-quality-extension/content-check-current-item": "Processing: {0} ({1} pages)",
+  "data-quality-extension/elapsed-seconds": "Elapsed {0}s",
 
   "data-quality-extension/severity-error": "Error",
   "data-quality-extension/severity-warning": "Warning",
@@ -188,6 +190,8 @@
   "data-quality-extension/results-summary": "Results Summary",
   "data-quality-extension/total-rows": "Total Rows",
   "data-quality-extension/error-count": "Errors",
+  "data-quality-extension/total-errors-line": "Total errors {0}: ({1})",
+  "data-quality-extension/check-complete-total": "Check complete, total errors: {0}",
   "data-quality-extension/warning-count": "Warnings",
   "data-quality-extension/pass-count": "Passed",
   "data-quality-extension/category": "Category",
@@ -247,6 +251,8 @@
 
   "data-quality-extension/unmatched": "Unmatched",
   "data-quality-extension/unmatched-columns": "{0} columns not matched to data columns, please click edit to modify",
+  "data-quality-extension/unmatched-columns-block": "Content comparison stopped: these columns do not match any project column: {0}",
+  "data-quality-extension/unmatched-columns-hint": "Check the column names in the rules, or verify the project contains such a column",
   "data-quality-extension/template-field": "Template field",
   "data-quality-extension/click-to-view": "Click to view",
   "data-quality-extension/value-list-for": "Value list -",
@@ -438,6 +444,12 @@
   "data-quality-extension/file-view-no-preview": "Cannot preview this file",
   "data-quality-extension/file-view-download": "Download",
   "data-quality-extension/file-view-no-resource": "No resource files associated with this row",
-  "data-quality-extension/file-view-page-label": "Value found on page:"
+  "data-quality-extension/file-view-page-label": "Value found on page:",
+  "data-quality-extension/file-view-ocr-btn": "OCR",
+  "data-quality-extension/file-view-ocr-btn-title": "Toggle drag-to-OCR selection",
+  "data-quality-extension/file-view-ocr-hint": "Drag on the image to select an area; release to run OCR",
+  "data-quality-extension/file-view-ocr-failed": "OCR failed",
+  "data-quality-extension/file-view-ocr-empty": "No text recognized. Adjust the selection or switch to text mode and retry.",
+  "data-quality-extension/file-view-ocr-result-copied": "OCR result: $1. Copied to clipboard for pasting."
 }
 

@@ -66,6 +66,12 @@ function registerCommands() {
   RS.registerCommand(module, "run-image-quality-check",
       new Packages.com.google.refine.extension.quality.commands.RunImageQualityCheckCommand());
 
+  // OCR crop commands (file view panel)
+  RS.registerCommand(module, "render-file-page",
+      new Packages.com.google.refine.extension.quality.commands.RenderFilePageCommand());
+  RS.registerCommand(module, "ocr-crop",
+      new Packages.com.google.refine.extension.quality.commands.OcrCropCommand());
+
   logger.trace("Data-Quality Extension Command Registration done!");
 }
 

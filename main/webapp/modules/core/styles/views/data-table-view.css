@@ -276,6 +276,34 @@ div.data-table-cell-content-numeric {
   text-align: right;
 }
 
+/* 双击就地编辑：文本框与单元格严格同尺寸，编辑态用浅绿闸线标示当前单元格 */
+.data-table-cell-editing {
+  background-color: var(--fill-primary);
+  /* 浅绿 1px 闸线；用 inset 阴影而非 border，不参与布局，单元格尺寸与位置零抖动 */
+  box-shadow: inset 0 0 0 1px #92d492;
+}
+
+textarea.data-table-cell-inline-editor {
+  display: block;
+  width: 100%;               /* 宽度跟随单元格内容区；折叠左面板等列宽变化时自动保持与单元格边框重合 */
+  margin: 0;
+  padding: 0;                /* 高度由 JS 按原单元格内容区精确给定，padding 不重复计 */
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: auto;
+  box-sizing: content-box;
+  background: transparent;
+  color: #222;
+  font-family: inherit;
+  font-size: inherit;
+  font-style: inherit;
+  font-weight: inherit;
+  line-height: 1.2;          /* 与 div.data-table-cell-content 一致 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .data-table-cell-edit {
   position: absolute;
   right: 0;

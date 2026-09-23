@@ -28,6 +28,9 @@ import com.google.refine.extension.quality.model.QualityRulesConfig;
 import com.google.refine.extension.quality.model.QualityRulesConfig.AimpConfig;
 import com.google.refine.extension.quality.model.ResourceCheckConfig;
 import com.google.refine.extension.quality.task.QualityCheckTask;
+import com.google.refine.extension.quality.util.ColumnSemantics;
+import com.google.refine.extension.quality.util.ColumnSemantics.Slot;
+import com.google.refine.extension.quality.util.ResourceSelector;
 import com.google.refine.model.Cell;
 import com.google.refine.model.Column;
 import com.google.refine.model.Project;
@@ -41,6 +44,9 @@ public class ContentChecker {
 
     private static final Logger logger = LoggerFactory.getLogger(ContentChecker.class);
 
+    /** 列头未匹配时写入 serviceUnavailableMessage 的前缀，前端据此渲染国际化提示 */
+    public static final String UNMATCHED_COLUMNS_PREFIX = "UNMATCHED_COLUMNS:";
+
     // Element key mapping: Chinese label -> English API key
     private static final Map<String, String> ELEMENT_KEY_MAP = new HashMap<>();
     static {
@@ -48,6 +54,9 @@ public class ContentChecker {
         ELEMENT_KEY_MAP.put("责任者", "responsible_party");
         ELEMENT_KEY_MAP.put("文号", "document_number");
         ELEMENT_KEY_MAP.put("成文日期", "issue_date");
+        // 规则界面默认模板的 extractLabel 是「成文时间」，漏映射会让该键原样下发到 AIMP，
+        // 与 AIMP 侧按要素键做的日期降权/归一化对不上（降权会被静默跳过）
+        ELEMENT_KEY_MAP.put("成文时间", "issue_date");
     }
 
     private final Project project;
@@ -76,6 +85,27 @@ public class ContentChecker {
 
         if (contentRules == null || contentRules.isEmpty()) {
             logger.info("No content rules configured, skipping content check");
+            result.complete();
+            return result;
+        }
+
+        // 列头归一化：规则列名解析不到实际列时必须阻断，
+        // 否则该要素不参与比对，会产出「无错误」的假通过，掩盖真正的比对错位
+        List<String> columnNames = new ArrayList<>();
+        for (Column col : project.columnModel.columns) {
+            columnNames.add(col.getName());
+        }
+        List<String> unmatchedColumns = new ArrayList<>();
+        for (ContentComparisonRule rule : contentRules) {
+            if (ColumnSemantics.resolveColumnName(rule.getColumn(), columnNames) == null) {
+                unmatchedColumns.add(rule.getColumn());
+            }
+        }
+        if (!unmatchedColumns.isEmpty()) {
+            logger.error("Content comparison columns not matched: " + unmatchedColumns
+                    + ", project columns: " + columnNames);
+            result.setServiceUnavailable(true);
+            result.setServiceUnavailableMessage(UNMATCHED_COLUMNS_PREFIX + String.join("、", unmatchedColumns));
             result.complete();
             return result;
         }
@@ -110,7 +140,7 @@ public class ContentChecker {
         }
 
         // Collect valid rows with resource paths
-        List<RowData> validRows = collectValidRows(columnIndexMap, resourceConfig);
+        List<RowData> validRows = collectValidRows(columnNames, columnIndexMap, resourceConfig);
         logger.info("Found " + validRows.size() + " valid rows with resources out of " + totalRows);
 
         if (validRows.isEmpty()) {
@@ -173,17 +203,32 @@ public class ContentChecker {
 
             logger.info("Processing batch " + (i / batchSize + 1) + ": rows " + i + " to " + (endIndex - 1));
 
+            // 上报「正在处理的件」：AIMP 以件为原子单位同步处理，件内全部页完成前没有任何信号，
+            // 界面据此显示件名、本件页数与已耗时，避免长时间无变化被误判为卡死。
+            if (task != null && !batch.isEmpty()) {
+                RowData currentItem = batch.get(0);
+                task.setContentCheckCurrentItem(currentItem.dataKey != null
+                        ? currentItem.dataKey : ("第 " + (currentItem.rowIndex + 1) + " 行"));
+                task.setContentCheckCurrentItemPages(currentItem.imageNames.size());
+            }
+
             // Prepare batch data
-            List<Map<String, Object>> excelData = prepareBatchExcelData(batch, columnIndexMap, contentRules);
+            List<Map<String, Object>> excelData = prepareBatchExcelData(batch, columnNames, columnIndexMap, contentRules);
             List<Map<String, Object>> imageData = prepareBatchImageData(batch);
 
             // Call AIMP batch compare
             BatchCompareResult batchResult = aimpClient.batchCompare(
                     taskId, excelData, imageData, elements, confidenceThreshold, similarityThreshold);
 
+            // 本件已回包，清空「正在处理」标记，界面回到「已完成 X/N 件」
+            if (task != null) {
+                task.setContentCheckCurrentItem(null);
+                task.setContentCheckCurrentItemPages(0);
+            }
+
             // Process results
             if (batchResult.isSuccess() && batchResult.getComparisonResult() != null) {
-                processComparisonResults(result, batchResult, batch, contentRules, columnIndexMap);
+                processComparisonResults(result, batchResult, batch, columnNames, contentRules);
             } else {
                 logger.warn("Batch compare failed: " + batchResult.getError());
             }
@@ -204,47 +249,61 @@ public class ContentChecker {
     }
 
     /**
-     * Collect valid rows that have existing resource folders with images
+     * 收集有效行并**按件确定本行的资源文件清单**。
+     *
+     * 两种数据来源的资源粒度不同：
+     *  - 人工录入 + 批量导入：一行 → 一个文件夹 → 文件夹下全部图片（整目录成件）；
+     *  - 案卷级自动提取：同一卷下按题名自动分件，同一卷的 N 件共用同一个「文件夹路径」，
+     *    必须按每件的页区间（起止页号 / 起始页号+终止页号 / 起始页号+页数）切出本件页清单，
+     *    否则每件都会拿到整卷全部页，比对结果整体错位。
      */
-    private List<RowData> collectValidRows(Map<String, Integer> columnIndexMap, ResourceCheckConfig resourceConfig) {
+    private List<RowData> collectValidRows(List<String> columnNames,
+                                           Map<String, Integer> columnIndexMap,
+                                           ResourceCheckConfig resourceConfig) {
         List<RowData> validRows = new ArrayList<>();
         int totalRows = project.rows.size();
 
+        String volumeColumn = ColumnSemantics.findColumnNameBySlot(Slot.VOLUME_NO, columnNames);
+        String pieceColumn = ColumnSemantics.findColumnNameBySlot(Slot.PIECE_NO, columnNames);
+        String rangeColumn = ColumnSemantics.findColumnNameBySlot(Slot.PAGE_RANGE, columnNames);
+        String startColumn = ColumnSemantics.findColumnNameBySlot(Slot.START_PAGE, columnNames);
+        String endColumn = ColumnSemantics.findColumnNameBySlot(Slot.END_PAGE, columnNames);
+        ResourceSelector.PageColumns pageColumns = ResourceSelector.resolvePageColumns(columnNames);
+
         for (int rowIndex = 0; rowIndex < totalRows; rowIndex++) {
             Row row = project.rows.get(rowIndex);
-            String resourcePath = buildResourcePath(row, columnIndexMap, resourceConfig);
+            String resourcePath = buildResourcePath(row, columnNames, columnIndexMap, resourceConfig);
 
             if (resourcePath == null || resourcePath.isEmpty()) {
                 continue;
             }
 
-            File folder = new File(resourcePath);
-            if (!folder.exists() || !folder.isDirectory()) {
+            // 本件页区间（无页号信息时为 null，表示整目录成件）
+            int[] range = pageColumns.resolveRange(row, columnIndexMap);
+            String fileName = ResourceSelector.cellValue(row, columnIndexMap, pageColumns.file);
+            List<File> pieceFiles = ResourceSelector.resolvePieceFiles(resourcePath, fileName, range);
+            if (pieceFiles == null || pieceFiles.isEmpty()) {
+                if (range != null) {
+                    logger.warn("Row " + rowIndex + ": page range " + range[0] + "-" + range[1]
+                            + " cannot be resolved under " + resourcePath + ", skipped");
+                }
                 continue;
             }
 
-            // Get image files in folder
-            File[] imageFiles = folder.listFiles((dir, name) -> {
-                String lowerName = name.toLowerCase();
-                return lowerName.endsWith(".pdf") || lowerName.endsWith(".jpg") ||
-                       lowerName.endsWith(".jpeg") || lowerName.endsWith(".png") ||
-                       lowerName.endsWith(".tif") || lowerName.endsWith(".tiff") ||
-                       lowerName.endsWith(".bmp") || lowerName.endsWith(".gif") ||
-                       lowerName.endsWith(".webp");
-            });
+            List<String> imageFiles = new ArrayList<>();
+            List<String> imageNames = new ArrayList<>();
+            for (File f : pieceFiles) {
+                imageFiles.add(f.getAbsolutePath());
+                imageNames.add(f.getName());
+            }
 
-            if (imageFiles != null && imageFiles.length > 0) {
-                // Sort files to ensure consistent ordering
-                Arrays.sort(imageFiles);
-                List<String> imageNames = Arrays.stream(imageFiles)
-                        .map(File::getName)
-                        .collect(Collectors.toList());
+            validRows.add(new RowData(rowIndex, row, resourcePath, imageFiles, imageNames,
+                    buildDataKey(row, columnIndexMap, volumeColumn, pieceColumn, resourcePath,
+                            rangeColumn, startColumn, endColumn)));
 
-                validRows.add(new RowData(rowIndex, row, resourcePath, imageNames));
-
-                if (rowIndex < 3) {
-                    logger.info("Row " + rowIndex + ": path=" + resourcePath + ", images=" + imageNames.size());
-                }
+            if (rowIndex < 3) {
+                logger.info("Row " + rowIndex + ": path=" + resourcePath + ", files=" + imageNames.size()
+                        + ", range=" + (range == null ? "whole" : range[0] + "-" + range[1]));
             }
         }
 
@@ -252,10 +311,39 @@ public class ContentChecker {
     }
 
     /**
+     * 比对结果的对齐键。用「案卷号|件号」替代行号：
+     * 行号只在单项目内有效，且批量提取与人工录入的行序不一致，会造成错位。
+     * 无件号时回退「文件夹路径|起始页」，仍无则回退行号。
+     */
+    private String buildDataKey(Row row, Map<String, Integer> columnIndexMap,
+                                String volumeColumn, String pieceColumn, String resourcePath,
+                                String rangeColumn, String startColumn, String endColumn) {
+        String volumeNo = ResourceSelector.cellValue(row, columnIndexMap, volumeColumn);
+        String pieceNo = ResourceSelector.cellValue(row, columnIndexMap, pieceColumn);
+        if (!pieceNo.isEmpty()) {
+            return volumeNo.isEmpty() ? pieceNo : volumeNo + "|" + pieceNo;
+        }
+        if (resourcePath != null && !resourcePath.isEmpty()) {
+            Integer start = ResourceSelector.parseInt(ResourceSelector.cellValue(row, columnIndexMap, startColumn));
+            if (start == null) {
+                int[] range = ColumnSemantics.parsePageRange(
+                        ResourceSelector.cellValue(row, columnIndexMap, rangeColumn));
+                if (range != null) start = range[0];
+            }
+            if (start == null) {
+                start = ResourceSelector.parseInt(ResourceSelector.cellValue(row, columnIndexMap, endColumn));
+            }
+            return resourcePath + "|" + (start == null ? "" : start);
+        }
+        return null;
+    }
+
+    /**
      * Prepare Excel data for batch API call
      */
     private List<Map<String, Object>> prepareBatchExcelData(
             List<RowData> batch,
+            List<String> columnNames,
             Map<String, Integer> columnIndexMap,
             List<ContentComparisonRule> contentRules) {
 
@@ -263,15 +351,15 @@ public class ContentChecker {
 
         for (RowData rowData : batch) {
             Map<String, Object> rowMap = new HashMap<>();
-            rowMap.put("dataKey", String.valueOf(rowData.rowIndex));
+            rowMap.put("dataKey", rowData.dataKey);
             rowMap.put("rowNum", rowData.rowIndex + 1); // 1-based for display
 
             // Add element values from row
             for (ContentComparisonRule rule : contentRules) {
-                String columnName = rule.getColumn();
+                String columnName = ColumnSemantics.resolveColumnName(rule.getColumn(), columnNames);
                 String elementKey = ELEMENT_KEY_MAP.getOrDefault(rule.getExtractLabel(), rule.getExtractLabel());
 
-                Integer cellIndex = columnIndexMap.get(columnName);
+                Integer cellIndex = columnName == null ? null : columnIndexMap.get(columnName);
                 if (cellIndex != null) {
                     Cell cell = rowData.row.getCell(cellIndex);
                     String value = cell != null && cell.value != null ? cell.value.toString().trim() : "";
@@ -286,7 +374,8 @@ public class ContentChecker {
     }
 
     /**
-     * Prepare image data for batch API call
+     * Prepare image data for batch API call.
+     * imageFiles 为本件切分后的绝对路径清单，AIMP 侧优先使用它，避免同卷多件共用目录时相互覆盖。
      */
     private List<Map<String, Object>> prepareBatchImageData(List<RowData> batch) {
         List<Map<String, Object>> imageData = new ArrayList<>();
@@ -294,9 +383,10 @@ public class ContentChecker {
         for (RowData rowData : batch) {
             Map<String, Object> imageMap = new HashMap<>();
             imageMap.put("path", rowData.resourcePath);
-            imageMap.put("dataKey", String.valueOf(rowData.rowIndex));
+            imageMap.put("dataKey", rowData.dataKey);
             imageMap.put("imageNames", String.join(",", rowData.imageNames));
             imageMap.put("imageCount", rowData.imageNames.size());
+            imageMap.put("imageFiles", rowData.imageFiles);
             imageData.add(imageMap);
         }
 
@@ -310,22 +400,25 @@ public class ContentChecker {
             CheckResult result,
             BatchCompareResult batchResult,
             List<RowData> batch,
-            List<ContentComparisonRule> contentRules,
-            Map<String, Integer> columnIndexMap) {
+            List<String> columnNames,
+            List<ContentComparisonRule> contentRules) {
 
         Map<String, Map<String, ElementResult>> comparisonResult = batchResult.getComparisonResult();
 
         for (RowData rowData : batch) {
-            String dataKey = String.valueOf(rowData.rowIndex);
-            Map<String, ElementResult> rowResults = comparisonResult.get(dataKey);
+            String dataKey = rowData.dataKey;
+            Map<String, ElementResult> rowResults = dataKey == null ? null : comparisonResult.get(dataKey);
 
             if (rowResults == null) {
                 // Try with rowNum suffix format (dataKey_rowNum)
-                rowResults = comparisonResult.get(dataKey + "_" + (rowData.rowIndex + 1));
+                rowResults = comparisonResult.get(String.valueOf(rowData.rowIndex));
+            }
+            if (rowResults == null) {
+                rowResults = comparisonResult.get(rowData.rowIndex + "_" + (rowData.rowIndex + 1));
             }
 
             if (rowResults == null) {
-                logger.debug("No results for row " + rowData.rowIndex);
+                logger.debug("No results for dataKey " + dataKey);
                 continue;
             }
 
@@ -334,20 +427,36 @@ public class ContentChecker {
                 String elementKey = ELEMENT_KEY_MAP.getOrDefault(rule.getExtractLabel(), rule.getExtractLabel());
                 ElementResult elemResult = rowResults.get(elementKey);
 
-                if (elemResult != null && elemResult.isHasError()) {
-                    String columnName = rule.getColumn();
-                    String errorType = elemResult.getSimilarity() < 50 ? "content_mismatch" : "content_warning";
-                    String message = String.format("相似度 %.1f%% < 阈值 %d%% (抽取值: %s)",
-                            elemResult.getSimilarity() * 100, rule.getThreshold(), elemResult.getExtractedValue());
-
-                    result.addError(new CheckError(rowData.rowIndex, columnName,
-                            elemResult.getExcelValue(), errorType, message, elemResult.getExtractedValue()));
+                if (elemResult == null) {
+                    continue;
                 }
+
+                // 最终判定以「规则级相似度阈值」为准：该阈值由内容比对规则界面按要素设置（0~100）。
+                // aimpConfig.similarityThreshold 没有界面入口、恒为默认值，只能作为下发给 AIMP 的参考值，
+                // 不能作为判定依据，否则界面上配置的阈值形同虚设。
+                double similarityPercent = elemResult.getSimilarity() * 100;
+                if (similarityPercent >= rule.getThreshold()) {
+                    continue;
+                }
+
+                // 用项目实际列名标记错误，前端才能定位到单元格
+                String columnName = ColumnSemantics.resolveColumnName(rule.getColumn(), columnNames);
+                if (columnName == null) {
+                    columnName = rule.getColumn();
+                }
+                // 相似度低于 50% 视为严重不符，否则视为疑似差异（原写法误用百分数导致该分支恒为 mismatch）
+                String errorType = similarityPercent < 50 ? "content_mismatch" : "content_warning";
+                String message = String.format("相似度 %.1f%% < 阈值 %d%% (抽取值: %s)",
+                        similarityPercent, rule.getThreshold(), elemResult.getExtractedValue());
+
+                result.addError(new CheckError(rowData.rowIndex, columnName,
+                        elemResult.getExcelValue(), errorType, message, elemResult.getExtractedValue()));
             }
         }
     }
 
-    private String buildResourcePath(Row row, Map<String, Integer> columnIndexMap, ResourceCheckConfig config) {
+    private String buildResourcePath(Row row, List<String> columnNames,
+                                     Map<String, Integer> columnIndexMap, ResourceCheckConfig config) {
         if (config == null) return null;
 
         String basePath = config.getBasePath();
@@ -363,7 +472,9 @@ public class ContentChecker {
         // Get field values
         List<String> values = new ArrayList<>();
         for (String fieldName : pathFields) {
-            Integer cellIndex = columnIndexMap.get(fieldName);
+            // 列名归一化：人工录入用「源路径」、批量提取用「文件夹路径」，语义相同
+            String resolvedField = ColumnSemantics.resolveColumnName(fieldName, columnNames);
+            Integer cellIndex = resolvedField == null ? null : columnIndexMap.get(resolvedField);
             if (cellIndex != null) {
                 Cell cell = row.getCell(cellIndex);
                 String value = cell != null && cell.value != null ? cell.value.toString() : "";
@@ -711,13 +822,20 @@ public class ContentChecker {
         final int rowIndex;
         final Row row;
         final String resourcePath;
+        /** 本件切分后的资源文件绝对路径清单 */
+        final List<String> imageFiles;
         final List<String> imageNames;
+        /** 与 AIMP 结果对齐使用的键：案卷号|件号 */
+        final String dataKey;
 
-        RowData(int rowIndex, Row row, String resourcePath, List<String> imageNames) {
+        RowData(int rowIndex, Row row, String resourcePath, List<String> imageFiles,
+                List<String> imageNames, String dataKey) {
             this.rowIndex = rowIndex;
             this.row = row;
             this.resourcePath = resourcePath;
+            this.imageFiles = imageFiles;
             this.imageNames = imageNames;
+            this.dataKey = dataKey;
         }
     }
 }

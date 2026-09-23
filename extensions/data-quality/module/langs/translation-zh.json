@@ -176,6 +176,8 @@
   "data-quality-extension/add-comparison-rule": "添加比对规则",
   "data-quality-extension/edit-comparison-rule": "编辑比对规则",
   "data-quality-extension/please-fill-all-fields": "请填写所有必填项",
+  "data-quality-extension/content-check-current-item": "正在处理: {0}（本件 {1} 页）",
+  "data-quality-extension/elapsed-seconds": "已耗时 {0} 秒",
 
   "data-quality-extension/severity-error": "错误",
   "data-quality-extension/severity-warning": "警告",
@@ -184,6 +186,8 @@
   "data-quality-extension/results-summary": "检查结果汇总",
   "data-quality-extension/total-rows": "总行数",
   "data-quality-extension/error-count": "错误数",
+  "data-quality-extension/total-errors-line": "总错误数 {0}: （{1}）",
+  "data-quality-extension/check-complete-total": "检查完成，总错误数: {0} 个",
   "data-quality-extension/warning-count": "警告数",
   "data-quality-extension/pass-count": "通过数",
   "data-quality-extension/category": "分类",
@@ -239,6 +243,8 @@
 
   "data-quality-extension/unmatched": "未匹配",
   "data-quality-extension/unmatched-columns": "有 {0} 个列未匹配到数据列，请点击编辑进行修改",
+  "data-quality-extension/unmatched-columns-block": "以下比对列未匹配到项目中的数据列，已停止内容比对：{0}",
+  "data-quality-extension/unmatched-columns-hint": "请检查规则中的列名，或确认项目是否存在该列（人工录入与自动提取的列头名称可能不同）",
   "data-quality-extension/template-field": "模板字段",
   "data-quality-extension/click-to-view": "点击查看",
   "data-quality-extension/value-list-for": "值列表 -",
@@ -444,6 +450,12 @@
   "data-quality-extension/file-view-no-preview": "当前文件无法预览",
   "data-quality-extension/file-view-download": "下载",
   "data-quality-extension/file-view-no-resource": "该行未关联资源文件",
-  "data-quality-extension/file-view-page-label": "取值所在页："
+  "data-quality-extension/file-view-page-label": "取值所在页：",
+  "data-quality-extension/file-view-ocr-btn": "OCR识别",
+  "data-quality-extension/file-view-ocr-btn-title": "开启/关闭拉框 OCR 识别",
+  "data-quality-extension/file-view-ocr-hint": "在图上按住鼠标左键拉框，松开后自动识别",
+  "data-quality-extension/file-view-ocr-failed": "OCR 识别失败",
+  "data-quality-extension/file-view-ocr-empty": "未识别到文字，请调整框选范围或改选纯文字模式后重试。",
+  "data-quality-extension/file-view-ocr-result-copied": "OCR结果：$1。结果已拷贝供粘贴。"
 }
 

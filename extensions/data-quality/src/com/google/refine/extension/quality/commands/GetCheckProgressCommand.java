@@ -56,9 +56,12 @@ public class GetCheckProgressCommand extends Command {
         responseNode.put("processedRows", task.getProcessedRows());
         responseNode.put("contentCheckTotal", task.getContentCheckTotal());
         responseNode.put("contentCheckProcessed", task.getContentCheckProcessed());
+        responseNode.put("contentCheckCurrentItem", task.getContentCheckCurrentItem());
+        responseNode.put("contentCheckCurrentItemPages", task.getContentCheckCurrentItemPages());
         responseNode.put("formatErrors", task.getFormatErrors());
         responseNode.put("resourceErrors", task.getResourceErrors());
         responseNode.put("contentErrors", task.getContentErrors());
+        responseNode.put("imageQualityErrors", task.getImageQualityErrors());
 
         if (task.getErrorMessage() != null) {
             responseNode.put("errorMessage", task.getErrorMessage());

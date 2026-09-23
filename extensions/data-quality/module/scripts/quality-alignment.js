@@ -1734,6 +1734,16 @@ QualityAlignment._renderResultsTab = function() {
 
   if (result && result.serviceUnavailable) {
     console.log('[QualityAlignment._renderResultsTab] 准备渲染serviceUnavailable alert');
+    var suMessage = result.serviceUnavailableMessage || '';
+    // 列头未匹配（比对无法进行）与 AI 服务不可用是两类问题，提示需区分
+    var isColumnMismatch = suMessage.indexOf('UNMATCHED_COLUMNS:') === 0;
+    var suHtml = isColumnMismatch
+      ? '<strong>' + $.i18n('data-quality-extension/unmatched-columns-block')
+          .replace('{0}', suMessage.substring('UNMATCHED_COLUMNS:'.length)) + '</strong> '
+          + $.i18n('data-quality-extension/unmatched-columns-hint')
+      : '<strong>' + $.i18n('data-quality-extension/aimp-service-unavailable') + '</strong> '
+          + $.i18n('data-quality-extension/aimp-service-incomplete');
+
     var serviceUnavailableAlert = $('<div class="quality-service-unavailable-alert"></div>')
       .css({
         'background-color': '#fffbfbff',
@@ -1744,24 +1754,25 @@ QualityAlignment._renderResultsTab = function() {
       })
       .appendTo(summarySection);
 
-    $('<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;"></div>')
+    var alertRow = $('<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;"></div>')
       .append(
         $('<img src="images/extensions/triangle-exclamation.svg"/>')
           .css({'width': '20px', 'height': '20px'})
       )
-      .append(
-        $('<span></span>')
-          .html('<strong>' + $.i18n('data-quality-extension/aimp-service-unavailable') + '</strong> ' + $.i18n('data-quality-extension/aimp-service-incomplete'))
-      )
-      .append(
+      .append($('<span></span>').html(suHtml));
+
+    if (!isColumnMismatch) {
+      alertRow.append(
         $('<button class="button"></button>')
           .text($.i18n('data-quality-extension/configure-aimp'))
           .css({'padding': '4px 12px', 'font-size': '13px'})
           .on('click', function() {
             self._showAimpConfigDialog();
           })
-      )
-      .appendTo(serviceUnavailableAlert);
+      );
+    }
+
+    alertRow.appendTo(serviceUnavailableAlert);
   }
 
   // Pie chart section
