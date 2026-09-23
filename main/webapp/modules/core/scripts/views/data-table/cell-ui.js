@@ -127,6 +127,23 @@ DataTableCellUI.prototype._render = function() {
 /** 当前处于就地编辑状态的单元格编辑器，供 OCR 等外部功能写入内容 */
 DataTableCellUI.activeInlineEditor = null;
 
+/**
+ * 单元格提交会写入一条历史操作，提交后自动把左侧面板切到「历史记录」页，
+ * 便于立即核对或撤销本次改动。面板未就绪（如扩展独立使用）时静默跳过。
+ */
+DataTableCellUI._showHistoryTab = function() {
+  if (typeof ui === 'undefined' || !ui || !ui.leftPanelTabs || !ui.leftPanelTabs.length) {
+    return;
+  }
+  var index = ui.leftPanelTabs
+      .find('a[href="#refine-tabs-history"]')
+      .closest('li')
+      .index();
+  if (index >= 0) {
+    ui.leftPanelTabs.tabs('option', 'active', index);
+  }
+};
+
 DataTableCellUI.prototype._startInlineEdit = function() {
   var self = this;
   var cell = this._cell;
@@ -237,6 +254,8 @@ DataTableCellUI.prototype._startInlineEdit = function() {
             self._dataTableView._autoFitColumnWidths(
                 $(self._td).closest('table.data-table').find('colgroup'));
           }
+          // 本次提交已写入历史，切到左侧「历史记录」页便于立即核对或撤销
+          DataTableCellUI._showHistoryTab();
           // 提交完成（单元格 DOM 已重绘）后再切换焦点，避免被本次重绘打断
           if (onCommitted) {
             onCommitted();
@@ -476,7 +495,12 @@ DataTableCellUI.prototype._startEdit = function(elmt) {
             type: type
           }])
         },
-        { cellsChanged: true }
+        { cellsChanged: true },
+        {
+          onDone: function() {
+            DataTableCellUI._showHistoryTab();
+          }
+        }
       );
     } else {
       Refine.postCoreProcess(
@@ -500,6 +524,7 @@ DataTableCellUI.prototype._startEdit = function(elmt) {
             self._cell = o.cell;
             self._dataTableView._updateCell(self._rowIndex, self._cellIndex, self._cell);
             self._render();
+            DataTableCellUI._showHistoryTab();
           }
         }
       );
