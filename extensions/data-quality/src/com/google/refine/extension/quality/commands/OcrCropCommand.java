@@ -29,12 +29,6 @@ public class OcrCropCommand extends Command {
 
     private static final Logger logger = LoggerFactory.getLogger(OcrCropCommand.class);
 
-    /** 空结果重试时每边的补白比例（相对裁剪框长边），首项 0 表示先用原框识别一次 */
-    private static final double[] RETRY_PAD_RATIOS = { 0, 0.08, 0.20 };
-
-    /** 补白最小像素数，避免小框补白过少不起作用 */
-    private static final int MIN_RETRY_PAD = 4;
-
     @Override
     public void doPost(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
@@ -77,44 +71,25 @@ public class OcrCropCommand extends Command {
 
             AimpClient client = new AimpClient(serviceUrl);
 
-            // 空结果重试：OCR 检测模型对文字是否贴边很敏感，拉框稍紧时贴边文字会被当作
-            // 边界裁掉而识别不出（框只差几像素结果就不同）。识别为空时向外补白重试，
-            // 让文字四周重新获得留白，共最多 3 次尝试（原框 + 2 档补白）。
-            AimpClient.OcrCropResult ocr = null;
-            String text = "";
-            int attempts = 0;
-            for (int i = 0; i < RETRY_PAD_RATIOS.length; i++) {
-                attempts = i + 1;
-                BufferedImage candidate = crop;
-                if (i > 0) {
-                    int pad = (int) Math.round(Math.max(
-                            MIN_RETRY_PAD,
-                            Math.max(crop.getWidth(), crop.getHeight()) * RETRY_PAD_RATIOS[i]));
-                    candidate = FileImageRenderer.pad(crop, pad);
-                }
-                ocr = client.ocrCrop(FileImageRenderer.toPngBytes(candidate), "crop_" + page + ".png", mode);
-                if (!ocr.isSuccess()) {
-                    result.put("status", "error");
-                    result.put("code", "ocr-failed");
-                    result.put("message", ocr.getError());
-                    respondJSON(response, result);
-                    return;
-                }
-                text = normalizeOcrText(ocr.getText());
-                if (!text.isEmpty()) {
-                    break;
-                }
-                if (i < RETRY_PAD_RATIOS.length - 1) {
-                    logger.info("OCR 第 {} 次识别为空（框 {}x{} @ {},{}），补白后重试",
-                            attempts, crop.getWidth(), crop.getHeight(), x, y);
-                }
+            // 本层不再做空结果重试：此前按"向外补白"重试是为贴边文字设计的，但对印章是
+            // 负向的——框越大，章在"短边抬到 736"的送检图里占比越小、绝对像素越少，det 行框
+            // 更弱、rec 行图更小，实测同一枚章外扩 8% 常由十余字崩到 0~3 字。鲁棒性已下沉到
+            // AIMP 侧：印章链路内多尺度重试，印章空结果回落通用 OCR。
+            AimpClient.OcrCropResult ocr =
+                    client.ocrCrop(FileImageRenderer.toPngBytes(crop), "crop_" + page + ".png", mode);
+
+            if (!ocr.isSuccess()) {
+                result.put("status", "error");
+                result.put("code", "ocr-failed");
+                result.put("message", ocr.getError());
+                respondJSON(response, result);
+                return;
             }
 
             result.put("status", "ok");
-            result.put("text", text);
+            result.put("text", normalizeOcrText(ocr.getText()));
             result.put("category", ocr.getCategory());
             result.put("confidence", ocr.getConfidence());
-            result.put("attempts", attempts);
             result.put("imageWidth", source.getWidth());
             result.put("imageHeight", source.getHeight());
             respondJSON(response, result);
@@ -141,14 +116,15 @@ public class OcrCropCommand extends Command {
     }
 
     /**
-     * OCR 结果规范化为一行：去掉回车换行，换行前后的空白一并去掉再拼接，
-     * 避免写回单元格时带回多行内容。
+     * OCR 结果规范化为一行：回车换行连同两侧空白换成单个空格，避免写回单元格时带回多行内容，
+     * 同时保留各文本段之间的间隔。分格章面（归档方章等）由 OCR 按格返回多个文本块，例如
+     * '33\n2019\n218\n30\n12'，若直接粘连成 '3320192183012' 会丢掉分格信息、无法人工核对。
      */
     static String normalizeOcrText(String raw) {
         if (raw == null) {
             return "";
         }
-        return raw.replaceAll("\\s*[\\r\\n]+\\s*", "").trim();
+        return raw.replaceAll("\\s*[\\r\\n]+\\s*", " ").trim();
     }
 
     static int parseInt(String raw, int defaultValue) {

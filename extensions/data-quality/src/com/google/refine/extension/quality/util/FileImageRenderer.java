@@ -98,25 +98,6 @@ public class FileImageRenderer {
         return toRgb(source.getSubimage(sx, sy, sw, sh));
     }
 
-    /**
-     * 在裁剪块四周补白，用于 OCR 空结果重试：检测模型对文字贴边很敏感，
-     * 拉框过紧时贴边文字会被当作边界裁掉，四周补白可让文字重新获得留白。
-     */
-    public static BufferedImage pad(BufferedImage image, int pad) {
-        if (pad <= 0) {
-            return image;
-        }
-        int width = image.getWidth() + pad * 2;
-        int height = image.getHeight() + pad * 2;
-        BufferedImage padded = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
-        Graphics2D graphics = padded.createGraphics();
-        graphics.setColor(Color.WHITE);
-        graphics.fillRect(0, 0, width, height);
-        graphics.drawImage(image, pad, pad, null);
-        graphics.dispose();
-        return padded;
-    }
-
     public static byte[] toPngBytes(BufferedImage image) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         ImageIO.write(image, "png", out);

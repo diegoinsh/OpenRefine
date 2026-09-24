@@ -402,13 +402,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: crosshair;
+  /* 拉框光标：自定义细十字（尺寸/线宽见 images/ocr-crosshair.svg），加载失败时回退为系统 crosshair */
+  cursor: url('images/ocr-crosshair.svg') 8 8, crosshair;
 }
 
 .file-view-ocr-bitmap {
   display: block;
   max-width: 100%;
-  max-height: 100%;
+  max-height: 99.5%;
   object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
