@@ -6,21 +6,29 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.refine.ProjectManager;
 import com.google.refine.model.Cell;
 import com.google.refine.model.Column;
+import com.google.refine.model.ColumnModel;
 import com.google.refine.model.Project;
 import com.google.refine.model.Row;
+import com.google.refine.model.SheetData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -46,11 +54,33 @@ public class BatchExtractionManager {
     /** 项目 metadata 中「要素取值所在页码」的键，形如 {行号: {列名: [{v:取值, c:置信度, p:页码}]}} */
     public static final String PAGE_MAP_KEY = "aimpElementPageMap";
 
+    /**
+     * 页映射的行级键「件首页」：值为 {v,c,p,f}，p 为件起始页、f 为该页文件名。
+     * 前端点击「要素以外的行」时按它定位到该件第一页；与列名区分开，不会与要素候选混淆。
+     */
+    public static final String PIECE_START_KEY = "__piece_start__";
+
+    /**
+     * 诉讼档案单批并发页数。需与以下两处对齐，否则以最小值生效：
+     * Ollama 的 OLLAMA_NUM_PARALLEL、AIMP 的 config/single_gpu_config.yaml 中
+     * pipeline.max_workers，当前三者均为 4。
+     * 实测（2026-09-26）：本机 GPU 上 OCR 与 LLM 共用带宽，4→8 路时单路 decode
+     * 的 ms/token 精确翻倍、页吞吐仅 +3%，而单页耗时从 13.4s 涨到 26-34s，
+     * 故维持 4 路。压测中「4→8 有 +16%」是 GPU 上只有 LLM 时的结论，不适用于本机生产。
+     */
+    private static final int PAGE_CONCURRENCY = 4;
+
     public static class Task {
         public final long projectId;
         public final String rootPath;
         public final ExtractionTemplate template;
         public final List<CustomElementType> customElements;
+        /** 档案门类，决定 AIMP 侧使用的提取规则提示词；null 时由 AIMP 回退文书档案 */
+        public final String archiveCategory;
+        /** 专业档案的二级细分类别；非空时优先于门类匹配 AIMP 侧规则，未命中则回退门类规则 */
+        public final String archiveSubCategory;
+        /** 本批次勾选提取的固定要素键；为空表示使用模板的全部要素 */
+        public final List<String> selectedKeys;
         public final List<UnitScanner.Volume> units;
         public final boolean disableCache;
         public volatile int totalPages;
@@ -74,13 +104,24 @@ public class BatchExtractionManager {
         /** 要素取值所在页码：{行号: {列名: [{v,c,p}]}}，随行写入并定期落到项目 metadata */
         public final ObjectNode pageMap = mapper.createObjectNode();
 
+        /** 案卷级双表项目的「卷内」数据表；文件级单表项目为 null，直接写入 project */
+        public SheetData innerSheet;
+        /** 案卷级双表项目的「卷级」汇总数据表；文件级单表项目为 null */
+        public SheetData summarySheet;
+        /** 各案卷的汇总累加状态，按卷的扫描顺序保序 */
+        public final Map<String, VolumeSummary> volumeSummaries = new LinkedHashMap<>();
+
         public Task(long projectId, String rootPath, ExtractionTemplate template,
-                    List<CustomElementType> customElements, List<UnitScanner.Volume> units,
-                    boolean disableCache) {
+                    List<CustomElementType> customElements, String archiveCategory,
+                    String archiveSubCategory, List<String> selectedKeys,
+                    List<UnitScanner.Volume> units, boolean disableCache) {
             this.projectId = projectId;
             this.rootPath = rootPath;
             this.template = template;
             this.customElements = customElements;
+            this.archiveCategory = archiveCategory;
+            this.archiveSubCategory = archiveSubCategory;
+            this.selectedKeys = selectedKeys;
             this.units = units;
             this.disableCache = disableCache;
             int total = 0;
@@ -88,6 +129,114 @@ public class BatchExtractionManager {
             this.totalPages = total;
             this.totalFiles = units.size();
         }
+    }
+
+    /**
+     * 单个案卷的卷级汇总累加状态：卷内每落一行即累加一次，
+     * 责任者去重保序，成文日期只取非空并记录最早/最晚，页数与文件份数按实际累加。
+     */
+    static class VolumeSummary {
+        final String caseNo;
+        final String folderPath;
+        final int fileCount;
+        final Set<String> responsibleParties = new LinkedHashSet<>();
+        /** 卷内各件题名拆出的事由，去重保序 */
+        final Set<String> causes = new LinkedHashSet<>();
+        /** 卷内各件题名拆出的文种，去重保序 */
+        final Set<String> docTypes = new LinkedHashSet<>();
+        /** 卷内出现过的法院名及件数：诉讼档案卷级题名要取本卷立卷法院，而非原审法院 */
+        final Map<String, Integer> courtCounts = new LinkedHashMap<>();
+        /** 诉讼档案专用要素，取卷内首个非空值 */
+        String parties;
+        String cause;
+        String trialLevel;
+        String minDate;
+        String maxDate;
+        int totalPages;
+
+        VolumeSummary(String caseNo, String folderPath, int fileCount) {
+            this.caseNo = caseNo;
+            this.folderPath = folderPath;
+            this.fileCount = fileCount;
+        }
+
+        void add(String responsibleParty, String date, int pages, String title,
+                 Map<String, String> values) {
+            if (responsibleParty != null && !responsibleParty.trim().isEmpty()) {
+                String rp = responsibleParty.trim();
+                responsibleParties.add(rp);
+                // 识别制作机关是否为法院：全称含"法院"，也兼容"××中院""××高院"这类简称
+                if (rp.contains("法院") || rp.endsWith("中院") || rp.endsWith("高院")) {
+                    courtCounts.merge(rp, 1, Integer::sum);
+                }
+            }
+            if (date != null && !date.trim().isEmpty()) {
+                String d = date.trim();
+                if (minDate == null || d.compareTo(minDate) < 0) {
+                    minDate = d;
+                }
+                if (maxDate == null || d.compareTo(maxDate) > 0) {
+                    maxDate = d;
+                }
+            }
+            if (title != null && !title.trim().isEmpty()) {
+                String[] causeAndDocType = TitleSplitter.splitCauseAndDocType(title);
+                if (!causeAndDocType[0].isEmpty()) {
+                    causes.add(causeAndDocType[0]);
+                }
+                if (!causeAndDocType[1].isEmpty()) {
+                    docTypes.add(causeAndDocType[1]);
+                }
+            }
+            if (values != null) {
+                if (parties == null) parties = trimToNull(values.get("dangshiren"));
+                if (cause == null) cause = trimToNull(values.get("anyou"));
+                if (trialLevel == null) trialLevel = trimToNull(values.get("shenji"));
+            }
+            totalPages += pages;
+        }
+
+        /**
+         * 卷级题名。当事人与案由齐全、且能识别出本卷立卷法院时，按诉讼档案著录惯例构成：
+         * 「立卷法院」+「关于」+「当事人」+「案由」+「一案」+「的审级」+「诉讼档案」，
+         * 例如「河北省张家口市中级人民法院关于袁连顺、袁凤莲与袁凤仙、袁凤鸣继承纠纷一案的二审诉讼档案」；
+         * 条件不足时退回通用写法：「关于」+ 事由1、事由2、… +「的」+ 汇总文种
+         * （文种唯一时取该文种，缺失或多种文种时兜底为「材料」）。
+         */
+        String volumeTitle() {
+            String litigation = litigationVolumeTitle();
+            if (litigation != null) return litigation;
+            if (causes.isEmpty()) return "";
+            String docType = docTypes.size() == 1
+                    ? docTypes.iterator().next()
+                    : TitleSplitter.FALLBACK_DOC_TYPE;
+            return "关于" + String.join("、", causes) + "的" + docType;
+        }
+
+        /** 诉讼档案卷级题名；要素不足时返回 null，由调用方退回通用写法 */
+        private String litigationVolumeTitle() {
+            if (parties == null || cause == null) return null;
+            // 立卷法院 = 卷内制作文书件数最多的法院，避免取到原审法院
+            String court = null;
+            int best = 0;
+            for (Map.Entry<String, Integer> e : courtCounts.entrySet()) {
+                if (e.getValue() > best) {
+                    best = e.getValue();
+                    court = e.getKey();
+                }
+            }
+            if (court == null) return null;
+            StringBuilder sb = new StringBuilder(court)
+                    .append("关于").append(parties).append(cause).append("一案");
+            if (trialLevel != null) sb.append("的").append(trialLevel);
+            return sb.append("诉讼档案").toString();
+        }
+    }
+
+    private static String trimToNull(String s) {
+        if (s == null) return null;
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
     }
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
@@ -107,11 +256,14 @@ public class BatchExtractionManager {
     }
 
     public Task start(long projectId, String rootPath, ExtractionTemplate template,
-                      List<CustomElementType> customElements, String aimpUrl, boolean disableCache) {
+                      List<CustomElementType> customElements, String archiveCategory,
+                      String archiveSubCategory, List<String> selectedKeys,
+                      String aimpUrl, boolean disableCache) {
         List<UnitScanner.Volume> units = template == ExtractionTemplate.BATCH_TITLE_CASE
                 ? UnitScanner.scanCases(rootPath)
                 : UnitScanner.scanVolumes(rootPath);
-        Task task = new Task(projectId, rootPath, template, customElements, units, disableCache);
+        Task task = new Task(projectId, rootPath, template, customElements,
+                archiveCategory, archiveSubCategory, selectedKeys, units, disableCache);
         tasks.put(projectId, task);
         executor.submit(() -> run(task, aimpUrl));
         return task;
@@ -140,16 +292,26 @@ public class BatchExtractionManager {
     private void executeExtraction(Task task, String aimpUrl) {
         AimpLlmClient client = new AimpLlmClient(aimpUrl);
         client.setDisableCache(task.disableCache);
+        client.setArchiveCategory(task.archiveCategory);
+        client.setArchiveSubCategory(task.archiveSubCategory);
         if (!client.testConnection()) {
             fail(task, "AIMP_SERVICE_UNAVAILABLE");
             return;
         }
-        String keyList = String.join(",", task.template.getExtractionKeys());
+        List<String> keys = task.selectedKeys != null && !task.selectedKeys.isEmpty()
+                ? task.selectedKeys
+                : Arrays.asList(task.template.getExtractionKeys());
+        String keyList = String.join(",", keys);
         String customJson = CustomElementsCodec.toJson(task.customElements);
         Project project = ProjectManager.singleton.getProject(task.projectId);
         if (project == null) {
             fail(task, "Project not found: " + task.projectId);
             return;
+        }
+        task.innerSheet = project.getSheetData(BatchExtractionCommand.INNER_SHEET_ID);
+        task.summarySheet = project.getSheetData(BatchExtractionCommand.SUMMARY_SHEET_ID);
+        if (task.innerSheet != null) {
+            project.setActiveSheet(BatchExtractionCommand.INNER_SHEET_ID);
         }
         try {
             int consecutiveFailures = 0;
@@ -291,28 +453,54 @@ public class BatchExtractionManager {
                     List<Map<String, String>> pageValues = new ArrayList<>();
                     List<Map<String, Double>> pageConfidences = new ArrayList<>();
                     int unitFailedPages = 0;
-                    for (int i = 0; i < unit.pages.size(); i++) {
-                        String page = unit.pages.get(i);
-                        if (task.cancelRequested) break;
-                        task.message = "正在处理第 " + (i + 1) + "/" + unit.pages.size() + " 页： " + new File(page).getName();
-                        AimpLlmClient.ExtractPageResult r = client.extractPage(page, keyList, customJson,
-                                i + 1, unit.pages.size(), buildPreviousExtractions(pageValues, pageConfidences));
-                        if (r.success) {
-                            consecutiveFailures = 0;
-                        } else {
-                            consecutiveFailures++;
-                            task.failedPages++;
-                            unitFailedPages++;
-                            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                                fail(task, "AIMP 连续失败 " + consecutiveFailures + " 次，任务中止");
-                                return;
+                    if (isLitigationArchive(task)) {
+                        // 诉讼档案页间彼此独立（不传页间上下文），按 PAGE_CONCURRENCY 路并发提交：
+                        // 结果按页序回收后再统计，保证落行顺序与页序一致，不受完成先后影响
+                        List<AimpLlmClient.ExtractPageResult> pageResults =
+                                new ArrayList<>(Collections.nCopies(unit.pages.size(), null));
+                        if (!extractPagesConcurrently(task, client, unit, keyList, customJson, pageResults)) {
+                            if (!task.cancelRequested) {
+                                fail(task, "AIMP 连续失败 " + MAX_CONSECUTIVE_FAILURES + " 次，任务中止");
                             }
+                            return;
                         }
-                        titles.add(r.success ? r.values.getOrDefault("title", "") : "");
-                        pageValues.add(r.success ? r.values : null);
-                        pageConfidences.add(r.success ? r.confidences : null);
-                        task.processedPages++;
-                        task.unitFraction = (i + 1) / (double) Math.max(1, unit.pages.size());
+                        for (AimpLlmClient.ExtractPageResult r : pageResults) {
+                            if (r == null && task.cancelRequested) break;   // 取消后未处理的页不再计数
+                            boolean ok = r != null && r.success;
+                            if (!ok) {
+                                task.failedPages++;
+                                unitFailedPages++;
+                            }
+                            titles.add(ok ? r.values.getOrDefault("title", "") : "");
+                            pageValues.add(ok ? r.values : null);
+                            pageConfidences.add(ok ? r.confidences : null);
+                            // processedPages 已在并发过程中按批累加，此处不重复计数
+                        }
+                    } else {
+                        // 其余门类页间存在上下文依赖，保持逐页串行的原有行为
+                        for (int i = 0; i < unit.pages.size(); i++) {
+                            String page = unit.pages.get(i);
+                            if (task.cancelRequested) break;
+                            task.message = "正在处理第 " + (i + 1) + "/" + unit.pages.size() + " 页： " + new File(page).getName();
+                            AimpLlmClient.ExtractPageResult r = client.extractPage(page, keyList, customJson,
+                                    i + 1, unit.pages.size(), buildPageContext(task, pageValues, pageConfidences));
+                            if (r.success) {
+                                consecutiveFailures = 0;
+                            } else {
+                                consecutiveFailures++;
+                                task.failedPages++;
+                                unitFailedPages++;
+                                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                                    fail(task, "AIMP 连续失败 " + consecutiveFailures + " 次，任务中止");
+                                    return;
+                                }
+                            }
+                            titles.add(r.success ? r.values.getOrDefault("title", "") : "");
+                            pageValues.add(r.success ? r.values : null);
+                            pageConfidences.add(r.success ? r.confidences : null);
+                            task.processedPages++;
+                            task.unitFraction = (i + 1) / (double) Math.max(1, unit.pages.size());
+                        }
                     }
                     if (task.cancelRequested) break;
                     String remark = unitFailedPages > 0 ? unitFailedPages + " 页提取失败" : null;
@@ -328,16 +516,110 @@ public class BatchExtractionManager {
                                 merged.isEmpty() ? null : merged.values, remark,
                                 withFileNames(merged.candidates, unit.pages));
                     } else {
-                        List<TitleSplitter.Piece> pieces = TitleSplitter.split(titles);
+                        // 诉讼档案：分件只在「卷内条目页」范围内进行。卷宗封面、卷内目录（卷前材料）
+                        // 与备考表、证物袋、卷底（卷尾材料）都不是卷内条目——既不参与分件、也不写条目行，
+                        // 但其提取到的卷级要素（案由、当事人、审级、结案方式、保管期限等）
+                        // 会回填给各件，供整卷复用。
+                        // 其他门类（如文书档案）保持原有的归并行为，不影响已测试通过的效果。
+                        boolean litigationArchive = isLitigationArchive(task);
+                        List<Integer> itemIndexes = litigationArchive
+                                ? itemPageIndexes(unit, titles) : allPageIndexes(unit.pages.size());
+                        List<String> itemTitles = new ArrayList<>(itemIndexes.size());
+                        for (int idx : itemIndexes) itemTitles.add(titles.get(idx));
+
+                        List<TitleSplitter.Piece> pieces;
+                        if (litigationArchive && !itemIndexes.isEmpty()) {
+                            // 卷级二次分件：页级题名只回答"这一页是什么"，判断"这几页是否属于同一件"
+                            // 是卷级语义任务（如证据清单与其所列证据的实物页、公函与所附证件复印件），
+                            // 字符串相似度无能为力。整卷提取完后交给 AIMP 用一次 LLM 定件，
+                            // 答案以《人民法院诉讼文书立卷归档办法》的条项为准（一个条项 = 一件）。
+                            // 服务端只做结构校验（起点从第 1 页起、严格递增、不超总页数），
+                            // 不做件数或件名的语义纠正——分件粒度与人工口径的差异不视为错误。
+                            AimpLlmClient.SplitResult split = client.splitVolumePieces(
+                                    itemTitles, task.archiveCategory, task.archiveSubCategory);
+                            if (split.success && !split.pieces.isEmpty()) {
+                                logger.info("卷 {} 卷级分件成功（{} 件）", unit.name, split.pieces.size());
+                                pieces = mapToVolumeIndexes(split.pieces, itemIndexes, unit);
+                            } else {
+                                logger.warn("卷 {} 卷级分件不可用（{}），回退字符串相似度分件",
+                                        unit.name, split.reason);
+                                pieces = mapToVolumeIndexes(TitleSplitter.split(itemTitles,
+                                        TitleSplitter.DEFAULT_SIMILARITY_THRESHOLD, true), itemIndexes, unit);
+                            }
+                        } else if (litigationArchive) {
+                            // 整卷都被判为非条目页（异常输入）：退回按全部页分件，保证仍有输出
+                            logger.warn("卷 {} 未识别出卷内条目页，改按全部页分件", unit.name);
+                            pieces = TitleSplitter.split(
+                                    titles, TitleSplitter.DEFAULT_SIMILARITY_THRESHOLD, true);
+                        } else {
+                            pieces = TitleSplitter.split(
+                                    titles, TitleSplitter.DEFAULT_SIMILARITY_THRESHOLD, false);
+                        }
+                        // 审级取卷级多数票：上诉需附一审判决书、上诉案件移送函等前审材料，
+                        // 卷内会同时出现两类案号，逐页推断会被前审材料拉成"一审"
+                        String volumeTrialLevel = litigationArchive ? majorityTrialLevel(pageValues) : null;
+                        if (logger.isInfoEnabled()) {
+                            StringBuilder sb = new StringBuilder();
+                            for (TitleSplitter.Piece p : pieces) {
+                                sb.append(String.format("[%s]%s ", p.pageRangeLabel(),
+                                        p.title == null || p.title.isEmpty() ? "(无题名)" : p.title));
+                            }
+                            logger.info("卷 {} 分件结果（{} 件，页号为卷内页号）: {}",
+                                    unit.name, pieces.size(), sb.toString());
+                        }
+                        Map<String, String> volumeLevelValues = new LinkedHashMap<>();
+                        // 卷级要素的候选页：回填取值时必须一并回填，否则单元格有值却找不到
+                        // 「取值 → 所在页」的对应关系（前端点击无法定位到封面页）
+                        Map<String, List<AimpLlmClient.ElementCandidate>> volumeLevelCandidates =
+                                new LinkedHashMap<>();
+                        if (litigationArchive) {
+                            // 未被任何件覆盖的页即卷宗封面、卷内目录、备考表、证物袋、卷底。
+                            // 它们不写条目行，但其提取到的卷级要素要回填给各件，供整卷复用。
+                            // 唯一例外是题名：题名必须来自件本身，若把备考表页的"卷内备考表"
+                            // 也回填进题名候选，前端点击题名单元格会定位到备考表页
+                            // （实测 JZ07-2024-M2-0158/0241 两卷皆误定位于此）。
+                            boolean[] covered = new boolean[unit.pages.size()];
+                            for (TitleSplitter.Piece p : pieces) {
+                                for (int i = p.startPage - 1; i < p.endPage && i < covered.length; i++) {
+                                    covered[i] = true;
+                                }
+                            }
+                            for (int i = 0; i < unit.pages.size(); i++) {
+                                if (covered[i] || pageValues.get(i) == null) continue;
+                                MergedElements merged = accumulateByConfidence(
+                                        Collections.singletonList(pageValues.get(i)),
+                                        Collections.singletonList(pageConfidences.get(i)), i + 1);
+                                merged.values.forEach((key, value) -> {
+                                    if (!"title".equals(key)) volumeLevelValues.put(key, value);
+                                });
+                                merged.candidates.forEach((key, list) -> {
+                                    if (!"title".equals(key)) volumeLevelCandidates.putIfAbsent(key, list);
+                                });
+                            }
+                        }
                         int pieceNo = 1;
                         for (TitleSplitter.Piece p : pieces) {
                             List<Map<String, String>> pieceValues =
                                     pageValues.subList(p.startPage - 1, p.endPage);
                             MergedElements merged = accumulateByConfidence(pieceValues,
                                     pageConfidences.subList(p.startPage - 1, p.endPage), p.startPage);
+                            Map<String, String> rowValues = merged.isEmpty() ? null : merged.values;
+                            if (volumeTrialLevel != null || !volumeLevelValues.isEmpty()) {
+                                if (rowValues == null) rowValues = new LinkedHashMap<>();
+                                for (Map.Entry<String, String> e : volumeLevelValues.entrySet()) {
+                                    rowValues.putIfAbsent(e.getKey(), e.getValue());
+                                }
+                                if (volumeTrialLevel != null) {
+                                    rowValues.put("shenji", volumeTrialLevel);
+                                }
+                            }
+                            // 候选页与单元格取值保持一致：带上本件自己的候选，再补上回填进来的卷级要素候选
+                            Map<String, List<AimpLlmClient.ElementCandidate>> rowCandidates =
+                                    new LinkedHashMap<>(merged.candidates);
+                            volumeLevelCandidates.forEach(rowCandidates::putIfAbsent);
                             appendUnitRow(task, project, unit, String.format("%03d", pieceNo), null, p,
-                                    merged.isEmpty() ? null : merged.values, remark,
-                                    withFileNames(merged.candidates, unit.pages));
+                                    rowValues, remark,
+                                    withFileNames(rowCandidates, unit.pages));
                             pieceNo++;
                         }
                     }
@@ -351,11 +633,220 @@ public class BatchExtractionManager {
                 task.message = "提取完成";
             }
             flushPageMap(task);
-            saveProject(task.projectId);
+            saveProject(task);
         } catch (Exception e) {
             logger.error("Batch extraction failed", e);
             fail(task, e.getMessage() == null ? e.toString() : e.getMessage());
         }
+    }
+
+    /**
+     * 诉讼档案按 {@link #PAGE_CONCURRENCY} 路并发调用 AIMP：分批提交（批内并行、批间按页序），
+     * 结果按页序写入 results，保证落行顺序与页序一致、不受完成先后影响。
+     * 仅在页间无依赖时使用（诉讼档案不传页间上下文）。
+     *
+     * @return false 表示出现连续失败应中止本任务；用户取消时返回 true
+     */
+    private boolean extractPagesConcurrently(Task task, AimpLlmClient client, UnitScanner.Volume unit,
+                                             String keyList, String customJson,
+                                             List<AimpLlmClient.ExtractPageResult> results) {
+        int total = unit.pages.size();
+        ExecutorService pool = Executors.newFixedThreadPool(PAGE_CONCURRENCY, r -> {
+            Thread t = new Thread(r, "aimp-page-extract");
+            t.setDaemon(true);
+            return t;
+        });
+        try {
+            int consecutiveFailures = 0;
+            for (int start = 0; start < total; start += PAGE_CONCURRENCY) {
+                if (task.cancelRequested) return true;
+                int end = Math.min(total, start + PAGE_CONCURRENCY);
+                task.message = "正在提取第 " + (start + 1) + "-" + end + " / " + total + " 页";
+                List<Future<AimpLlmClient.ExtractPageResult>> futures = new ArrayList<>(end - start);
+                for (int i = start; i < end; i++) {
+                    final int pageIndex = i;
+                    final String pagePath = unit.pages.get(i);
+                    futures.add(pool.submit(() -> {
+                        try {
+                            // 页间无依赖，不传已提取信息（传 null）
+                            return client.extractPage(pagePath, keyList, customJson,
+                                    pageIndex + 1, total, null);
+                        } catch (Exception e) {
+                            logger.warn("第 {} 页提取异常", pageIndex + 1, e);
+                            return null;
+                        }
+                    }));
+                }
+                for (int i = start; i < end; i++) {
+                    AimpLlmClient.ExtractPageResult r;
+                    try {
+                        r = futures.get(i - start).get();
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return true;
+                    } catch (ExecutionException ee) {
+                        logger.warn("第 {} 页提取失败", i + 1, ee.getCause());
+                        r = null;
+                    }
+                    results.set(i, r);
+                    consecutiveFailures = (r != null && r.success) ? 0 : consecutiveFailures + 1;
+                    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                        return false;
+                    }
+                }
+                // 进度上报：并发时逐页 ++ 要等整卷回收完才生效，改为按批累加，前端页数才能实时前进
+                task.processedPages += (end - start);
+                task.unitFraction = end / (double) Math.max(1, total);
+            }
+            return true;
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /**
+     * 页间上下文：诉讼类档案不传，其余门类沿用逐页累积。
+     *
+     * 诉讼档案卷宗页序固定（卷宗封面→卷内目录→各件文书→卷底），卷级要素（案由、当事人、
+     * 审级、结案方式、保管期限等）由封面页提取后回填到各件，各件只需按本页内容提取。
+     * 实测保留封面页上下文时，模型会把封面页的卷级要素在每一页复述一遍（连 OCR 仅十余字符的
+     * 空白页也会输出"维持原判""永久"），既浪费输出 token 又污染数据，因此改为完全不传。
+     * 页间也因此彼此独立，为按页并发提交留出空间。文书档案等既有场景保持原行为。
+     */
+    private String buildPageContext(Task task, List<Map<String, String>> pageValues,
+                                    List<Map<String, Double>> pageConfidences) {
+        if (isLitigationArchive(task)) {
+            return null;
+        }
+        return buildPreviousExtractions(pageValues, pageConfidences);
+    }
+
+    /**
+     * 卷尾无题名页的兜底上限。卷尾不计页材料共 3 类（备考表、证物袋、卷底），故取 3：
+     * 结尾连续无题名的页数若超过它，说明不是卷尾材料而是某份长文书的正文续页，不做剔除。
+     */
+    private static final int MAX_TRAILING_BLANK_PAGES = 3;
+
+    /**
+     * 卷宗封面、卷内目录、卷内备考表、卷底等：按《人民法院诉讼档案管理办法》（法〔2013〕283号）
+     * 第十九条「卷宗封面、卷内目录、备考表、证物袋、封底不编页号」，它们属案卷装订件而非卷内文件，
+     * 不列入条目。著录过程照常进行——其提取到的卷级要素会回填给各件——但不写入表格行。
+     */
+
+    private static final Set<String> NON_ITEM_TITLES = new HashSet<>(Arrays.asList(
+            "卷宗封面", "案卷封面", "卷内目录", "卷内备考表", "备考表",
+            "证物袋", "卷底", "封底", "空白封底"));
+
+    private static boolean isNonItemPiece(String title) {
+        return title != null && NON_ITEM_TITLES.contains(title.trim());
+    }
+
+    /**
+     * 「卷内条目页」在 {@code unit.pages} 中的下标（0 起）。
+     *
+     * 诉讼档案里有两类页不属于卷内条目，必须排除在分件之外——否则会把"卷宗封面""卷内目录"
+     * 当成件，并让后续页序整体错位：
+     * 1) 卷前材料：卷宗封面、卷内目录，文件名形如 0000-NN（不计卷内页号）；
+     * 2) 卷尾材料：备考表、证物袋、卷底，排在卷末、不列入条目。
+     * 本卷文件名若都是普通命名（解析不出卷内页号），则只按题名排除，行为与改造前一致。
+     */
+    private static List<Integer> itemPageIndexes(UnitScanner.Volume unit, List<String> titles) {
+        List<Integer> indexes = new ArrayList<>();
+        for (int i = 0; i < unit.pages.size(); i++) {
+            if (unit.numberedPages && i < unit.pageNos.size() && unit.pageNos.get(i) == null) continue;
+            if (i < titles.size() && isNonItemPiece(titles.get(i))) continue;
+            indexes.add(i);
+        }
+        if (indexes.size() <= 1) return indexes;
+
+        // 卷尾不计页材料（备考表、证物袋、卷底）在扫描件里常是空白页或纯表格页，识别不出题名，
+        // 只按题名拦不住，会整段并入最后一件——实测 JZ07-2024-M2-0158 的"退卷函回执"件被撑到
+        // 4 页，而它的真身只有"退卷函稿 + 退卷函回执"2 页。故按位置兜底：把结尾处连续的无题名页
+        // 判为卷尾材料。
+        // 只兜底"连续不超过 MAX_TRAILING_BLANK_PAGES 页"的情形：长文书（判决书、笔录）的正文
+        // 续页同样无题名，但它们必然是连续多页，页数超过这个上限，不会被误切。
+        int trailing = 0;
+        while (trailing < indexes.size() - 1 && !isTitled(titles, indexes.get(indexes.size() - 1 - trailing))) {
+            trailing++;
+        }
+        if (trailing == 0 || trailing > MAX_TRAILING_BLANK_PAGES) return indexes;
+        return new ArrayList<>(indexes.subList(0, indexes.size() - trailing));
+    }
+
+    private static boolean isTitled(List<String> titles, int index) {
+        String title = index >= 0 && index < titles.size() ? titles.get(index) : null;
+        return title != null && !title.trim().isEmpty();
+    }
+
+    private static List<Integer> allPageIndexes(int pageCount) {
+        List<Integer> indexes = new ArrayList<>(pageCount);
+        for (int i = 0; i < pageCount; i++) indexes.add(i);
+        return indexes;
+    }
+
+    /**
+     * 把「条目页序号」空间的件区间映射回 {@code unit.pages} 的列表序号，并补上卷内页号。
+     * 分件（卷级 LLM 或字符串相似度）只看到条目页，其页序与卷内页号都不是列表序号，
+     * 落行、切页区间、单元格定位都以列表序号为准，故必须映射一次。
+     */
+    private static List<TitleSplitter.Piece> mapToVolumeIndexes(List<TitleSplitter.Piece> items,
+                                                                List<Integer> itemIndexes,
+                                                                UnitScanner.Volume unit) {
+        List<TitleSplitter.Piece> pieces = new ArrayList<>(items.size());
+        for (TitleSplitter.Piece p : items) {
+            int startIdx = itemIndexes.get(clampIndex(p.startPage - 1, itemIndexes.size()));
+            int endIdx = itemIndexes.get(clampIndex(p.endPage - 1, itemIndexes.size()));
+            TitleSplitter.Piece mapped = new TitleSplitter.Piece();
+            mapped.startPage = startIdx + 1;
+            mapped.endPage = endIdx + 1;
+            mapped.title = p.title;
+            mapped.startPageNo = pageNoAt(unit, startIdx);
+            mapped.endPageNo = pageNoAt(unit, endIdx);
+            pieces.add(mapped);
+        }
+        return pieces;
+    }
+
+    private static int clampIndex(int index, int size) {
+        if (index < 0) return 0;
+        return Math.min(index, size - 1);
+    }
+
+    private static Integer pageNoAt(UnitScanner.Volume unit, int index) {
+        if (!unit.numberedPages || index < 0 || index >= unit.pageNos.size()) return null;
+        return unit.pageNos.get(index);
+    }
+
+    /**
+     * 卷级审级：卷内可能同时含前审（一审）与本案（二审）案号——上诉需附一审判决书、
+     * 上诉案件移送函等前审材料，按页推断会得到"一审"。按出现次数取多数，可稳定得到本案审级。
+     *
+     * @return 出现次数最多的审级；无审级要素或无有效值时返回 null
+     */
+    private static String majorityTrialLevel(List<Map<String, String>> pageValues) {
+        Map<String, Integer> counts = new HashMap<>();
+        for (Map<String, String> values : pageValues) {
+            if (values == null) continue;
+            String level = values.get("shenji");
+            if (level != null && !level.trim().isEmpty()) {
+                counts.merge(level.trim(), 1, Integer::sum);
+            }
+        }
+        String best = null;
+        int bestCount = 0;
+        for (Map.Entry<String, Integer> e : counts.entrySet()) {
+            if (e.getValue() > bestCount) {
+                bestCount = e.getValue();
+                best = e.getKey();
+            }
+        }
+        return best;
+    }
+
+    /** 是否诉讼类档案（人民法院诉讼档案／人民检察院诉讼档案等以"诉讼档案"结尾的二级类别） */
+    private static boolean isLitigationArchive(Task task) {
+        String sub = task.archiveSubCategory;
+        return sub != null && sub.trim().endsWith("诉讼档案");
     }
 
     private String buildPreviousExtractions(List<Map<String, String>> pageValues,
@@ -401,52 +892,96 @@ public class BatchExtractionManager {
         } else {
             status = "成功";
         }
-        Row row = new Row(project.columnModel.getMaxCellIndex() + 1);
+        // 案卷级项目固定写入「卷内」表，避免用户切换 sheet 后把行写进「卷级」表
+        ColumnModel columnModel = task.innerSheet != null ? task.innerSheet.columnModel : project.columnModel;
+        Row row = new Row(columnModel.getMaxCellIndex() + 1);
+        String responsibleParty = get(values, "responsible_party");
+        String documentDate = normalizeDate(get(values, "date"));
         // 件号在调用前已按“文件名解析 + 卷内去重”分配好
         if (task.template == ExtractionTemplate.BATCH_TITLE_VOLUME) {
-            put(project, row, "案卷号", unit.name);
-            put(project, row, "件号", pieceNo);
-            put(project, row, "起止页号", String.format("%04d-%04d", piece.startPage, piece.endPage));
+            put(columnModel, row, "案卷号", unit.name);
+            put(columnModel, row, "件号", pieceNo);
+            put(columnModel, row, "起止页号", piece.pageRangeLabel());
         } else {
-            put(project, row, "文件夹名", unit.name);
-            put(project, row, "件号", pieceNo);
+            put(columnModel, row, "文件夹名", unit.name);
+            put(columnModel, row, "件号", pieceNo);
         }
-        put(project, row, "页数", piece.pageCount());
-        put(project, row, "题名", piece.title);
-        put(project, row, "责任者", get(values, "responsible_party"));
-        put(project, row, "文号", get(values, "document_number"));
-        put(project, row, "成文日期", normalizeDate(get(values, "date")));
-        put(project, row, "文件名", fileName == null ? "" : fileName);
-        put(project, row, "文件夹路径", unit.path);
-        put(project, row, "提取状态", status);
-        put(project, row, "备注", remark == null ? "" : remark);
+        put(columnModel, row, "页数", piece.pageCount());
+        put(columnModel, row, "题名", piece.title);
+        put(columnModel, row, "责任者", responsibleParty);
+        put(columnModel, row, "文号", get(values, "document_number"));
+        put(columnModel, row, "成文日期", documentDate);
+        put(columnModel, row, "文件名", fileName == null ? "" : fileName);
+        put(columnModel, row, "文件夹路径", unit.path);
+        put(columnModel, row, "提取状态", status);
+        put(columnModel, row, "备注", remark == null ? "" : remark);
         for (CustomElementType ce : task.customElements) {
             if (ce.isInclude()) {
-                put(project, row, ce.getName(), get(values, ce.getKey()));
+                put(columnModel, row, ce.getName(), get(values, ce.getKey()));
             }
         }
         int rowIndex = appendRow(task, project, row);
-        recordPageMap(task, rowIndex, candidates);
+        accumulateVolumeSummary(task, unit, piece, responsibleParty, documentDate, values);
+        recordPageMap(task, rowIndex, candidates, pieceStartNode(unit, piece));
+        // 每落一行就刷新内存中的页映射：前端在任务进行中轮询时也能定位到正确页。
+        // 此前只在每 SAVE_EVERY_ROWS 行落盘时顺带刷新，中间态缺一段映射，前端点击会退化为
+        // "第 1 页"（实测：第一卷已出结果、第二卷仍在提取时，第一卷中段各件点击均回到第一页，
+        // 两卷都提完、映射补齐后再点又正常）。这里只更新内存元数据，落盘仍按批量进行。
+        flushPageMap(task);
+    }
+
+    private void accumulateVolumeSummary(Task task, UnitScanner.Volume unit, TitleSplitter.Piece piece,
+                                         String responsibleParty, String documentDate,
+                                         Map<String, String> values) {
+        if (task.summarySheet == null) return;
+        VolumeSummary summary = task.volumeSummaries.get(unit.name);
+        if (summary == null) {
+            summary = new VolumeSummary(unit.name, unit.path, unit.pages.size());
+            task.volumeSummaries.put(unit.name, summary);
+        }
+        summary.add(responsibleParty, documentDate, piece.pageCount(), piece.title, values);
     }
 
     /** 把该行各抽取要素的候选页按列名写入项目 metadata，供前端点击单元格时定位到取值所在页 */
     private void recordPageMap(Task task, int rowIndex,
-                               Map<String, List<AimpLlmClient.ElementCandidate>> candidates) {
-        if (candidates == null || candidates.isEmpty()) return;
+                               Map<String, List<AimpLlmClient.ElementCandidate>> candidates,
+                               ObjectNode pieceStart) {
         ObjectNode rowNode = mapper.createObjectNode();
-        recordCandidates(rowNode, candidates, "responsible_party", "责任者");
-        recordCandidates(rowNode, candidates, "document_number", "文号");
-        recordCandidates(rowNode, candidates, "date", "成文日期");
-        recordCandidates(rowNode, candidates, "title", "题名");
-        for (CustomElementType ce : task.customElements) {
-            if (ce.isInclude()) {
-                recordCandidates(rowNode, candidates, ce.getKey(), ce.getName());
+        if (candidates != null && !candidates.isEmpty()) {
+            recordCandidates(rowNode, candidates, "responsible_party", "责任者");
+            recordCandidates(rowNode, candidates, "document_number", "文号");
+            recordCandidates(rowNode, candidates, "date", "成文日期");
+            recordCandidates(rowNode, candidates, "title", "题名");
+            for (CustomElementType ce : task.customElements) {
+                if (ce.isInclude()) {
+                    recordCandidates(rowNode, candidates, ce.getKey(), ce.getName());
+                }
             }
+        }
+        // 件首页与要素候选分开存：提取失败的件没有要素候选，但仍应能点击定位到件首页
+        if (pieceStart != null) {
+            rowNode.set(PIECE_START_KEY, pieceStart);
         }
         if (rowNode.size() == 0) return;
         synchronized (task.pageMap) {
             task.pageMap.set(String.valueOf(rowIndex), rowNode);
         }
+    }
+
+    /**
+     * 该件首页在页映射中的节点（{v,p,f}）。整目录成件的图片批次按件起始页取到对应文件名，
+     * 供前端点击「要素以外的行」时定位到件首页。PDF 模式每行本就是一个 PDF 文件、件起始页是
+     * 卷内全局页号（与 PDF 内部页号不同），前端已按「文件名」列定位，故不生成。
+     */
+    private static ObjectNode pieceStartNode(UnitScanner.Volume unit, TitleSplitter.Piece piece) {
+        if (unit.pdfMode || piece == null) return null;
+        int start = piece.startPage;
+        if (start < 1 || start > unit.pages.size()) return null;
+        ObjectNode node = mapper.createObjectNode();
+        node.put("v", "件首页");
+        node.put("p", start);
+        node.put("f", new File(unit.pages.get(start - 1)).getName());
+        return node;
     }
 
     private static void recordCandidates(ObjectNode rowNode,
@@ -487,13 +1022,14 @@ public class BatchExtractionManager {
 
     private int appendRow(Task task, Project project, Row row) {
         synchronized (rowLock) {
-            int rowIndex = project.rows.size();
-            project.rows.add(row);
+            List<Row> targetRows = task.innerSheet != null ? task.innerSheet.rows : project.rows;
+            int rowIndex = targetRows.size();
+            targetRows.add(row);
             task.rowsAppended++;
             if (++rowsSinceSave >= SAVE_EVERY_ROWS) {
                 rowsSinceSave = 0;
                 flushPageMap(task);
-                saveProject(task.projectId);
+                saveProject(task);
             }
             return rowIndex;
         }
@@ -508,16 +1044,38 @@ public class BatchExtractionManager {
         }
     }
 
-    private void saveProject(long projectId) {
+    private void saveProject(Task task) {
         try {
-            ProjectManager.singleton.ensureProjectSaved(projectId);
+            rebuildVolumeSummary(task);
+            ProjectManager.singleton.ensureProjectSaved(task.projectId);
         } catch (Exception e) {
-            logger.warn("Failed to save project {}", projectId, e);
+            logger.warn("Failed to save project {}", task.projectId, e);
         }
     }
 
-    private void put(Project project, Row row, String columnName, java.io.Serializable value) {
-        Column column = project.columnModel.getColumnByName(columnName);
+    /** 用累加器整体重建卷级汇总表，中途取消或失败也保留已抽部分的汇总 */
+    void rebuildVolumeSummary(Task task) {
+        SheetData summarySheet = task.summarySheet;
+        if (summarySheet == null) return;
+        ColumnModel columnModel = summarySheet.columnModel;
+        List<Row> rows = summarySheet.rows;
+        rows.clear();
+        for (VolumeSummary summary : task.volumeSummaries.values()) {
+            Row row = new Row(columnModel.getMaxCellIndex() + 1);
+            put(columnModel, row, "案卷号", summary.caseNo);
+            put(columnModel, row, "题名", summary.volumeTitle());
+            put(columnModel, row, "责任者", String.join(",", summary.responsibleParties));
+            put(columnModel, row, "起始时间", summary.minDate == null ? "" : summary.minDate);
+            put(columnModel, row, "终止时间", summary.maxDate == null ? "" : summary.maxDate);
+            put(columnModel, row, "总页数", summary.totalPages);
+            put(columnModel, row, "卷内文件份数", summary.fileCount);
+            put(columnModel, row, "文件夹路径", summary.folderPath);
+            rows.add(row);
+        }
+    }
+
+    private void put(ColumnModel columnModel, Row row, String columnName, java.io.Serializable value) {
+        Column column = columnModel.getColumnByName(columnName);
         if (column != null) {
             row.setCell(column.getCellIndex(), new Cell(value, null));
         }
@@ -755,7 +1313,7 @@ public class BatchExtractionManager {
         task.status = STATUS_FAILED;
         task.message = message;
         flushPageMap(task);
-        saveProject(task.projectId);
+        saveProject(task);
         logger.warn("Batch extraction task failed: projectId={}, message={}", task.projectId, message);
     }
 }

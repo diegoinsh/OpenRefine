@@ -32,6 +32,7 @@ public class ExtractionChangeGuard implements CommandGuard {
 
     // Change-class core commands (design 4.5.2: cell edits, expression transforms,
     // sort/reorder, add/remove rows or columns, star/flag annotations, history ops)
+    // switch-sheet 也在其中：抽取期间冻结数据表切换，避免后台写入目标随活动表漂移
     private static final Set<String> CHANGE_COMMANDS = new HashSet<>(Arrays.asList(
             "apply-operations",
             "undo-redo",
@@ -53,6 +54,7 @@ public class ExtractionChangeGuard implements CommandGuard {
             "reorder-rows",
             "annotate-one-row",
             "save-sorting",
+            "switch-sheet",
             "delete-project"));
 
     private static final ExtractionChangeGuard INSTANCE = new ExtractionChangeGuard();

@@ -44,6 +44,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -79,7 +80,7 @@ public class Project {
     transient private Instant _lastSave = Instant.now();
 
     public String activeSheetId;
-    public Map<String, SheetData> sheetDataMap = new HashMap<>();
+    public Map<String, SheetData> sheetDataMap = new LinkedHashMap<>();
     public boolean isMultiSheetProject = false;
 
     final static Logger logger = LoggerFactory.getLogger(Project.class);
@@ -104,7 +105,7 @@ public class Project {
     protected Project(long id) {
         this.id = id;
         this.history = new History(this);
-        this.sheetDataMap = new HashMap<>();
+        this.sheetDataMap = new LinkedHashMap<>();
         this.isMultiSheetProject = false;
     }
 
@@ -347,9 +348,9 @@ public class Project {
                 String sheetId = line.substring("sheet:".length(), equal);
                 
                 String sheetName = sheetId;
-                String[] parts = sheetId.split("#");
-                if (parts.length > 1) {
-                    sheetName = parts[1];
+                int hash = sheetId.lastIndexOf('#');
+                if (hash >= 0 && hash < sheetId.length() - 1) {
+                    sheetName = sheetId.substring(hash + 1);
                 }
                 
                 logger.info("loadFromReader: Processing sheet: " + sheetId);

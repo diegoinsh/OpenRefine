@@ -16,12 +16,20 @@ var FileViewPanel = {};
   FileViewPanel._currentFileIndex = 0;
   /** 当前定位页：PDF 为文件内部页号，整目录成件的图片为目录内第几个文件（1 起） */
   FileViewPanel._currentPage = 1;
+  /** 主图请求序号：连续切换页面时用最新一次请求的结果，避免旧响应回来覆盖新页面 */
+  FileViewPanel._previewSeq = 0;
   /** 当前单元格的候选页列表 [{v:取值, c:置信度, p:页码}]，首位为写入单元格的取值所在页 */
   FileViewPanel._pageCandidates = [];
+  /** 点击「要素以外的行」时的件首页 {p:件起始页, f:首页文件名}，无该信息时为 null */
+  FileViewPanel._pieceStart = null;
   FileViewPanel._pageMap = null;
   FileViewPanel._pageMapProjectId = null;
   /** 当前预览内容类型（image / pdf / text），用于区分页面定位与文件切换的处理方式 */
   FileViewPanel._currentPreviewType = null;
+  /** 当前图片文件的原始位图 data URL：OCR 模式下直接拿它当拉框底图，省掉一次后端渲染 */
+  FileViewPanel._currentImageDataUrl = null;
+  /** 上述位图所属的文件名，切换文件后据此判断能否复用 */
+  FileViewPanel._currentImageFileName = null;
   FileViewPanel._zoomLevel = 1;
   FileViewPanel._currentOffsetX = 0;
   FileViewPanel._currentOffsetY = 0;
@@ -45,6 +53,23 @@ var FileViewPanel = {};
   FileViewPanel._ocrBusy = false;
   FileViewPanel._ocrNamespace = '.fileViewOcr_' + Math.random().toString(36).substr(2, 9);
 
+  /**
+   * 缩略图加载调度：只加载可视区附近的（懒加载），同屏并发受限，
+   * 避免一次性向上百张图发起请求——既拖慢首批出图，又占满浏览器并发连接
+   * 把用户真正要看的主图请求挤到队尾。
+   */
+  FileViewPanel._thumbQueue = [];
+  FileViewPanel._thumbInFlight = 0;
+  /** 已入过队的缩略图下标，避免同一张反复请求 */
+  FileViewPanel._thumbResolved = {};
+  FileViewPanel._thumbObserver = null;
+  /** 主图加载期间暂停缩略图请求，保证直达页的大图先出图 */
+  FileViewPanel._thumbPaused = false;
+  /** 缩略图内存缓存：键为「资源目录/文件名」，跨行、跨面板复用同一张图 */
+  FileViewPanel._thumbCache = {};
+  FileViewPanel.THUMB_CONCURRENCY = 2;
+  FileViewPanel.THUMB_CACHE_LIMIT = 200;
+
   FileViewPanel.PANEL_WIDTH = 700;
 
   /** 条目提取项目的「文件夹路径」列，无资源路径配置时用它兜底定位资源目录 */
@@ -52,6 +77,17 @@ var FileViewPanel = {};
 
   /** 案卷 PDF 抽取生成的「文件名」列，用于把行定位到卷目录下的具体文件 */
   FileViewPanel.FILE_NAME_COLUMN = '文件名';
+
+  /** 页映射中「件首页」的行级键，与后端 BatchExtractionManager.PIECE_START_KEY 保持一致 */
+  FileViewPanel.PIECE_START_KEY = '__piece_start__';
+
+  /** 可直接作为位图预览的扩展名 */
+  FileViewPanel.IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp', 'ico', 'tiff'];
+
+  FileViewPanel._isImageFile = function(fileName) {
+    var ext = String(fileName || '').split('.').pop().toLowerCase();
+    return FileViewPanel.IMAGE_EXTENSIONS.indexOf(ext) !== -1;
+  };
 
   FileViewPanel._findColumnCellIndex = function(columnName) {
     if (typeof theProject === 'undefined' || !theProject || !theProject.columnModel) {
@@ -143,6 +179,9 @@ var FileViewPanel = {};
         return FileViewPanel._pageCandidates[i].f;
       }
     }
+    if (FileViewPanel._pieceStart && FileViewPanel._pieceStart.f) {
+      return FileViewPanel._pieceStart.f;
+    }
     return '';
   };
 
@@ -182,19 +221,31 @@ var FileViewPanel = {};
   };
 
   /**
-   * 拉取项目级「行 → 列 → 候选页」映射，仅首次请求；非批量提取项目返回空映射。
+   * 拉取项目级「行 → 列 → 候选页」映射，非批量提取项目返回空映射。
+   * 面板打开着而抽取仍在进行时，新落盘的行不在首次结果里；此时针对该行补取一次并合并，
+   * 否则点击这些行会因查不到候选页而退化为第 1 页。
+   * （实测：抽取进行中先点开面板，之后点击后续新行都回到第 1 页，抽取全部完成并刷新后才正常。）
    */
-  FileViewPanel._ensurePageMap = function(callback) {
+  FileViewPanel._ensurePageMap = function(callback, rowIndex) {
     var projectId = (typeof theProject !== 'undefined' && theProject) ? theProject.id : null;
-    if (FileViewPanel._pageMap !== null && FileViewPanel._pageMapProjectId === projectId) {
+    var cached = FileViewPanel._pageMap;
+    var hasCache = cached !== null && FileViewPanel._pageMapProjectId === projectId;
+    var missingRow = hasCache && typeof rowIndex === 'number' && rowIndex >= 0
+        && !Object.prototype.hasOwnProperty.call(cached, String(rowIndex));
+    if (hasCache && !missingRow) {
       callback();
       return;
     }
-    FileViewPanel._pageMapProjectId = projectId;
-    FileViewPanel._pageMap = {};
     if (projectId === null || projectId === undefined) {
+      FileViewPanel._pageMapProjectId = projectId;
+      FileViewPanel._pageMap = {};
       callback();
       return;
+    }
+    if (!missingRow) {
+      // 全量拉取（首次或项目切换）：先清空，避免混入上一个项目的数据
+      FileViewPanel._pageMapProjectId = projectId;
+      FileViewPanel._pageMap = {};
     }
     Refine.wrapCSRF(function(token) {
       $.post('command/files/batch-extraction', {
@@ -203,7 +254,9 @@ var FileViewPanel = {};
         csrf_token: token
       }, function(data) {
         if (data && data.code === 'ok' && data.pageMap) {
-          FileViewPanel._pageMap = data.pageMap;
+          FileViewPanel._pageMap = missingRow
+              ? $.extend({}, FileViewPanel._pageMap, data.pageMap)
+              : data.pageMap;
         }
         callback();
       }, 'json').fail(function() {
@@ -241,15 +294,42 @@ var FileViewPanel = {};
     });
   };
 
+  /** 取该行的件首页信息（页映射的行级键）；无页映射或无该信息时返回 null */
+  FileViewPanel._getRowPieceStart = function(rowIndex) {
+    if (!FileViewPanel._pageMap) {
+      return null;
+    }
+    var rowNode = FileViewPanel._pageMap[String(rowIndex)];
+    if (!rowNode) {
+      return null;
+    }
+    var list = rowNode[FileViewPanel.PIECE_START_KEY];
+    // 件首页写的是单个对象（要素候选则是数组），这里两种形态都兼容
+    var candidate = Array.isArray(list) ? list[0] : list;
+    if (!candidate || !(parseInt(candidate.p, 10) > 0)) {
+      return null;
+    }
+    return candidate;
+  };
+
   /** 取该单元格对应的候选页列表，供 _currentPage 与页签展示使用 */
   FileViewPanel._resolveCellCandidates = function(rowIndex, cellIndex) {
     FileViewPanel._pageCandidates = [];
+    FileViewPanel._pieceStart = null;
     FileViewPanel._currentPage = 1;
-    var list = FileViewPanel._getCellCandidates(rowIndex, cellIndex);
-    if (!list.length) return;
-    FileViewPanel._pageCandidates = list;
-    var page = parseInt(list[0].p, 10);
-    FileViewPanel._currentPage = page > 0 ? page : 1;
+    var list = cellIndex < 0 ? [] : FileViewPanel._getCellCandidates(rowIndex, cellIndex);
+    if (list.length) {
+      FileViewPanel._pageCandidates = list;
+      var page = parseInt(list[0].p, 10);
+      FileViewPanel._currentPage = page > 0 ? page : 1;
+      return;
+    }
+    // 点击的不是抽取要素（行号、件号、页数等非要素列或行内空白）：定位到该件第一页
+    var pieceStart = FileViewPanel._getRowPieceStart(rowIndex);
+    if (!pieceStart) return;
+    FileViewPanel._pieceStart = pieceStart;
+    var piecePage = parseInt(pieceStart.p, 10);
+    FileViewPanel._currentPage = piecePage > 0 ? piecePage : 1;
   };
 
   FileViewPanel.show = function(rowIndex, cellIndex, options) {
@@ -267,10 +347,15 @@ var FileViewPanel = {};
     FileViewPanel._currentFileIndex = 0;
     FileViewPanel._currentPage = 1;
     FileViewPanel._pageCandidates = [];
+    FileViewPanel._pieceStart = null;
     FileViewPanel._zoomLevel = 1;
     FileViewPanel._currentOffsetX = 0;
     FileViewPanel._currentOffsetY = 0;
     FileViewPanel._pageCount = 0;
+    FileViewPanel._thumbPaused = false;
+    FileViewPanel._currentPreviewType = null;
+    FileViewPanel._currentImageDataUrl = null;
+    FileViewPanel._currentImageFileName = null;
     FileViewPanel._setActiveScope(null);
     FileViewPanel._ocrMode = !!(options && options.ocr);
     FileViewPanel._ocrBusy = false;
@@ -320,7 +405,7 @@ var FileViewPanel = {};
         FileViewPanel._scrollToThumbnail();
         FileViewPanel._focusThumbList();
       });
-    });
+    }, rowIndex);
 
     FileViewPanel._panel.off('keydown' + FileViewPanel._keyNamespace).on('keydown' + FileViewPanel._keyNamespace, FileViewPanel._handleKeyDown);
   };
@@ -336,10 +421,23 @@ var FileViewPanel = {};
     FileViewPanel._currentFileIndex = 0;
     FileViewPanel._currentPage = 1;
     FileViewPanel._pageCandidates = [];
+    FileViewPanel._pieceStart = null;
     FileViewPanel._currentPreviewType = null;
+    FileViewPanel._currentImageDataUrl = null;
+    FileViewPanel._currentImageFileName = null;
     FileViewPanel._pageCount = 0;
     FileViewPanel._setActiveScope(null);
     FileViewPanel._ocrMode = false;
+
+    // 关闭面板时放弃在飞的缩略图调度，并让已发出的主图请求回来后不再改动面板
+    FileViewPanel._previewSeq++;
+    FileViewPanel._thumbPaused = false;
+    FileViewPanel._thumbQueue = [];
+    FileViewPanel._thumbResolved = {};
+    if (FileViewPanel._thumbObserver) {
+      FileViewPanel._thumbObserver.disconnect();
+      FileViewPanel._thumbObserver = null;
+    }
     FileViewPanel._ocrBusy = false;
     FileViewPanel._clearOcrSelection();
     FileViewPanel._syncOcrModeUI();
@@ -661,6 +759,14 @@ var FileViewPanel = {};
     var thumbList = FileViewPanel._panel.find('.file-view-thumb-list');
     thumbList.empty();
 
+    // 重建列表时清空上一轮的加载调度，观察器随后按新 DOM 重新挂载
+    FileViewPanel._thumbQueue = [];
+    FileViewPanel._thumbResolved = {};
+    if (FileViewPanel._thumbObserver) {
+      FileViewPanel._thumbObserver.disconnect();
+      FileViewPanel._thumbObserver = null;
+    }
+
     var thumbArea = FileViewPanel._panel.find('.file-view-thumbnails');
 
     if (FileViewPanel._currentFiles.length <= 1) {
@@ -670,42 +776,27 @@ var FileViewPanel = {};
 
     thumbArea.show();
 
+    // 页数多时逐个插入会反复触发布局，先攒到文档片段里再一次性挂上
+    var fragment = document.createDocumentFragment();
+
     FileViewPanel._currentFiles.forEach(function(file, index) {
       var thumb = $('<div>')
         .addClass('file-view-thumb-item')
         .attr('data-index', index)
-        .appendTo(thumbList);
+        .appendTo(fragment);
 
       if (index === FileViewPanel._currentFileIndex) {
         thumb.addClass('active');
       }
 
-      var ext = file.name.split('.').pop().toLowerCase();
-      var isImage = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp', 'ico', 'tiff'].indexOf(ext) !== -1;
+      var isImage = FileViewPanel._isImageFile(file.name);
 
+      // 图片只占位，等滚到可见范围再取图（见 _observeThumbnails）
       if (isImage) {
-        var thumbImg = $('<img>')
+        $('<img>')
           .addClass('file-view-thumb-img')
           .attr('alt', file.name)
-          .css({ width: '100%', height: 'auto', display: 'block' })
           .appendTo(thumb);
-
-        $.ajax({
-          url: '/command/records-assets/preview',
-          type: 'GET',
-          data: { root: file.rootPath, path: file.name, thumbnail: 'true' },
-          dataType: 'json',
-          success: function(data) {
-            if ((data.status === 'ok' || data.status === 'success') && data.previewType === 'image' && data.preview) {
-              thumbImg.attr('src', data.preview);
-            } else {
-              thumbImg.replaceWith(FileViewPanel._getFileIconHtml(file.name));
-            }
-          },
-          error: function() {
-            thumbImg.replaceWith(FileViewPanel._getFileIconHtml(file.name));
-          }
-        });
       } else {
         thumb.append(FileViewPanel._getFileIconHtml(file.name));
       }
@@ -725,6 +816,126 @@ var FileViewPanel = {};
         FileViewPanel._updateThumbnailSelection();
       });
     });
+
+    thumbList[0].appendChild(fragment);
+    FileViewPanel._observeThumbnails(thumbList);
+  };
+
+  /**
+   * 只给滚入可视范围（含上下各 200px 余量）的缩略图排队取图。
+   * 直达某页时列表会先滚到该页，于是它和它周边的缩略图最先入队。
+   */
+  FileViewPanel._observeThumbnails = function(thumbList) {
+    var items = thumbList.find('.file-view-thumb-item').has('.file-view-thumb-img');
+    if (items.length === 0) {
+      return;
+    }
+
+    if (typeof IntersectionObserver === 'undefined') {
+      // 不支持观察器时退化为只加载当前页前后各 12 张
+      var current = FileViewPanel._currentFileIndex;
+      var from = Math.max(0, current - 12);
+      var to = Math.min(FileViewPanel._currentFiles.length - 1, current + 12);
+      for (var i = from; i <= to; i++) {
+        FileViewPanel._enqueueThumb(i);
+      }
+      return;
+    }
+
+    var observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (!entry.isIntersecting) return;
+        observer.unobserve(entry.target);
+        FileViewPanel._enqueueThumb(parseInt($(entry.target).attr('data-index'), 10));
+      });
+    }, { root: thumbList[0], rootMargin: '200px 0px' });
+
+    FileViewPanel._thumbObserver = observer;
+    items.each(function() {
+      observer.observe(this);
+    });
+  };
+
+  /** 缩略图入队：距当前页越近排得越前，保证选中页与其周边先出图 */
+  FileViewPanel._enqueueThumb = function(index) {
+    if (!FileViewPanel._panel || !(index >= 0) || FileViewPanel._thumbResolved[index]) {
+      return;
+    }
+    var queue = FileViewPanel._thumbQueue;
+    if (queue.indexOf(index) >= 0) {
+      return;
+    }
+    queue.push(index);
+    FileViewPanel._sortThumbQueue();
+    FileViewPanel._pumpThumbQueue();
+  };
+
+  /** 按「距当前页的距离」升序重排队列；当前页变化后由 _loadCurrentFile 调用 */
+  FileViewPanel._sortThumbQueue = function() {
+    var current = FileViewPanel._currentFileIndex;
+    FileViewPanel._thumbQueue.sort(function(a, b) {
+      return Math.abs(a - current) - Math.abs(b - current);
+    });
+  };
+
+  FileViewPanel._pumpThumbQueue = function() {
+    while (!FileViewPanel._thumbPaused
+        && FileViewPanel._thumbInFlight < FileViewPanel.THUMB_CONCURRENCY
+        && FileViewPanel._thumbQueue.length > 0) {
+      FileViewPanel._loadThumb(FileViewPanel._thumbQueue.shift());
+    }
+  };
+
+  FileViewPanel._loadThumb = function(index) {
+    var file = FileViewPanel._currentFiles[index];
+    var img = FileViewPanel._panel.find('.file-view-thumb-item[data-index="' + index + '"]').find('.file-view-thumb-img');
+    if (!file || img.length === 0) {
+      return;
+    }
+    FileViewPanel._thumbResolved[index] = true;
+
+    var cacheKey = file.rootPath + '/' + file.name;
+    var cached = FileViewPanel._thumbCache[cacheKey];
+    if (cached) {
+      img.attr('src', cached);
+      return;
+    }
+
+    FileViewPanel._thumbInFlight++;
+    $.ajax({
+      url: '/command/records-assets/preview',
+      type: 'GET',
+      data: { root: file.rootPath, path: file.name, thumbnail: 'true' },
+      dataType: 'json',
+      success: function(data) {
+        if ((data.status === 'ok' || data.status === 'success') && data.previewType === 'image' && data.preview) {
+          FileViewPanel._cacheThumb(cacheKey, data.preview);
+          img.attr('src', data.preview);
+        } else {
+          img.replaceWith(FileViewPanel._getFileIconHtml(file.name));
+        }
+      },
+      error: function() {
+        img.replaceWith(FileViewPanel._getFileIconHtml(file.name));
+      },
+      complete: function() {
+        FileViewPanel._thumbInFlight--;
+        FileViewPanel._pumpThumbQueue();
+      }
+    });
+  };
+
+  /** 缓存缩略图（超上限按加入顺序淘汰最旧的一张），避免切行后重复取同一张图 */
+  FileViewPanel._cacheThumb = function(key, dataUrl) {
+    var cache = FileViewPanel._thumbCache;
+    if (cache[key] !== undefined) {
+      return;
+    }
+    var keys = Object.keys(cache);
+    if (keys.length >= FileViewPanel.THUMB_CACHE_LIMIT) {
+      delete cache[keys[0]];
+    }
+    cache[key] = dataUrl;
   };
 
   FileViewPanel._getFileIconHtml = function(filename) {
@@ -779,12 +990,30 @@ var FileViewPanel = {};
     FileViewPanel._currentOffsetX = 0;
     FileViewPanel._currentOffsetY = 0;
 
+    // 主图优先出图：先把待加载的缩略图按新页重排，并在主图返回前不再发起新的缩略图请求
+    FileViewPanel._sortThumbQueue();
+    FileViewPanel._pauseThumbs();
+
+    // OCR 模式的底图由后端按页渲染，无需先取整张原图：省掉一次大文件传输，
+    // 切换 OCR 模式或翻页时不必等待「原图 + 位图」两次请求
+    if (FileViewPanel._ocrMode) {
+      FileViewPanel._renderFooter(footer, { previewType: 'ocr' }, file);
+      FileViewPanel._loadOcrBitmap();
+      return;
+    }
+
+    var seq = ++FileViewPanel._previewSeq;
+
     $.ajax({
       url: '/command/records-assets/preview',
       type: 'GET',
       data: { root: file.rootPath, path: file.name },
       dataType: 'json',
       success: function(data) {
+        if (seq !== FileViewPanel._previewSeq) {
+          // 已有更新的主图请求接管显示，缩略图的恢复也交给它
+          return;
+        }
         if (data.status === 'ok' || data.status === 'success') {
           if (data.previewType) {
             FileViewPanel._currentPreviewType = data.previewType;
@@ -796,15 +1025,32 @@ var FileViewPanel = {};
           } else {
             FileViewPanel._renderFileContent(content, data, file);
             FileViewPanel._renderFooter(footer, data, file);
+            FileViewPanel._resumeThumbs();
           }
         } else {
           content.html('<div class="file-view-error">' + (data.message || 'Error') + '</div>');
+          FileViewPanel._resumeThumbs();
         }
       },
       error: function() {
+        if (seq !== FileViewPanel._previewSeq) {
+          return;
+        }
         content.html('<div class="file-view-error">' + ($.i18n('data-quality-extension/file-view-error') || 'Error') + '</div>');
+        FileViewPanel._resumeThumbs();
       }
     });
+  };
+
+  /** 主图加载期间停发缩略图请求 */
+  FileViewPanel._pauseThumbs = function() {
+    FileViewPanel._thumbPaused = true;
+  };
+
+  /** 主图渲染完成后恢复缩略图加载，按「距当前页由近到远」继续出图 */
+  FileViewPanel._resumeThumbs = function() {
+    FileViewPanel._thumbPaused = false;
+    FileViewPanel._pumpThumbQueue();
   };
 
   FileViewPanel._renderFileContent = function(container, data, file) {
@@ -813,6 +1059,9 @@ var FileViewPanel = {};
     var previewType = data.previewType || 'unknown';
     var preview = data.preview;
     FileViewPanel._currentPreviewType = previewType;
+    // 图片的原图数据已随本次预览拿到，OCR 模式可直接复用，无需让后端重新解码与编码
+    FileViewPanel._currentImageDataUrl = (previewType === 'image' && preview) ? preview : null;
+    FileViewPanel._currentImageFileName = FileViewPanel._currentImageDataUrl ? file.name : null;
     // 预览接口若给出总页数（PDF），一并记录，供翻页判断上界；不返回则保持原值
     if (data.pageCount) {
       FileViewPanel._pageCount = parseInt(data.pageCount, 10) || 0;
@@ -865,6 +1114,7 @@ var FileViewPanel = {};
   /** 取当前文件/当前页的位图，作为拉框裁剪的底图（PDF 由后端 PDFBox 渲染） */
   FileViewPanel._loadOcrBitmap = function() {
     if (!FileViewPanel._panel || FileViewPanel._currentFiles.length === 0) {
+      FileViewPanel._resumeThumbs();
       return;
     }
     var file = FileViewPanel._currentFiles[FileViewPanel._currentFileIndex];
@@ -874,21 +1124,43 @@ var FileViewPanel = {};
     FileViewPanel._clearOcrSelection();
     content.html('<div class="file-view-loading">' + ($.i18n('data-quality-extension/file-view-loading') || 'Loading...') + '</div>');
 
+    // 图片文件在普通预览时已拿到同一份原始位图，直接复用；
+    // 只在当前文件确实没取过时才让后端解码并重新编码，省掉一次往返与一轮编解码
+    if (FileViewPanel._currentImageDataUrl && FileViewPanel._currentImageFileName === file.name) {
+      FileViewPanel._currentPreviewType = 'image';
+      FileViewPanel._renderOcrStage(content, { preview: FileViewPanel._currentImageDataUrl, pageCount: 1 });
+      FileViewPanel._resumeThumbs();
+      return;
+    }
+
+    var seq = ++FileViewPanel._previewSeq;
     $.ajax({
       url: '/command/data-quality/render-file-page',
       type: 'GET',
       data: { root: file.rootPath, path: file.name, page: page },
       dataType: 'json',
       success: function(data) {
+        if (seq !== FileViewPanel._previewSeq) {
+          return;
+        }
         if (data && data.status === 'ok' && data.preview) {
+          // 位图由后端按页渲染，借此确认源文件类型：PDF 的「页」是文件内页号
+          if (data.sourceType) {
+            FileViewPanel._currentPreviewType = data.sourceType;
+          }
           FileViewPanel._renderOcrStage(content, data);
         } else {
           content.html('<div class="file-view-error">' +
             ((data && data.message) || $.i18n('data-quality-extension/file-view-error') || 'Error') + '</div>');
         }
+        FileViewPanel._resumeThumbs();
       },
       error: function() {
+        if (seq !== FileViewPanel._previewSeq) {
+          return;
+        }
         content.html('<div class="file-view-error">' + ($.i18n('data-quality-extension/file-view-error') || 'Error') + '</div>');
+        FileViewPanel._resumeThumbs();
       }
     });
   };

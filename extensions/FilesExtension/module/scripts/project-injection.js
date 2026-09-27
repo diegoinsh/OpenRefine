@@ -277,7 +277,10 @@ var BatchTitleExtractionMonitor = (function () {
         } else {
           stop();
           setReadonlyMode(false);
-          refreshDataTable();
+          // 重新拉取项目模型，让案卷级项目在抽取结束后出现「卷级」数据表标签页
+          Refine.reinitializeProjectData(function () {
+            refreshDataTable();
+          });
           showFinalBanner(data.status, data);
         }
       }, "json").fail(function () {

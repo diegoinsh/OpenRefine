@@ -169,6 +169,38 @@
   width: 320px;
 }
 
+.batch-archive-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.batch-archive-label {
+  flex: 0 0 96px;
+  padding-top: 4px;
+  color: var(--text-secondary);
+}
+
+.batch-archive-select {
+  min-width: 220px;
+  padding: 3px 6px;
+}
+
+.batch-elements-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  padding-top: 4px;
+}
+
+.batch-element-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
 .batch-custom-elements-table {
   border-collapse: collapse;
   width: 100%;

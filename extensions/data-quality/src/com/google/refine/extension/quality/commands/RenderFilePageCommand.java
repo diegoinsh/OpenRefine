@@ -17,6 +17,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.pdfbox.pdmodel.PDDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,19 +44,29 @@ public class RenderFilePageCommand extends Command {
 
             File file = OcrCropCommand.resolveFile(root, path);
 
+            // PDF 只加载解析一次，同时拿到总页数并渲染目标页
+            boolean isPdf = FileImageRenderer.isPdfFile(file.getName());
             int pageCount = 1;
-            if (FileImageRenderer.isPdfFile(file.getName())) {
-                pageCount = FileImageRenderer.getPdfPageCount(file);
+            int renderedPage = Math.max(1, page);
+            BufferedImage image;
+            if (isPdf) {
+                try (PDDocument document = PDDocument.load(file)) {
+                    pageCount = document.getNumberOfPages();
+                    renderedPage = Math.max(1, Math.min(page, Math.max(1, pageCount)));
+                    image = FileImageRenderer.renderPdfPage(document, renderedPage);
+                }
+            } else {
+                image = FileImageRenderer.readImage(file);
             }
-
-            BufferedImage image = FileImageRenderer.render(file, page);
 
             result.put("status", "ok");
             result.put("previewType", "image");
-            result.put("preview", FileImageRenderer.toPngDataUrl(image));
+            // 源文件类型：前端据此判断「页」的含义（PDF 为文件内页号，图片为目录内文件序号）
+            result.put("sourceType", isPdf ? "pdf" : "image");
+            result.put("preview", FileImageRenderer.toJpegDataUrl(image));
             result.put("width", image.getWidth());
             result.put("height", image.getHeight());
-            result.put("page", Math.max(1, Math.min(page, pageCount)));
+            result.put("page", renderedPage);
             result.put("pageCount", pageCount);
             respondJSON(response, result);
 

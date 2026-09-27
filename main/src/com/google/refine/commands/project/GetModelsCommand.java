@@ -36,6 +36,7 @@ package com.google.refine.commands.project;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import javax.servlet.ServletException;
@@ -161,7 +162,7 @@ public class GetModelsCommand extends Command {
             headersMap.put(headerLabel, info);
         }
 
-        Map<String, SheetInfo> sheetInfoMap = new HashMap<>();
+        Map<String, SheetInfo> sheetInfoMap = new LinkedHashMap<>();
         try {
             Field sheetDataMapField = Project.class.getDeclaredField("sheetDataMap");
             sheetDataMapField.setAccessible(true);

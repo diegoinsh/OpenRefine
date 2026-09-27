@@ -1,11 +1,15 @@
 package org.openrefine.extensions.files.importer;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.refine.ProjectManager;
 import com.google.refine.commands.Command;
 import com.google.refine.model.Column;
+import com.google.refine.model.ColumnModel;
+import com.google.refine.model.ModelException;
 import com.google.refine.model.Project;
+import com.google.refine.model.SheetData;
 import com.google.refine.ProjectMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +26,11 @@ public class BatchExtractionCommand extends Command {
     private static final Logger logger = LoggerFactory.getLogger(BatchExtractionCommand.class);
     private static final ObjectMapper mapper = new ObjectMapper();
     private static final String DEFAULT_AIMP_URL = "http://127.0.0.1:7998";
+
+    public static final String INNER_SHEET_ID = "batch#卷内";
+    public static final String INNER_SHEET_NAME = "卷内";
+    public static final String SUMMARY_SHEET_ID = "batch#卷级";
+    public static final String SUMMARY_SHEET_NAME = "卷级";
 
     @Override
     public void doPost(HttpServletRequest request, HttpServletResponse response)
@@ -51,6 +60,9 @@ public class BatchExtractionCommand extends Command {
             String projectName = request.getParameter("projectName");
             String templateParam = request.getParameter("template");
             String customElementsJson = request.getParameter("customElements");
+            String archiveCategory = request.getParameter("archiveCategory");
+            String archiveSubCategory = request.getParameter("archiveSubCategory");
+            String fixedElementsJson = request.getParameter("fixedElements");
             String aimpUrl = request.getParameter("aimpUrl");
             boolean disableCache = "true".equalsIgnoreCase(request.getParameter("disableCache"));
 
@@ -64,6 +76,25 @@ public class BatchExtractionCommand extends Command {
             if (!errors.isEmpty()) {
                 respondError(response, "自定义提取类型校验失败: " + String.join("; ", errors));
                 return;
+            }
+
+            // 勾选的固定要素键（title/responsible_party/document_number/date）；
+            // 为空表示沿用模板的全部要素，未勾选的要素不向 AIMP 请求
+            List<String> selectedKeys = new ArrayList<>();
+            if (fixedElementsJson != null && !fixedElementsJson.trim().isEmpty()) {
+                try {
+                    JsonNode node = mapper.readTree(fixedElementsJson);
+                    if (node.isArray()) {
+                        for (JsonNode n : node) {
+                            String k = n.asText("").trim();
+                            if (!k.isEmpty()) {
+                                selectedKeys.add(k);
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.warn("fixedElements 不是合法 JSON 数组，已按模板默认要素处理: " + e.getMessage());
+                }
             }
 
             AimpLlmClient client = new AimpLlmClient(aimpUrl(aimpUrl));
@@ -99,7 +130,8 @@ public class BatchExtractionCommand extends Command {
             int totalPages = 0;
             for (UnitScanner.Volume v : preview) totalPages += v.pages.size();
 
-            BatchExtractionManager.get().start(project.id, rootPath, template, customElements, aimpUrl(aimpUrl), disableCache);
+            BatchExtractionManager.get().start(project.id, rootPath, template, customElements,
+                    archiveCategory, archiveSubCategory, selectedKeys, aimpUrl(aimpUrl), disableCache);
 
             result.put("code", "ok");
             result.put("projectId", project.id);
@@ -127,8 +159,18 @@ public class BatchExtractionCommand extends Command {
                 columnNames.add(insertAt++, ce.getName());
             }
         }
-        for (int i = 0; i < columnNames.size(); i++) {
-            project.columnModel.addColumn(i, new Column(i, columnNames.get(i)), false);
+
+        if (template.isGenerateVolumeSummary()) {
+            SheetData innerSheet = new SheetData(INNER_SHEET_ID, INNER_SHEET_NAME, "");
+            addColumns(innerSheet.columnModel, columnNames);
+            SheetData summarySheet = new SheetData(SUMMARY_SHEET_ID, SUMMARY_SHEET_NAME, "");
+            addColumns(summarySheet.columnModel, ExtractionTemplate.volumeSummaryColumns());
+            project.addSheetData(innerSheet);
+            project.addSheetData(summarySheet);
+            project.setActiveSheet(INNER_SHEET_ID);
+            summarySheet.columnModel.update();
+        } else {
+            addColumns(project.columnModel, columnNames);
         }
         project.update();
 
@@ -137,6 +179,12 @@ public class BatchExtractionCommand extends Command {
         metadata.setEncoding("UTF-8");
         ProjectManager.singleton.registerProject(project, metadata);
         return project;
+    }
+
+    private static void addColumns(ColumnModel columnModel, List<String> columnNames) throws ModelException {
+        for (int i = 0; i < columnNames.size(); i++) {
+            columnModel.addColumn(i, new Column(i, columnNames.get(i)), false);
+        }
     }
 
     private void doProgress(HttpServletRequest request, HttpServletResponse response) throws IOException {

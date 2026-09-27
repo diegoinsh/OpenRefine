@@ -1,6 +1,7 @@
 package org.openrefine.extensions.files.importer;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -38,7 +39,7 @@ public enum ExtractionTemplate {
     BATCH_TITLE_VOLUME("批量题名提取案卷模板",
             new String[]{"案卷号", "件号", "起止页号", "页数", "题名", "责任者", "文号", "成文日期", "文件名", "文件夹路径", "提取状态", "备注"},
             "案卷号",
-            false),
+            true),
 
     /**
      * 批量题名提取案件模板
@@ -52,6 +53,15 @@ public enum ExtractionTemplate {
 
     /** 批量模板中用于定位「具体文件」的列，仅在有 PDF 等多页文件时生成 */
     public static final String FILE_NAME_COLUMN = "文件名";
+
+    /** 卷级汇总表（「卷级」Sheet）的列：每卷一行，由该卷卷内各件汇总生成 */
+    public static final String[] VOLUME_SUMMARY_COLUMNS = {
+            "案卷号", "题名", "责任者", "起始时间", "终止时间", "总页数", "卷内文件份数", "文件夹路径"
+    };
+
+    public static List<String> volumeSummaryColumns() {
+        return new ArrayList<>(Arrays.asList(VOLUME_SUMMARY_COLUMNS));
+    }
 
     private final String displayName;
     private final String[] columns;

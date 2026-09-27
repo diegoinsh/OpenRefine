@@ -241,13 +241,15 @@
   background: #e3f2fd;
 }
 
+/* 固定占位高度：图片按需加载，高度不定会让滚动定位与列表高度抖动 */
 .file-view-thumb-img {
   width: 60px;
-  height: 45px;
-  object-fit: cover;
+  height: 84px;
+  object-fit: contain;
   border-radius: 2px;
   display: block;
   margin: 0 auto;
+  background: #fff;
 }
 
 .file-view-thumb-icon {

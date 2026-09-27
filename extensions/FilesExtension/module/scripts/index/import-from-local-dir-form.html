@@ -30,6 +30,25 @@
         <input type="text" bind="batchProjectName" class="batch-project-name-input"/>
       </div>
       <div class="batch-field-row">
+        <label bind="batchArchiveSectionLabel" class="batch-section-title"></label>
+        <div class="batch-archive-row">
+          <label bind="archiveCategoryLabel" class="batch-archive-label"></label>
+          <select bind="archiveCategorySelect" class="batch-archive-select"></select>
+        </div>
+        <div class="batch-archive-row" bind="archiveSubCategoryRow" style="display:none">
+          <label bind="archiveSubCategoryLabel" class="batch-archive-label"></label>
+          <select bind="archiveSubCategorySelect" class="batch-archive-select"></select>
+        </div>
+        <div class="batch-archive-row">
+          <label bind="extractionElementsLabel" class="batch-archive-label"></label>
+          <div class="batch-elements-options" bind="extractionElementsOptions"></div>
+        </div>
+        <div class="batch-archive-row" bind="extractionElementsExtraRow" style="display:none">
+          <label class="batch-archive-label"></label>
+          <div class="batch-elements-options" bind="extractionElementsExtraOptions"></div>
+        </div>
+      </div>
+      <div class="batch-field-row">
         <label bind="batchCustomElementsLabel" class="batch-custom-elements-toggle"></label>
         <div class="batch-custom-elements-section" bind="customElementsSection" style="display:none">
           <table class="batch-custom-elements-table" bind="customElementsTable">

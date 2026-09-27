@@ -2,6 +2,7 @@ package org.openrefine.extensions.files.importer;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,6 +50,20 @@ public class AimpLlmClient {
 
     public void setDisableCache(boolean disableCache) {
         this.disableCache = disableCache;
+    }
+
+    /** 档案门类，随 options.archive_category 传给 AIMP，用于选择该门类的提取规则提示词 */
+    private String archiveCategory;
+
+    public void setArchiveCategory(String archiveCategory) {
+        this.archiveCategory = archiveCategory;
+    }
+
+    /** 专业档案的二级细分类别，随 options.archive_sub_category 传给 AIMP，优先于门类规则 */
+    private String archiveSubCategory;
+
+    public void setArchiveSubCategory(String archiveSubCategory) {
+        this.archiveSubCategory = archiveSubCategory;
     }
 
     public Map<String, String> extractContent(String filePath, String keyList) {
@@ -124,11 +139,16 @@ public class AimpLlmClient {
             }
 
             boolean hasPrev = previousExtractionsJson != null && !previousExtractionsJson.isEmpty();
-            if (currentPage != null || totalPages != null || disableCache || hasPrev) {
+            boolean hasArchiveCategory = archiveCategory != null && !archiveCategory.isEmpty();
+            boolean hasArchiveSubCategory = archiveSubCategory != null && !archiveSubCategory.isEmpty();
+            if (currentPage != null || totalPages != null || disableCache || hasPrev
+                    || hasArchiveCategory || hasArchiveSubCategory) {
                 ObjectNode opts = mapper.createObjectNode();
                 if (currentPage != null) opts.put("current_page", currentPage);
                 if (totalPages != null) opts.put("total_pages", totalPages);
                 if (disableCache) opts.put("disable_cache", true);
+                if (hasArchiveCategory) opts.put("archive_category", archiveCategory);
+                if (hasArchiveSubCategory) opts.put("archive_sub_category", archiveSubCategory);
                 if (hasPrev) {
                     try {
                         opts.set("previous_extractions", mapper.readTree(previousExtractionsJson));
@@ -299,6 +319,73 @@ public class AimpLlmClient {
             r.error = e.getMessage();
         }
         return r;
+    }
+
+    /**
+     * 卷级二次分件：整卷页级提取完成后调用一次，由 AIMP 用一次 LLM 判断「每一件的起始页」，
+     * 区间由服务端按"下一件的起始页 - 1"聚合。
+     *
+     * <p>页级提取只回答"这一页是什么"，回答不了"这几页是否属于同一件"——后者是卷级语义任务，
+     * 字符串相似度无能为力。调用失败或服务端结构校验不过时，调用方回退 {@link TitleSplitter}。
+     *
+     * @param pageTitles 逐页题名，下标 0 为卷内第 1 页
+     */
+    public SplitResult splitVolumePieces(List<String> pageTitles, String archiveCategory,
+                                         String archiveSubCategory) {
+        SplitResult r = new SplitResult();
+        try {
+            ObjectNode body = mapper.createObjectNode();
+            ArrayNode pages = body.putArray("pages");
+            for (int i = 0; i < pageTitles.size(); i++) {
+                ObjectNode p = pages.addObject();
+                p.put("page", i + 1);
+                p.put("title", pageTitles.get(i) == null ? "" : pageTitles.get(i));
+            }
+            body.put("total_pages", pageTitles.size());
+            if (archiveCategory != null) body.put("archive_category", archiveCategory);
+            if (archiveSubCategory != null) body.put("archive_sub_category", archiveSubCategory);
+
+            HttpURLConnection c = (HttpURLConnection) new URL(serviceUrl + "/extract/split-pieces").openConnection();
+            c.setRequestMethod("POST");
+            c.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            c.setConnectTimeout(CONNECT_TIMEOUT);
+            c.setReadTimeout(READ_TIMEOUT);
+            c.setDoOutput(true);
+            try (OutputStream os = c.getOutputStream()) {
+                os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+            }
+            if (c.getResponseCode() == 200) {
+                JsonNode json = mapper.readTree(readStream(c.getInputStream()));
+                r.success = json.path("success").asBoolean(false);
+                r.reason = json.path("reason").asText("");
+                JsonNode arr = json.path("pieces");
+                if (arr.isArray()) {
+                    for (JsonNode n : arr) {
+                        TitleSplitter.Piece p = new TitleSplitter.Piece();
+                        p.startPage = n.path("start").asInt(0);
+                        p.endPage = n.path("end").asInt(0);
+                        p.title = n.path("title").asText("");
+                        r.pieces.add(p);
+                    }
+                }
+                if (!r.success) r.pieces.clear();
+            } else {
+                r.success = false;
+                r.reason = "HTTP " + c.getResponseCode();
+            }
+        } catch (Exception e) {
+            logger.error("Error calling volume piece split", e);
+            r.success = false;
+            r.reason = e.getMessage() == null ? e.toString() : e.getMessage();
+        }
+        return r;
+    }
+
+    /** 卷级分件结果：pieces 为按页序的件区间（服务端已做结构校验） */
+    public static class SplitResult {
+        public boolean success;
+        public String reason = "";
+        public List<TitleSplitter.Piece> pieces = new ArrayList<>();
     }
 
     private String readStream(InputStream s) throws IOException {
