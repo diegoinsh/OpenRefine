@@ -98,11 +98,26 @@ public class BatchExtractionCommand extends Command {
             }
 
             AimpLlmClient client = new AimpLlmClient(aimpUrl(aimpUrl));
-            if (!client.testConnection()) {
+            AimpLlmClient.CompatibilityResult compat = client.checkCompatibility();
+            if (!compat.reachable) {
                 ObjectNode err = mapper.createObjectNode();
                 err.put("code", "error");
                 err.put("messageKey", "files-importing/aimp-unavailable");
                 err.put("message", "AI服务模块不可用，请检查或重启模块");
+                respondJSON(response, err);
+                return;
+            }
+            if (!compat.compatible) {
+                // 两边版本不配套时，后续调用会以各种莫名其妙的运行时错误呈现，
+                // 故在开跑前就拦下，并说明双方各自的版本，用户照着更新模块即可
+                ObjectNode err = mapper.createObjectNode();
+                err.put("code", "error");
+                err.put("messageKey", "files-importing/aimp-version-mismatch");
+                err.put("message", "AI服务模块版本不匹配：本扩展要求接口版本 "
+                        + compat.expectedApiVersions() + "，当前模块为 " + compat.actualVersion()
+                        + "，请更新模块后重试");
+                err.put("expectedApiVersion", compat.expectedApiVersions());
+                err.put("actualVersion", compat.actualVersion());
                 respondJSON(response, err);
                 return;
             }

@@ -719,10 +719,18 @@ public class BatchExtractionManager {
         client.setDisableCache(task.disableCache);
         client.setArchiveCategory(task.archiveCategory);
         client.setArchiveSubCategory(task.archiveSubCategory);
-        if (!client.testConnection()) {
+        AimpLlmClient.CompatibilityResult compat = client.checkCompatibility();
+        if (!compat.reachable) {
             fail(task, "AIMP_SERVICE_UNAVAILABLE");
             return;
         }
+        if (!compat.compatible) {
+            fail(task, "AI服务模块版本不匹配：本扩展要求接口版本 " + compat.expectedApiVersions()
+                    + "，当前模块为 " + compat.actualVersion() + "，请更新模块后重试");
+            return;
+        }
+        // 握手成功即把对端版本记进日志：日后排查「某个版本出的问题」时可直接定位到模块提交
+        logger.info("AIMP 服务握手成功：{}", compat.actualVersion());
         List<String> keys = task.selectedKeys != null && !task.selectedKeys.isEmpty()
                 ? task.selectedKeys
                 : Arrays.asList(task.template.getExtractionKeys());

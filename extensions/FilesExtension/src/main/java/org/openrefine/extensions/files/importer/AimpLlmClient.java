@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class AimpLlmClient {
 
@@ -26,24 +27,93 @@ public class AimpLlmClient {
     private static final int READ_TIMEOUT = 120000;
     /** 异步任务状态查询响应较短，单独设置较小的读取超时，避免网络抖动时长时间阻塞 */
     private static final int STATUS_READ_TIMEOUT = 15000;
+    /** 健康检查握手请求很小，用较短超时，避免模块未启动时界面长时间干等 */
+    private static final int HEALTH_CONNECT_TIMEOUT = 5000;
+    private static final int HEALTH_READ_TIMEOUT = 5000;
+    /**
+     * 与 AIMP 约定的接口契约版本集合：AIMP `/health` 报告的 api_version 不在此集合内即视为
+     * 版本不配套，直接给出明确提示而不是让后续调用出各种怪错误。
+     * 接口的请求／响应结构发生不兼容变化时两端同步递增（AIMP 侧 src/__init__.py 的
+     * __api_version__），并更新 docs/release-compat.md。
+     */
+    private static final Set<Integer> SUPPORTED_API_VERSIONS = Set.of(2);
     private final String serviceUrl;
 
     public AimpLlmClient(String serviceUrl) {
         this.serviceUrl = serviceUrl != null ? serviceUrl.replaceAll("/+$", "") : "http://127.0.0.1:7998";
     }
 
-    public boolean testConnection() {
+    /** 服务可达性与版本配套性的探测结果 */
+    public static class CompatibilityResult {
+        /** /health 是否返回 200 */
+        public boolean reachable;
+        /** AIMP 报告的接口版本是否在本扩展支持范围内 */
+        public boolean compatible;
+        /** AIMP 报告的接口版本；字段缺失（旧版模块）时为 null */
+        public Integer apiVersion;
+        /** AIMP 的应用版本与提交，用于提示里指明对端究竟是哪个构建 */
+        public String appVersion;
+        public String gitSha;
+        /** 不可达时的原因（HTTP 状态码或异常信息） */
+        public String error;
+
+        /** 本扩展要求的接口版本，形如 "2" */
+        public String expectedApiVersions() {
+            StringBuilder sb = new StringBuilder();
+            for (Integer version : SUPPORTED_API_VERSIONS) {
+                if (sb.length() > 0) sb.append('/');
+                sb.append(version);
+            }
+            return sb.toString();
+        }
+
+        /** 对端版本的展示串，形如「接口 v2，模块 2.0.0+b4946c2」 */
+        public String actualVersion() {
+            if (apiVersion == null) return "未知（可能为旧版模块）";
+            StringBuilder sb = new StringBuilder("接口 v").append(apiVersion);
+            if (appVersion != null && !appVersion.isEmpty()) sb.append("，模块 ").append(appVersion);
+            if (gitSha != null && !gitSha.isEmpty() && !"unknown".equals(gitSha)) {
+                sb.append('+').append(gitSha);
+            }
+            return sb.toString();
+        }
+    }
+
+    /**
+     * 握手：GET /health，既判断模块是否可用，也判断**接口版本是否配套**。
+     *
+     * 版本不配套时的表现往往是一连串莫名其妙的运行时错误（少字段、行为不一致），
+     * 故在调用业务接口前先把这件事问清楚，由调用方给出明确提示。
+     */
+    public CompatibilityResult checkCompatibility() {
+        CompatibilityResult result = new CompatibilityResult();
         try {
             HttpURLConnection c = (HttpURLConnection) new URL(serviceUrl + "/health").openConnection();
             c.setRequestMethod("GET");
-            c.setConnectTimeout(5000);
-            c.setReadTimeout(5000);
+            c.setConnectTimeout(HEALTH_CONNECT_TIMEOUT);
+            c.setReadTimeout(HEALTH_READ_TIMEOUT);
             int code = c.getResponseCode();
+            if (code != 200) {
+                result.error = "HTTP " + code;
+                c.disconnect();
+                return result;
+            }
+            JsonNode json = mapper.readTree(readStream(c.getInputStream()));
             c.disconnect();
-            return code == 200;
+            result.reachable = true;
+            if (json.hasNonNull("api_version")) result.apiVersion = json.get("api_version").asInt();
+            if (json.hasNonNull("version")) result.appVersion = json.get("version").asText();
+            if (json.hasNonNull("git_sha")) result.gitSha = json.get("git_sha").asText();
+            result.compatible = result.apiVersion != null && SUPPORTED_API_VERSIONS.contains(result.apiVersion);
+            return result;
         } catch (Exception e) {
-            return false;
+            result.error = e.getMessage() == null ? e.toString() : e.getMessage();
+            return result;
         }
+    }
+
+    public boolean testConnection() {
+        return checkCompatibility().reachable;
     }
 
     private boolean disableCache;
