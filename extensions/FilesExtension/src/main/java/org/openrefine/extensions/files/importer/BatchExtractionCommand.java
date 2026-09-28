@@ -152,10 +152,16 @@ public class BatchExtractionCommand extends Command {
         for (String column : template.getColumns(includeFileNameColumn)) {
             columnNames.add(column);
         }
+        // 卷级要素（案由/当事人/审级/结案方式/密级/保管期限/开放状态）整卷同值，案卷模板下只出在
+        // 「卷级」表，卷内表只保留件级要素——口径见 docs/design/archive-category-and-fields-standard.md 3.4
         int insertAt = columnNames.indexOf("成文日期");
         insertAt = insertAt >= 0 ? insertAt + 1 : columnNames.size();
+        List<String> volumeElementColumns = new ArrayList<>();
         for (CustomElementType ce : customElements) {
-            if (ce.isInclude()) {
+            if (!ce.isInclude()) continue;
+            if (template.isGenerateVolumeSummary() && ExtractionTemplate.isVolumeLevelElement(ce.getKey())) {
+                volumeElementColumns.add(ce.getName());
+            } else {
                 columnNames.add(insertAt++, ce.getName());
             }
         }
@@ -164,7 +170,10 @@ public class BatchExtractionCommand extends Command {
             SheetData innerSheet = new SheetData(INNER_SHEET_ID, INNER_SHEET_NAME, "");
             addColumns(innerSheet.columnModel, columnNames);
             SheetData summarySheet = new SheetData(SUMMARY_SHEET_ID, SUMMARY_SHEET_NAME, "");
-            addColumns(summarySheet.columnModel, ExtractionTemplate.volumeSummaryColumns());
+            List<String> summaryColumns = ExtractionTemplate.volumeSummaryColumns();
+            // 卷级要素排在「文件夹路径」之前，使文件夹路径固定为最后一列
+            summaryColumns.addAll(summaryColumns.size() - 1, volumeElementColumns);
+            addColumns(summarySheet.columnModel, summaryColumns);
             project.addSheetData(innerSheet);
             project.addSheetData(summarySheet);
             project.setActiveSheet(INNER_SHEET_ID);

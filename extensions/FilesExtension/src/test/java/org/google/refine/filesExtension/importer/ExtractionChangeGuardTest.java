@@ -105,6 +105,14 @@ public class ExtractionChangeGuardTest {
     }
 
     @Test
+    public void allowsSwitchSheetWhileRunning() {
+        // 切换数据页只改 activeSheetId 与模型引用，不产生 Change、不改动 rows：
+        // 提取期间放开，其余编辑（改单元格、排序、增删行列等）仍拦截
+        injectRunningTask();
+        Assert.assertNull(guard().intercept("core", "switch-sheet", String.valueOf(PID), null));
+    }
+
+    @Test
     public void allowsNonCoreCommandsWhileRunning() {
         injectRunningTask();
         Assert.assertNull(guard().intercept("files", "batch-extraction", String.valueOf(PID), null));

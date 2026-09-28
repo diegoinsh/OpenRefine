@@ -28,9 +28,9 @@ public class FileNameColumnVisibilityTest {
     public void volumeTemplateDropsFileNameColumnForSinglePageImages() {
         List<String> columns = columnsOf(ExtractionTemplate.BATCH_TITLE_VOLUME, false);
         Assert.assertFalse(columns.contains(ExtractionTemplate.FILE_NAME_COLUMN));
-        // 只删该列，其余列与顺序保持不变
+        // 只删该列，其余列与顺序保持不变（文件夹路径固定最后一列）
         Assert.assertEquals(columns, Arrays.asList("案卷号", "件号", "起止页号", "页数",
-                "题名", "责任者", "文号", "成文日期", "文件夹路径", "提取状态", "备注"));
+                "题名", "责任者", "文号", "成文日期", "提取状态", "备注", "文件夹路径"));
     }
 
     @Test

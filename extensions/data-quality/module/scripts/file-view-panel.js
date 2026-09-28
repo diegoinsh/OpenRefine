@@ -81,6 +81,21 @@ var FileViewPanel = {};
   /** 页映射中「件首页」的行级键，与后端 BatchExtractionManager.PIECE_START_KEY 保持一致 */
   FileViewPanel.PIECE_START_KEY = '__piece_start__';
 
+  /** 「卷级」汇总表 id，与后端 BatchExtractionCommand.SUMMARY_SHEET_ID 保持一致 */
+  FileViewPanel.SUMMARY_SHEET_ID = 'batch#卷级';
+
+  /**
+   * 页映射的键：卷内行用行号，卷级行用「表id:行号」。
+   * 两张表的行号都各自从 0 起，不加前缀会互相串页；后端写入时按同一规则区分。
+   */
+  FileViewPanel._pageMapKey = function(rowIndex) {
+    var activeSheetId = (typeof theProject !== 'undefined' && theProject)
+        ? theProject.activeSheetId : null;
+    return activeSheetId === FileViewPanel.SUMMARY_SHEET_ID
+        ? FileViewPanel.SUMMARY_SHEET_ID + ':' + rowIndex
+        : String(rowIndex);
+  };
+
   /** 可直接作为位图预览的扩展名 */
   FileViewPanel.IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp', 'ico', 'tiff'];
 
@@ -231,7 +246,7 @@ var FileViewPanel = {};
     var cached = FileViewPanel._pageMap;
     var hasCache = cached !== null && FileViewPanel._pageMapProjectId === projectId;
     var missingRow = hasCache && typeof rowIndex === 'number' && rowIndex >= 0
-        && !Object.prototype.hasOwnProperty.call(cached, String(rowIndex));
+        && !Object.prototype.hasOwnProperty.call(cached, FileViewPanel._pageMapKey(rowIndex));
     if (hasCache && !missingRow) {
       callback();
       return;
@@ -281,7 +296,7 @@ var FileViewPanel = {};
     if (columnName === null) {
       return [];
     }
-    var rowNode = FileViewPanel._pageMap[String(rowIndex)];
+    var rowNode = FileViewPanel._pageMap[FileViewPanel._pageMapKey(rowIndex)];
     if (!rowNode) {
       return [];
     }
@@ -299,7 +314,7 @@ var FileViewPanel = {};
     if (!FileViewPanel._pageMap) {
       return null;
     }
-    var rowNode = FileViewPanel._pageMap[String(rowIndex)];
+    var rowNode = FileViewPanel._pageMap[FileViewPanel._pageMapKey(rowIndex)];
     if (!rowNode) {
       return null;
     }
@@ -1391,7 +1406,11 @@ var FileViewPanel = {};
       $('<span>').addClass('file-view-page-label')
         .text($.i18n('data-quality-extension/file-view-page-label') || '取值所在页：')
         .appendTo(pages);
-      FileViewPanel._pageCandidates.forEach(function(candidate) {
+      // 多值来源页按页号升序展示，便于顺着卷内顺序核对；只排展示副本，
+      // 不改变候选首位的语义（首位仍是写入单元格的取值所在页，用于默认定位）
+      FileViewPanel._pageCandidates.slice().sort(function(a, b) {
+        return parseInt(a.p, 10) - parseInt(b.p, 10);
+      }).forEach(function(candidate) {
         var page = parseInt(candidate.p, 10);
         if (!(page > 0)) return;
         var chip = $('<button>').addClass('button file-view-page-chip').text('第 ' + page + ' 页');

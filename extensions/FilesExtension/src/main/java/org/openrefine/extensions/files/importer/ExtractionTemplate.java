@@ -2,8 +2,10 @@ package org.openrefine.extensions.files.importer;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 结构化要素提取模板枚举。
@@ -33,11 +35,12 @@ public enum ExtractionTemplate {
     /**
      * 批量题名提取案卷模板（首要场景：法院卷宗材料整理）
      * 根目录下子文件夹=案卷，卷内图像按标题分件；列：
-     * 案卷号, 件号, 起止页号, 页数, 题名, 责任者, 文号, 成文日期, 文件名, 文件夹路径, 提取状态, 备注
+     * 案卷号, 件号, 起止页号, 页数, 题名, 责任者, 文号, 成文日期, 文件名, 提取状态, 备注, 文件夹路径
+     * 「文件夹路径」是定位用的长路径，固定排在最后一列
      * 提取期项目只读（R-07 方案甲）
      */
     BATCH_TITLE_VOLUME("批量题名提取案卷模板",
-            new String[]{"案卷号", "件号", "起止页号", "页数", "题名", "责任者", "文号", "成文日期", "文件名", "文件夹路径", "提取状态", "备注"},
+            new String[]{"案卷号", "件号", "起止页号", "页数", "题名", "责任者", "文号", "成文日期", "文件名", "提取状态", "备注", "文件夹路径"},
             "案卷号",
             true),
 
@@ -56,11 +59,32 @@ public enum ExtractionTemplate {
 
     /** 卷级汇总表（「卷级」Sheet）的列：每卷一行，由该卷卷内各件汇总生成 */
     public static final String[] VOLUME_SUMMARY_COLUMNS = {
-            "案卷号", "题名", "责任者", "起始时间", "终止时间", "总页数", "卷内文件份数", "文件夹路径"
+            "案卷号", "题名", "责任者", "起始时间", "终止时间", "总页数", "卷内文件份数"
     };
 
+    /** 文件所在文件夹路径列：卷内、卷级两张表都固定排在最后一列 */
+    public static final String FOLDER_PATH_COLUMN = "文件夹路径";
+
+    /**
+     * 卷级要素 key：整卷同值的案卷级元数据。
+     *
+     * 《人民法院电子诉讼档案管理暂行办法》（法〔2013〕283 号）把 案由、当事人、审判程序（审级）、
+     * 审理结果（结案方式）、密级、保管期限 列为**案卷级**著录项；它们整卷同值，若逐件重复写进卷内行，
+     * 属系统冗余展示而不是著录位置。故案卷模板下这些要素只在「卷级」表出列，卷内表不再生成。
+     * 口径与依据见 docs/design/archive-category-and-fields-standard.md 3.4。
+     */
+    public static final Set<String> VOLUME_LEVEL_ELEMENT_KEYS = new LinkedHashSet<>(Arrays.asList(
+            "anyou", "dangshiren", "shenji", "jiean_fangshi", "baoguan_qixian",
+            "miji", "kaifang_zhuangtai"));
+
+    public static boolean isVolumeLevelElement(String key) {
+        return key != null && VOLUME_LEVEL_ELEMENT_KEYS.contains(key);
+    }
+
     public static List<String> volumeSummaryColumns() {
-        return new ArrayList<>(Arrays.asList(VOLUME_SUMMARY_COLUMNS));
+        List<String> columns = new ArrayList<>(Arrays.asList(VOLUME_SUMMARY_COLUMNS));
+        columns.add(FOLDER_PATH_COLUMN);
+        return columns;
     }
 
     private final String displayName;
