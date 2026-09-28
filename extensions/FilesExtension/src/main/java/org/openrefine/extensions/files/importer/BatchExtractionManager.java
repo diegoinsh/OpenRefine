@@ -535,8 +535,17 @@ public class BatchExtractionManager {
                             // 答案以《人民法院诉讼文书立卷归档办法》的条项为准（一个条项 = 一件）。
                             // 服务端只做结构校验（起点从第 1 页起、严格递增、不超总页数），
                             // 不做件数或件名的语义纠正——分件粒度与人工口径的差异不视为错误。
+                            // 逐页当事人 + 卷宗封面抽到的原/被告名单：身份证明类件要按当事人
+                            // 分成「原告身份证明」「被告身份证明」（该办法第十四条(8)）；
+                            // 名单整卷一份（只有封面页会返回），页当事人逐页对应
+                            List<String> itemParties = new ArrayList<>(itemIndexes.size());
+                            for (int idx : itemIndexes) {
+                                Map<String, String> vals = idx < pageValues.size() ? pageValues.get(idx) : null;
+                                itemParties.add(vals == null ? "" : vals.getOrDefault("responsible_party", ""));
+                            }
                             AimpLlmClient.SplitResult split = client.splitVolumePieces(
-                                    itemTitles, task.archiveCategory, task.archiveSubCategory);
+                                    itemTitles, itemParties, firstPartyRoles(pageValues),
+                                    task.archiveCategory, task.archiveSubCategory);
                             if (split.success && !split.pieces.isEmpty()) {
                                 logger.info("卷 {} 卷级分件成功（{} 件）", unit.name, split.pieces.size());
                                 pieces = mapToVolumeIndexes(split.pieces, itemIndexes, unit);
@@ -778,6 +787,17 @@ public class BatchExtractionManager {
         return title != null && !title.trim().isEmpty();
     }
 
+    /** 卷宗封面页抽到的原/被告名单（JSON 字符串）：整卷只有封面页带该字段，取第一个非空值。 */
+    private static String firstPartyRoles(List<Map<String, String>> pageValues) {
+        if (pageValues == null) return null;
+        for (Map<String, String> values : pageValues) {
+            if (values == null) continue;
+            String roles = values.get("party_roles");
+            if (roles != null && !roles.trim().isEmpty()) return roles;
+        }
+        return null;
+    }
+
     private static List<Integer> allPageIndexes(int pageCount) {
         List<Integer> indexes = new ArrayList<>(pageCount);
         for (int i = 0; i < pageCount; i++) indexes.add(i);
@@ -920,6 +940,10 @@ public class BatchExtractionManager {
                 put(columnModel, row, ce.getName(), get(values, ce.getKey()));
             }
         }
+        // 案卷模板的件名照录件首页题名（整目录成件模板则取首个非空题名），只有案卷模板需要对齐定位
+        if (task.template == ExtractionTemplate.BATCH_TITLE_VOLUME) {
+            prioritizePieceTitle(candidates, piece, unit);
+        }
         int rowIndex = appendRow(task, project, row);
         accumulateVolumeSummary(task, unit, piece, responsibleParty, documentDate, values);
         recordPageMap(task, rowIndex, candidates, pieceStartNode(unit, piece));
@@ -1018,6 +1042,39 @@ public class BatchExtractionManager {
             named.put(e.getKey(), list);
         }
         return named;
+    }
+
+    /**
+     * 把「题名」的默认定位页固定为件首页。
+     *
+     * 件名照录件首页的页级题名（见 expand_volume_pieces），定位也必须回到件首页；但件内第 2 页起
+     * 识别出的其它标题（后续材料页、证件页、附件页）置信度可能更高，会把它挤到候选列表后面，
+     * 前端点击题名于是跳到了后续页——实测 SZ05-2025-M1-4821 的 0023-0024「被告举证材料」点题名
+     * 跳到了 0024（题名候选首位成了 0024 上的"轴承样品提交说明"）、0009-0012「被告身份证明」
+     * 跳到了 0012。件首页没有题名候选时（件名由卷级模型兜底，如按当事人切出的「原告身份证明」）
+     * 补一条，保证定位仍落在件首页。
+     */
+    private static void prioritizePieceTitle(
+            Map<String, List<AimpLlmClient.ElementCandidate>> candidates,
+            TitleSplitter.Piece piece, UnitScanner.Volume unit) {
+        if (candidates == null || piece == null || unit.pdfMode) return;
+        List<AimpLlmClient.ElementCandidate> titles = candidates.get("title");
+        if (titles == null) titles = new ArrayList<>();
+        for (int i = 1; i < titles.size(); i++) {
+            if (titles.get(i).page == piece.startPage) {
+                titles.add(0, titles.remove(i));
+                candidates.put("title", titles);
+                return;
+            }
+        }
+        if (!titles.isEmpty() && titles.get(0).page == piece.startPage) return;
+        String title = piece.title == null ? "" : piece.title.trim();
+        if (title.isEmpty()) return;
+        int index = piece.startPage - 1;
+        String fileName = index >= 0 && index < unit.pages.size()
+                ? new File(unit.pages.get(index)).getName() : null;
+        titles.add(0, new AimpLlmClient.ElementCandidate(title, null, piece.startPage, fileName));
+        candidates.put("title", titles);
     }
 
     private int appendRow(Task task, Project project, Row row) {

@@ -332,6 +332,18 @@ public class AimpLlmClient {
      */
     public SplitResult splitVolumePieces(List<String> pageTitles, String archiveCategory,
                                          String archiveSubCategory) {
+        return splitVolumePieces(pageTitles, null, null, archiveCategory, archiveSubCategory);
+    }
+
+    /**
+     * 卷级二次分件（带当事人信息）。
+     *
+     * @param pageParties 逐页当事人（责任者），下标 0 为卷内第 1 页；身份证明类件靠它区分原/被告
+     * @param partyRoles  卷宗封面页抽到的原、被告名单（JSON 字符串），整卷一份，与页序无关
+     */
+    public SplitResult splitVolumePieces(List<String> pageTitles, List<String> pageParties,
+                                         String partyRoles, String archiveCategory,
+                                         String archiveSubCategory) {
         SplitResult r = new SplitResult();
         try {
             ObjectNode body = mapper.createObjectNode();
@@ -340,8 +352,12 @@ public class AimpLlmClient {
                 ObjectNode p = pages.addObject();
                 p.put("page", i + 1);
                 p.put("title", pageTitles.get(i) == null ? "" : pageTitles.get(i));
+                if (pageParties != null && i < pageParties.size() && pageParties.get(i) != null) {
+                    p.put("party", pageParties.get(i));
+                }
             }
             body.put("total_pages", pageTitles.size());
+            if (partyRoles != null && !partyRoles.isEmpty()) body.put("party_roles", partyRoles);
             if (archiveCategory != null) body.put("archive_category", archiveCategory);
             if (archiveSubCategory != null) body.put("archive_sub_category", archiveSubCategory);
 
