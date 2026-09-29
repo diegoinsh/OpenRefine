@@ -213,27 +213,28 @@ var BatchTitleExtractionMonitor = (function () {
    * 性铺开；逐页串行调用时每页到达本身就是一条，间隔为 0，直接显示。
    */
   function feedPagePreview($banner, pages, volumeIndex) {
-    if (!pages || pages.length === 0) return;
     if (volumeIndex !== previewVolumeIndex) {
       previewVolumeIndex = volumeIndex;
       previewShown = [];
       previewPending = [];
       $banner.find('.batch-extraction-banner-preview').remove();
     }
-    var known = {};
-    previewShown.concat(previewPending).forEach(function (p) {
-      known[p.page] = true;
-    });
-    pages.forEach(function (p) {
-      if (!known[p.page]) {
-        previewPending.push(p);
+    if (pages && pages.length > 0) {
+      var known = {};
+      previewShown.concat(previewPending).forEach(function (p) {
+        known[p.page] = true;
+      });
+      pages.forEach(function (p) {
+        if (!known[p.page]) {
+          previewPending.push(p);
+        }
+      });
+      previewPending.sort(function (a, b) {
+        return a.page - b.page;
+      });
+      while (previewPending.length > PAGE_PENDING_LIMIT) {
+        previewPending.shift();
       }
-    });
-    previewPending.sort(function (a, b) {
-      return a.page - b.page;
-    });
-    while (previewPending.length > PAGE_PENDING_LIMIT) {
-      previewPending.shift();
     }
     // 逐页串行调用（间隔为 0）：每页到达本身就是一条，直接显示，不必排队等定时器
     if (previewIntervalMs <= 0) {
@@ -247,6 +248,9 @@ var BatchTitleExtractionMonitor = (function () {
       }
       return;
     }
+    // 间隔变化（updatePreviewInterval）会重建定时器；若那一轮恰好没有新页到达，
+    // 这里负责把积压的队列重新驱动起来，否则预览会停在原地等下一页
+    // （长卷单页可达 20s，观感就是「卡住不动」）
     if (!previewTimer && previewPending.length > 0) {
       previewTimer = window.setInterval(function () {
         if (previewPending.length === 0) {
@@ -254,9 +258,19 @@ var BatchTitleExtractionMonitor = (function () {
           previewTimer = null;
           return;
         }
-        previewShown.push(previewPending.shift());
-        while (previewShown.length > PAGE_PREVIEW_MAX) {
-          previewShown.shift();
+        // 积压追赶：定时器按「平均每页耗时」逐条揭示，比实际抽取略慢时会越积越多，
+        // 队列越长一次揭示越多，避免预览永远追不上顶部的进度文案
+        var revealCount = 1;
+        if (previewPending.length > 20) {
+          revealCount = 4;
+        } else if (previewPending.length > 8) {
+          revealCount = 2;
+        }
+        while (revealCount-- > 0 && previewPending.length > 0) {
+          previewShown.push(previewPending.shift());
+          while (previewShown.length > PAGE_PREVIEW_MAX) {
+            previewShown.shift();
+          }
         }
         renderPagePreview($banner);
       }, previewIntervalMs);

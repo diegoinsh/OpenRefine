@@ -56,4 +56,45 @@ public class PagePreviewTest {
 
         Assert.assertEquals("[1, 2, 3]", task.recentPages.keySet().toString());
     }
+
+    @Test
+    public void averagesPageTimingOverRecentBatchesSkippingFirst() {
+        BatchExtractionManager.Task task = newTask();
+        // 首批含模型预热/首次推理，明显偏离稳定速度，不计入平均
+        task.recordPageTiming(30000, 4);
+        Assert.assertEquals(0, task.avgPageMillis());
+        // 后续批按「批耗时 ÷ 批页数」计入：4000/4=1000、8000/4=2000，平均 1500
+        task.recordPageTiming(4000, 4);
+        task.recordPageTiming(8000, 4);
+        Assert.assertEquals(1500, task.avgPageMillis());
+    }
+
+    @Test
+    public void keepsOnlyTheMostRecentTimingBatches() {
+        BatchExtractionManager.Task task = newTask();
+        task.recordPageTiming(1, 1);                  // 首批：跳过
+        for (int i = 1; i <= 10; i++) {
+            task.recordPageTiming(1000L * i, 1);      // 批耗时 1000..10000
+        }
+        // 窗口 8：只保留最近 8 批（3000..10000），平均 = 52000 / 8 = 6500
+        Assert.assertEquals(6500, task.avgPageMillis());
+    }
+
+    @Test
+    public void resetsTimingWindowPerVolume() {
+        BatchExtractionManager.Task task = newTask();
+        task.recordPageTiming(5000, 4);               // 首批跳过
+        task.recordPageTiming(4000, 4);
+        task.recordPageTiming(8000, 4);
+        Assert.assertEquals(1500, task.avgPageMillis());
+
+        task.resetPageTiming();
+
+        // 换卷后历史归零，新卷首批同样跳过（含新一轮启动开销）
+        Assert.assertEquals(0, task.avgPageMillis());
+        task.recordPageTiming(60000, 4);
+        Assert.assertEquals(0, task.avgPageMillis());
+        task.recordPageTiming(4000, 4);
+        Assert.assertEquals(1000, task.avgPageMillis());
+    }
 }

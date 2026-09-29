@@ -14,9 +14,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -195,19 +198,49 @@ public class BatchExtractionManager {
 
         /** 页级抽取的并发度：1 表示逐页串行调用，大于 1 表示按批并发（前端据此决定揭示节奏） */
         public volatile int pageConcurrency = 1;
-        /** 平均每页耗时（毫秒）：并发时按「批耗时 ÷ 批页数」累计，供前端按真实速度揭示 */
-        private volatile long pageMillisTotal;
-        private volatile int pageMillisCount;
+        /**
+         * 平均每页耗时（毫秒）：并发时按「批耗时 ÷ 批页数」，只取**最近若干批**的滑动平均。
+         *
+         * 不用任务级累计平均：单页耗时随输出长度在 7~21s 间波动，累计平均对当前速度无感；
+         * 且首批含模型预热/首次推理（首次 prefill 明显偏慢），算进去会让卷首的揭示节奏长期偏慢。
+         * 故跳过每卷首批、只留最近 {@link #PAGE_TIMING_WINDOW} 批，换卷时重置。
+         */
+        private static final int PAGE_TIMING_WINDOW = 8;
+        private final Object pageTimingLock = new Object();
+        /** 最近若干批的 {批墙钟(ms), 批页数}，容量 PAGE_TIMING_WINDOW */
+        private final Deque<long[]> pageTiming = new ArrayDeque<>();
+        private int pageTimingBatches;
 
         void recordPageTiming(long millis, int pages) {
             if (millis <= 0 || pages <= 0) return;
-            pageMillisTotal += millis;
-            pageMillisCount += pages;
+            synchronized (pageTimingLock) {
+                pageTimingBatches++;
+                if (pageTimingBatches == 1) return;   // 首批含预热/首次推理，不代表稳定速度
+                pageTiming.addLast(new long[] { millis, pages });
+                while (pageTiming.size() > PAGE_TIMING_WINDOW) {
+                    pageTiming.pollFirst();
+                }
+            }
         }
 
         int avgPageMillis() {
-            int count = pageMillisCount;
-            return count <= 0 ? 0 : (int) (pageMillisTotal / count);
+            synchronized (pageTimingLock) {
+                long total = 0;
+                int count = 0;
+                for (long[] batch : pageTiming) {
+                    total += batch[0];
+                    count += (int) batch[1];
+                }
+                return count <= 0 ? 0 : (int) (total / count);
+            }
+        }
+
+        /** 换卷时重置耗时窗口：新卷首批同样含新一轮启动开销，需重新跳过 */
+        void resetPageTiming() {
+            synchronized (pageTimingLock) {
+                pageTiming.clear();
+                pageTimingBatches = 0;
+            }
         }
     }
 
@@ -742,7 +775,9 @@ public class BatchExtractionManager {
      * 件级与卷级结果里。
      */
     private static final Set<String> PLACEHOLDER_VALUES = new HashSet<>(Arrays.asList(
-            "某某", "某", "姓名", "名称", "不详", "未知", "待定", "无", "同上", "略", "null", "n/a"));
+            "某某", "某", "姓名", "名称", "不详", "未知", "待定", "无", "同上", "略", "null", "n/a",
+            // 提示词骨架里的示例人名会被模型照抄（实测「张三，李四」进入卷级当事人名单）
+            "张三", "李四", "王五", "赵六", "小明", "小红"));
 
     /** 纯占位符号（X、×、○、※、下划线等）组成的取值 */
     private static final Pattern PLACEHOLDER_SYMBOLS = Pattern.compile("[XxＸ×〇○●※_\\-—.·]+");
@@ -855,6 +890,8 @@ public class BatchExtractionManager {
                 task.currentUnit = unit.name;
                 task.volumeIndex++;
                 task.clearPagePreviews();
+                // 耗时窗口同样按卷重置：新卷首批含新一轮启动开销，旧卷的历史不应影响本卷节奏
+                task.resetPageTiming();
                 // 件级计数：进入某件即计一件，与件内页数无关
                 task.processedFiles++;
                 task.unitFraction = 0d;
@@ -1125,10 +1162,13 @@ public class BatchExtractionManager {
                                 new LinkedHashMap<>();
                         if (litigationArchive) {
                             // 未被任何件覆盖的页即卷宗封面、卷内目录、备考表、证物袋、卷底。
-                            // 它们不写条目行，但其提取到的卷级要素要回填给各件，供整卷复用。
-                            // 唯一例外是题名：题名必须来自件本身，若把备考表页的"卷内备考表"
-                            // 也回填进题名候选，前端点击题名单元格会定位到备考表页
-                            // （实测 JZ07-2024-M2-0158/0241 两卷皆误定位于此）。
+                            // 它们不写条目行，但其提取到的**卷级要素**要回填给各件，供整卷复用。
+                            // 只回填卷级要素（案由/当事人/审级/结案方式/保管期限/密级/开放状态，
+                            // 见 ExtractionTemplate.VOLUME_LEVEL_ELEMENT_KEYS）：题名、成文日期、
+                            // 责任者、文号都是**件级属性**，绝不能回填——题名回填会让单元格定位到
+                            // 备考表页（实测 JZ07-2024-M2-0158/0241）；成文日期回填则会把备考表、
+                            // 卷底上的日期灌给件内日期缺失的件（实测备考表 0059.jpg 的 20240425
+                            // 被灌进 9 个件，卷级起止时间随之被拉成 20231020/20240606）。
                             boolean[] covered = new boolean[unit.pages.size()];
                             for (TitleSplitter.Piece p : pieces) {
                                 for (int i = p.startPage - 1; i < p.endPage && i < covered.length; i++) {
@@ -1141,10 +1181,14 @@ public class BatchExtractionManager {
                                         Collections.singletonList(pageValues.get(i)),
                                         Collections.singletonList(pageConfidences.get(i)), i + 1);
                                 merged.values.forEach((key, value) -> {
-                                    if (!"title".equals(key)) volumeLevelValues.put(key, value);
+                                    if (ExtractionTemplate.isVolumeLevelElement(key)) {
+                                        volumeLevelValues.put(key, value);
+                                    }
                                 });
                                 merged.candidates.forEach((key, list) -> {
-                                    if (!"title".equals(key)) volumeLevelCandidates.putIfAbsent(key, list);
+                                    if (ExtractionTemplate.isVolumeLevelElement(key)) {
+                                        volumeLevelCandidates.putIfAbsent(key, list);
+                                    }
                                 });
                             }
                         }
@@ -1227,7 +1271,10 @@ public class BatchExtractionManager {
             for (int start = 0; start < total; start += PAGE_CONCURRENCY) {
                 if (task.cancelRequested) return true;
                 int end = Math.min(total, start + PAGE_CONCURRENCY);
-                task.message = "正在提取第 " + (start + 1) + "-" + end + " / " + total + " 页";
+                // 口径与预览对齐：顶部同时给出「已完成页数」与正在提取的范围。只写「正在提取 33-36」
+                // 会让人拿它去比「预览到 32」而以为差了一档——其实前者是「正在做」，后者是「已完成」。
+                task.message = "已完成 " + start + " / " + total + " 页，正在提取第 "
+                        + (start + 1) + "-" + end + " 页";
                 long batchStart = System.currentTimeMillis();
                 List<Future<AimpLlmClient.ExtractPageResult>> futures = new ArrayList<>(end - start);
                 for (int i = start; i < end; i++) {
@@ -1596,11 +1643,19 @@ public class BatchExtractionManager {
         writeCandidates(rowNode, columnName, list);
     }
 
-    /** 把候选页列表写成前端可读的 `[{v:取值, c:置信度, p:页码, f:文件名}]` 数组 */
+    /**
+     * 把候选页列表写成前端可读的 `[{v:取值, c:置信度, p:页码, f:文件名}]` 数组。
+     *
+     * 写入前按页号升序排序：页级抽取是 4 路并发，结果回收顺序随各批完成先后变化，
+     * 若直接按回收顺序写入，同一卷两次跑的候选顺序会不同（取值相同、次序不同），
+     * 让「取值所在页」与件级择优产生无意义抖动。排序后同一卷的页映射逐字段可复现。
+     */
     private static void writeCandidates(ObjectNode rowNode, String columnName,
                                         List<AimpLlmClient.ElementCandidate> list) {
         ArrayNode arr = rowNode.putArray(columnName);
-        for (AimpLlmClient.ElementCandidate c : list) {
+        List<AimpLlmClient.ElementCandidate> sorted = new ArrayList<>(list);
+        sorted.sort(Comparator.comparingInt(c -> c.page));
+        for (AimpLlmClient.ElementCandidate c : sorted) {
             ObjectNode node = arr.addObject();
             node.put("v", c.value);
             if (c.confidence != null) node.put("c", c.confidence);
