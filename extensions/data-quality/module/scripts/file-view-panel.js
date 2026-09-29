@@ -1383,6 +1383,25 @@ var FileViewPanel = {};
     }
   };
 
+  /**
+   * 把当前选中的页签滚回可视区。
+   * 页签超出可视宽度时容器可横向滚动，而每次重渲染都新建这批按钮、滚动位置回到起点，
+   * 用户点了被遮挡的页签后（选中状态还在、位置却看不见）这里按相对位置补回滚动量。
+   */
+  FileViewPanel._revealActivePageChip = function(container) {
+    if (!container) return;
+    var chip = container.querySelector('.file-view-page-chip.active');
+    if (!chip) return;
+    var box = container.getBoundingClientRect();
+    if (box.width === 0) return;   // 面板未显示或尚未布局
+    var rect = chip.getBoundingClientRect();
+    if (rect.left < box.left) {
+      container.scrollLeft -= (box.left - rect.left);
+    } else if (rect.right > box.right) {
+      container.scrollLeft += (rect.right - box.right);
+    }
+  };
+
   FileViewPanel._renderFooter = function(footer, data, file) {
     footer.empty();
 
@@ -1420,6 +1439,12 @@ var FileViewPanel = {};
           FileViewPanel._jumpToPage(page);
         });
         pages.append(chip);
+      });
+      // 页签多于一屏时容器横向滚动：重渲染会把滚动位置重置回起点，选中项会落到可视区外。
+      // 放到下一帧再滚——此时 actions 等后续元素已插入，容器宽度才是最终宽度
+      var chipsBox = pages[0];
+      window.requestAnimationFrame(function() {
+        FileViewPanel._revealActivePageChip(chipsBox);
       });
     }
 

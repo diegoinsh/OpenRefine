@@ -158,6 +158,8 @@ function initializeUI(uiState) {
   ui.exporterManager = new ExporterManager($("#export-button"));
 
   ui.leftPanelTabs.tabs();
+  // 进入项目默认收起左侧面板，让数据表占满；需要时点数据表左上角的展开按钮（#show-left-panel-button）
+  $('div#body').addClass('hide-left-panel');
   resize();
   resizeTabs();
 

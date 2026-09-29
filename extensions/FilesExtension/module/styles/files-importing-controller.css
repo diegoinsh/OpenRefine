@@ -277,6 +277,82 @@
   opacity: 0.85;
 }
 
+/* 页级预览（横幅下行）：抽取期间展示「AI 认出了什么」。件级行要等整卷抽完并分件后才写入，
+   长卷（2-300 页）期间靠它让界面不至于一直空着。
+   半透明背景 + 1px 细边框：看得出是一块独立区域，又不遮挡背后的页面内容；
+   点击右侧小箭头可折叠到上行底部（只留标签行），再点展开 */
+.batch-extraction-banner-preview {
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(91, 74, 31, 0.25);
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.batch-extraction-banner-preview .batch-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.batch-extraction-banner-preview .batch-preview-label {
+  flex: 0 0 auto;
+  color: #7a6a45;
+}
+
+/* 收起时把最新一条接在标签后面；展开时隐藏，维持原有「标签 + 列表」样式 */
+.batch-extraction-banner-preview .batch-preview-latest {
+  display: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 4px;
+  color: #5b4a1f;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.batch-extraction-banner-preview.collapsed .batch-preview-latest {
+  display: block;
+}
+
+.batch-extraction-banner-preview .batch-preview-toggle {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: #7a6a45;
+  font-size: 20px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.batch-extraction-banner-preview.collapsed .batch-preview-toggle {
+  transform: rotate(-90deg);
+}
+
+.batch-extraction-banner-preview.collapsed .batch-preview-list {
+  display: none;
+}
+
+/* 条目容器：最新一条追加在最下方，超过约 6 行出竖向滚动条。
+   标签固定在列表上方不随内容滚动 */
+.batch-extraction-banner-preview .batch-preview-list {
+  max-height: 106px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.batch-extraction-banner-preview .batch-preview-item {
+  display: block;
+  color: #5b4a1f;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 body.extraction-readonly .data-table-star,
 body.extraction-readonly .data-table-flag {
   opacity: 0.35;
@@ -303,19 +379,24 @@ body.extraction-readonly .data-table-cell {
   padding: 1px 8px;
 }
 
-/* Project page banner for batch extraction progress */
+/* 批量抽取横幅：固定在顶部的上下两行结构
+   上行 head 100% 不透明（常驻、可读、带关闭按钮）；下行预览半透明、可折叠 */
 .batch-extraction-banner {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   z-index: 65535;
-  background: #fff8e1;
-  border-bottom: 2px solid #f0c36d;
   color: #5b4a1f;
-  padding: 6px 40px 6px 14px;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.batch-extraction-banner-head {
+  position: relative;
+  background: #fff8e1;
+  border-bottom: 2px solid #f0c36d;
+  padding: 6px 40px 6px 14px;
 }
 
 .batch-extraction-banner-icon {
@@ -366,7 +447,7 @@ body.extraction-readonly .data-table-cell {
   color: #c62828;
 }
 
-.batch-extraction-banner.banner-error {
+.batch-extraction-banner.banner-error .batch-extraction-banner-head {
   background: #fdecea;
   border-bottom-color: #e53935;
   color: #8c1d18;

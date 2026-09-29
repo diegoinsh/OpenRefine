@@ -23,7 +23,9 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -113,6 +115,24 @@ public class BatchExtractionManager {
          */
         public volatile double unitFraction;
 
+        /** 已进入的卷序号（从 1 起）：页号只在卷内唯一，前端据此判断预览队列是否该重置 */
+        public volatile int volumeIndex;
+
+        /**
+         * 页级预览的环形容量：只保留最近若干页。生产线上 2-300 页一卷很常见，
+         * 预览既要够看，又不能随页数无限增长。
+         */
+        private static final int MAX_PAGE_PREVIEWS = 40;
+        /**
+         * 最近完成的页级识别结果（页号 → 摘要），按页号有序。
+         *
+         * 件级行要等整卷抽完、分件矫正之后才写入，长卷期间界面会长时间空白；这里把每页
+         * 识别到的内容先存下来供前端展示「AI 认出了什么」。**未经件级合并与分件**，只用于
+         * 观察进展，不作为结果。进入新卷时清空，始终保持为当前卷的进展。
+         */
+        public final NavigableMap<Integer, PagePreview> recentPages =
+                Collections.synchronizedNavigableMap(new TreeMap<>());
+
         /** 要素取值所在页码：{行号: {列名: [{v,c,p}]}}，随行写入并定期落到项目 metadata */
         public final ObjectNode pageMap = mapper.createObjectNode();
 
@@ -140,6 +160,54 @@ public class BatchExtractionManager {
             for (UnitScanner.Volume u : units) total += u.pages.size();
             this.totalPages = total;
             this.totalFiles = units.size();
+        }
+
+        /** 一页的识别摘要：未经件级合并与分件矫正，仅供观察进展，不作为结果 */
+        public static final class PagePreview {
+            public final int page;
+            public final String fileName;
+            /** 该页识别到的全部要素（key → 值，已过滤低置信度取值），按要素顺序展示 */
+            public final Map<String, String> values;
+
+            PagePreview(int page, String fileName, Map<String, String> values) {
+                this.page = page;
+                this.fileName = fileName;
+                this.values = values;
+            }
+        }
+
+        /** 记一页的识别结果；超出容量时丢弃最旧的一页，保证长卷不撑内存 */
+        void recordPagePreview(int page, String fileName, Map<String, String> values) {
+            synchronized (recentPages) {
+                recentPages.put(page, new PagePreview(page, fileName, values));
+                while (recentPages.size() > MAX_PAGE_PREVIEWS) {
+                    recentPages.pollFirstEntry();
+                }
+            }
+        }
+
+        /** 进入新卷时清空预览：页号只在卷内唯一，跨卷累积会把不同卷的页混在一起 */
+        void clearPagePreviews() {
+            synchronized (recentPages) {
+                recentPages.clear();
+            }
+        }
+
+        /** 页级抽取的并发度：1 表示逐页串行调用，大于 1 表示按批并发（前端据此决定揭示节奏） */
+        public volatile int pageConcurrency = 1;
+        /** 平均每页耗时（毫秒）：并发时按「批耗时 ÷ 批页数」累计，供前端按真实速度揭示 */
+        private volatile long pageMillisTotal;
+        private volatile int pageMillisCount;
+
+        void recordPageTiming(long millis, int pages) {
+            if (millis <= 0 || pages <= 0) return;
+            pageMillisTotal += millis;
+            pageMillisCount += pages;
+        }
+
+        int avgPageMillis() {
+            int count = pageMillisCount;
+            return count <= 0 ? 0 : (int) (pageMillisTotal / count);
         }
     }
 
@@ -612,8 +680,11 @@ public class BatchExtractionManager {
             "上诉人", "申请人", "自诉人", "被害人", "被告人", "第三人",
             "原告", "被告");
 
-    /** 当事人取值的分隔符：标点与空白都可作分隔（模型回吐时两种都会出现） */
-    private static final Pattern PARTY_NAME_SEPARATOR = Pattern.compile("[\\s\\u3000，,、;；/]+");
+    /**
+     * 当事人取值的分隔符：标点与空白都可作分隔（模型回吐时两种都会出现）。
+     * 冒号一并分隔——模型常回吐「上诉人：XXX」这种带冒号的写法。
+     */
+    private static final Pattern PARTY_NAME_SEPARATOR = Pattern.compile("[\\s\\u3000，,、;；/:：]+");
 
     /**
      * 件级要素规范化：把要素值整理成规范形式，作为「件级最终值」。
@@ -628,17 +699,23 @@ public class BatchExtractionManager {
         if (parties != null) {
             values.put("dangshiren", normalizePartyNames(parties));
         }
+        // 其余要素的占位式取值同样清空，免得「责任者：XXX」这类内容进入件级与卷级结果
+        for (Map.Entry<String, String> e : values.entrySet()) {
+            if (e.getValue() != null && isPlaceholderValue(e.getValue())) {
+                e.setValue("");
+            }
+        }
     }
 
     /**
      * 当事人值的件级规范化：按分隔符拆成单个当事人，剥掉「原告」「被告」等诉讼地位称谓，
-     * 件内去重后以全角逗号重新拼接。整值都是称谓（如「原告，被告」）时返回空串。
+     * 件内去重后以全角逗号重新拼接。整值都是称谓（如「原告，被告」）或占位符时返回空串。
      */
     static String normalizePartyNames(String text) {
         Set<String> names = new LinkedHashSet<>();
         for (String token : PARTY_NAME_SEPARATOR.split(text)) {
             String name = stripPartyRole(token);
-            if (!name.isEmpty()) {
+            if (!name.isEmpty() && !isPlaceholderValue(name)) {
                 names.add(name);
             }
         }
@@ -652,10 +729,32 @@ public class BatchExtractionManager {
                 return "";
             }
             if (name.length() > role.length() && name.startsWith(role)) {
-                return name.substring(role.length());
+                // 去掉称谓后可能还挂着冒号、顿号等残渣（「上诉人：沈建明」→「沈建明」）
+                return name.substring(role.length()).replaceFirst("^[\\s\\u3000:：、,，]+", "");
             }
         }
         return name;
+    }
+
+    /**
+     * 占位式取值：模型遇到「有栏位名、没有实际内容」时会回吐这类内容（例如栏位空白的
+     * 「原告XXX，被告XXX」），无论落在哪个要素上都按空值处理——否则这些垃圾会一路进到
+     * 件级与卷级结果里。
+     */
+    private static final Set<String> PLACEHOLDER_VALUES = new HashSet<>(Arrays.asList(
+            "某某", "某", "姓名", "名称", "不详", "未知", "待定", "无", "同上", "略", "null", "n/a"));
+
+    /** 纯占位符号（X、×、○、※、下划线等）组成的取值 */
+    private static final Pattern PLACEHOLDER_SYMBOLS = Pattern.compile("[XxＸ×〇○●※_\\-—.·]+");
+
+    static boolean isPlaceholderValue(String value) {
+        if (value == null) return true;
+        String t = value.trim();
+        if (t.isEmpty()) return true;
+        if (PLACEHOLDER_VALUES.contains(t.toLowerCase())) return true;
+        if (PLACEHOLDER_SYMBOLS.matcher(t).matches()) return true;
+        // 纯标点/符号：剥离称谓后残留的冒号、顿号等
+        return t.matches("[\\p{P}\\p{S}]+");
     }
 
     private static String trimToNull(String s) {
@@ -736,6 +835,9 @@ public class BatchExtractionManager {
                 : Arrays.asList(task.template.getExtractionKeys());
         String keyList = String.join(",", keys);
         String customJson = CustomElementsCodec.toJson(task.customElements);
+        // 页级并发度：诉讼档案按页并发（页间无上下文），其余门类逐页串行；
+        // 前端据此决定预览的揭示节奏——串行到达即显示，并发按平均每页耗时逐条揭示
+        task.pageConcurrency = isLitigationArchive(task) ? PAGE_CONCURRENCY : 1;
         Project project = ProjectManager.singleton.getProject(task.projectId);
         if (project == null) {
             fail(task, "Project not found: " + task.projectId);
@@ -751,6 +853,8 @@ public class BatchExtractionManager {
             for (UnitScanner.Volume unit : task.units) {
                 if (task.cancelRequested) break;
                 task.currentUnit = unit.name;
+                task.volumeIndex++;
+                task.clearPagePreviews();
                 // 件级计数：进入某件即计一件，与件内页数无关
                 task.processedFiles++;
                 task.unitFraction = 0d;
@@ -863,6 +967,8 @@ public class BatchExtractionManager {
                             pageOffset += piecePages;
                             p.title = r.values.getOrDefault("title", "");
                             Map<String, String> pdfValues = filterLowConfidence(r.values, r.confidences);
+                            // PDF 逐件路径与图片路径口径一致：件级最终值同样先规范化（称谓、占位符）
+                            normalizePieceValues(pdfValues);
                             // 页级候选：AIMP 的 page_index 即该 PDF 内部页号，可直接用于浏览器 #page 定位
                             appendUnitRow(task, project, unit, pieceNo, new File(pdf).getName(), p,
                                     pdfValues, null, filterCandidates(r.candidates, pdfValues));
@@ -927,6 +1033,9 @@ public class BatchExtractionManager {
                                     fail(task, "AIMP 连续失败 " + consecutiveFailures + " 次，任务中止");
                                     return;
                                 }
+                            }
+                            if (r.success) {
+                                recordPagePreview(task, unit, i, r);
                             }
                             titles.add(r.success ? r.values.getOrDefault("title", "") : "");
                             pageValues.add(r.success ? r.values : null);
@@ -1086,6 +1195,18 @@ public class BatchExtractionManager {
     }
 
     /**
+     * 把一页的识别结果记入页级预览，取题名与当事人（已过滤低置信度取值，避免把幻觉显示出来）。
+     * 件级行要等整卷抽完并分件后才写，长卷期间这就是用户唯一能看到的内容。
+     */
+    private static void recordPagePreview(Task task, UnitScanner.Volume unit, int pageIndex,
+                                          AimpLlmClient.ExtractPageResult r) {
+        // 副本 + 件级同款规范化：预览也不显示「原告XXX」这类占位值
+        Map<String, String> values = new LinkedHashMap<>(filterLowConfidence(r.values, r.confidences));
+        normalizePieceValues(values);
+        task.recordPagePreview(pageIndex + 1, new File(unit.pages.get(pageIndex)).getName(), values);
+    }
+
+    /**
      * 诉讼档案按 {@link #PAGE_CONCURRENCY} 路并发调用 AIMP：分批提交（批内并行、批间按页序），
      * 结果按页序写入 results，保证落行顺序与页序一致、不受完成先后影响。
      * 仅在页间无依赖时使用（诉讼档案不传页间上下文）。
@@ -1107,6 +1228,7 @@ public class BatchExtractionManager {
                 if (task.cancelRequested) return true;
                 int end = Math.min(total, start + PAGE_CONCURRENCY);
                 task.message = "正在提取第 " + (start + 1) + "-" + end + " / " + total + " 页";
+                long batchStart = System.currentTimeMillis();
                 List<Future<AimpLlmClient.ExtractPageResult>> futures = new ArrayList<>(end - start);
                 for (int i = start; i < end; i++) {
                     final int pageIndex = i;
@@ -1134,6 +1256,10 @@ public class BatchExtractionManager {
                         r = null;
                     }
                     results.set(i, r);
+                    if (r != null && r.success) {
+                        // 回收一页就记一条预览，前端轮询即可看到最新识别结果，不必等整卷
+                        recordPagePreview(task, unit, i, r);
+                    }
                     consecutiveFailures = (r != null && r.success) ? 0 : consecutiveFailures + 1;
                     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
                         return false;
@@ -1142,6 +1268,8 @@ public class BatchExtractionManager {
                 // 进度上报：并发时逐页 ++ 要等整卷回收完才生效，改为按批累加，前端页数才能实时前进
                 task.processedPages += (end - start);
                 task.unitFraction = end / (double) Math.max(1, total);
+                // 记批耗时：批内并发，整批耗时摊到批内各页即为「平均每页耗时」
+                task.recordPageTiming(System.currentTimeMillis() - batchStart, end - start);
             }
             return true;
         } finally {

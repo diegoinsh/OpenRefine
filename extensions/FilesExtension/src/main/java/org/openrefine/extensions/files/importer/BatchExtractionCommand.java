@@ -2,6 +2,7 @@ package org.openrefine.extensions.files.importer;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.refine.ProjectManager;
 import com.google.refine.commands.Command;
@@ -19,7 +20,9 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 public class BatchExtractionCommand extends Command {
 
@@ -234,9 +237,80 @@ public class BatchExtractionCommand extends Command {
         result.put("failedPages", task.failedPages);
         result.put("currentUnit", task.currentUnit);
         result.put("unitKind", task.template == ExtractionTemplate.BATCH_TITLE_VOLUME ? "volume" : "case");
+        // 揭示节奏由后端给依据：串行逐页调用时前端「到达即显示」，并发批调用时按实测的平均
+        // 每页耗时逐条揭示——不同门类的识别速度差很多，写死固定间隔必然对不上
+        result.put("pageConcurrency", task.pageConcurrency);
+        result.put("avgPageMillis", task.avgPageMillis());
         result.put("rowsAppended", task.rowsAppended);
         result.put("message", task.message);
+        result.put("volumeIndex", task.volumeIndex);
+        // 页级预览：件级行要等整卷抽完并分件后才写入，长卷（2-300 页）期间靠这里
+        // 让用户看到「AI 认出了什么」。取值为页级原始识别结果，未做件级合并与分件矫正。
+        ArrayNode previews = result.putArray("recentPages");
+        synchronized (task.recentPages) {
+            for (BatchExtractionManager.Task.PagePreview preview : task.recentPages.values()) {
+                ObjectNode node = previews.addObject();
+                node.put("page", preview.page);
+                node.put("fileName", preview.fileName);
+                // 要素按列顺序输出（每项带列名），前端拼成「列名：取值」
+                appendPreviewFields(node.putArray("fields"), task, preview.values);
+            }
+        }
         respondJSON(response, result);
+    }
+
+    /**
+     * 组装页级预览的要素取值：按列顺序（勾选的固定要素 + 自定义著录项）输出，每项带列名，
+     * 前端拼成「列名：取值」。
+     *
+     * 预览只用于观察进展，原则是「AIMP 认出多少就展示多少」——题名、责任者、文号、
+     * 成文日期属于固定要素、并不在 customElements 里，若只遍历自定义著录项就会漏掉。
+     * 但**不追加列名未知的键**：AIMP 还会随页级结果返回 party_roles 这类内部辅助数据
+     * （供卷级分件使用，不是著录项），展示出来只会是难读的原始 JSON。
+     */
+    private void appendPreviewFields(ArrayNode fields, BatchExtractionManager.Task task,
+                                     Map<String, String> values) {
+        java.util.Set<String> emitted = new java.util.HashSet<>();
+        Map<String, String> fixedNames = task.template.getExtractionKeyMapping();
+        Map<String, String> customNames = new java.util.HashMap<>();
+        for (CustomElementType ce : task.customElements) {
+            if (ce.isInclude() && ce.getKey() != null) {
+                customNames.put(ce.getKey(),
+                        ce.getName() != null && !ce.getName().isEmpty() ? ce.getName() : ce.getKey());
+            }
+        }
+        List<String> ordered = new ArrayList<>();
+        if (task.selectedKeys != null && !task.selectedKeys.isEmpty()) {
+            ordered.addAll(task.selectedKeys);
+        } else {
+            ordered.addAll(Arrays.asList(task.template.getExtractionKeys()));
+        }
+        for (CustomElementType ce : task.customElements) {
+            if (ce.isInclude()) {
+                ordered.add(ce.getKey());
+            }
+        }
+        for (String key : ordered) {
+            if (!emitted.add(key)) continue;
+            String value = values.get(key);
+            if (value == null || value.isEmpty()) continue;
+            addPreviewField(fields, displayName(key, fixedNames, customNames), value);
+        }
+    }
+
+    /** 列名：固定要素查模板映射，自定义著录项用其名称 */
+    private static String displayName(String key, Map<String, String> fixedNames, Map<String, String> customNames) {
+        String name = fixedNames.get(key);
+        if (name == null) {
+            name = customNames.get(key);
+        }
+        return name != null ? name : key;
+    }
+
+    private static void addPreviewField(ArrayNode fields, String name, String value) {
+        ObjectNode field = fields.addObject();
+        field.put("name", name);
+        field.put("value", value);
     }
 
     private void doCancel(HttpServletRequest request, HttpServletResponse response) throws IOException {

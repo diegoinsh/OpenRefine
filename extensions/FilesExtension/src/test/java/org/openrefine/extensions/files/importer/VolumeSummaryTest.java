@@ -181,6 +181,19 @@ public class VolumeSummaryTest {
                 "苏州恒盛精密机械有限公司");
     }
 
+    /** 模型在「有栏位名、没有实际姓名」时会回吐占位值，这类垃圾不得进入件级与卷级结果 */
+    @Test
+    public void dropsPlaceholderPartyValues() {
+        // 带冒号（「上诉人：XXX」）与并排（「原告XXX，被告XXX」）两种回吐形式都要清干净
+        Assert.assertEquals(BatchExtractionManager.normalizePartyNames("上诉人：XXX，被上诉人：XXX"), "");
+        Assert.assertEquals(BatchExtractionManager.normalizePartyNames("原告XXX，被告XXX"), "");
+        // 混合：真实姓名保留，占位与剥离称谓后残留的标点一并剔除
+        Assert.assertEquals(BatchExtractionManager.normalizePartyNames("郭长海，郭秀萍，：XXX"), "郭长海，郭秀萍");
+        Assert.assertTrue(BatchExtractionManager.isPlaceholderValue("×××"));
+        Assert.assertTrue(BatchExtractionManager.isPlaceholderValue("："));
+        Assert.assertFalse(BatchExtractionManager.isPlaceholderValue("郭长海"));
+    }
+
     @Test
     public void dropsOneOffPartyNamesOnlyWhenRepeatExists() {
         // 卷内存在重复取值：单次出现的取值没有旁证，视为该页误读，剔除
