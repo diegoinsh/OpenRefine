@@ -330,6 +330,10 @@ public class AimpLlmClient {
             }
         });
         parsePageExtractions(result, r);
+        // 分类器判定跳过、OCR 文本过短的页：AIMP 在 processing_mode 里标出（single_page_skipped*），
+        // 本页并未消耗推理。计入 skipped 供调用方从「平均每页耗时」的摊分里排除
+        String mode = result.path("processing_mode").asText("");
+        r.skipped = mode.startsWith("single_page_skipped");
         r.success = true;
         return r;
     }
@@ -499,6 +503,12 @@ public class AimpLlmClient {
     public static class ExtractPageResult {
         public boolean success;
         public int pageCount = 1;
+        /**
+         * 本页未走 LLM：分类器判定跳过，或 OCR 文本过短直接短路。
+         * 这类页毫秒级返回，统计「平均每页耗时」时不能按它计数，否则连续跳过的批会把平均值
+         * 拉得远小于真实推理速度，前端揭示节奏随之忽快忽慢。
+         */
+        public boolean skipped;
         /** 异步提交时 AIMP 返回的任务号 */
         public String taskId;
         public Map<String, String> values = new HashMap<>();

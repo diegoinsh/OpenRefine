@@ -181,6 +181,40 @@ public class VolumeSummaryTest {
                 "苏州恒盛精密机械有限公司");
     }
 
+    /** 身份证明类材料的责任者取证件本人／执照单位，模型回吐的签发机关要按无依据清空 */
+    @Test
+    public void dropsIssuerFromIdentityCertificateResponsibleParty() {
+        Map<String, String> idCard = new LinkedHashMap<>();
+        idCard.put("title", "原告身份证明");
+        idCard.put("responsible_party", "苏州市公安局吴中分局");
+        BatchExtractionManager.normalizePieceValues(idCard);
+        Assert.assertEquals(idCard.get("responsible_party"), "");
+
+        // 营业执照类：责任者本就是执照单位名称，不是签发机关，不能误伤
+        Map<String, String> license = new LinkedHashMap<>();
+        license.put("title", "被告身份证明");
+        license.put("responsible_party", "苏州恒盛精密机械有限公司");
+        BatchExtractionManager.normalizePieceValues(license);
+        Assert.assertEquals(license.get("responsible_party"), "苏州恒盛精密机械有限公司");
+    }
+
+    /** 不编文号的材料（笔录／送达回证／送达地址确认书／缴费凭证／记录类表格）清掉回填的案号 */
+    @Test
+    public void clearsDocumentNumberForMaterialsThatHaveNone() {
+        Map<String, String> evidence = new LinkedHashMap<>();
+        evidence.put("title", "证物处理单");
+        evidence.put("document_number", "〔2025〕苏0506民初4821号");
+        BatchExtractionManager.normalizePieceValues(evidence);
+        Assert.assertEquals(evidence.get("document_number"), "");
+
+        // 结案登记表确有案号，不能误伤
+        Map<String, String> closing = new LinkedHashMap<>();
+        closing.put("title", "结案登记表");
+        closing.put("document_number", "〔2025〕苏0506民初4821号");
+        BatchExtractionManager.normalizePieceValues(closing);
+        Assert.assertEquals(closing.get("document_number"), "〔2025〕苏0506民初4821号");
+    }
+
     /** 模型在「有栏位名、没有实际姓名」时会回吐占位值，这类垃圾不得进入件级与卷级结果 */
     @Test
     public void dropsPlaceholderPartyValues() {

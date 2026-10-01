@@ -726,7 +726,7 @@ public class BatchExtractionManager {
      * 放在这里做一次；卷级只做跨件的聚合（并集、取最新、取最高档、众数、低频去噪），
      * 不重复实现件级规则。
      */
-    private static void normalizePieceValues(Map<String, String> values) {
+    static void normalizePieceValues(Map<String, String> values) {
         if (values == null) return;
         String parties = values.get("dangshiren");
         if (parties != null) {
@@ -738,6 +738,37 @@ public class BatchExtractionManager {
                 e.setValue("");
             }
         }
+        applyTitleConstraints(values);
+    }
+
+    /**
+     * 按「件题名」对责任者/文号做确定性约束。这类规则与件类型强绑定，放代码里兜底而不是继续堆
+     * 提示词——诉讼档案提示词已经很长，继续加会拖慢提取、还会让小模型输出退化。
+     *  - 身份证明类：责任者取证件本人／执照单位，模型若回吐签发机关（公安局、市场监督管理局…）按无依据清空；
+     *  - 不编文号的材料（笔录、送达回证、送达地址确认书、身份证明、缴费凭证、记录类表格）：
+     *    模型若把案号回填进来一律清空。
+     */
+    private static void applyTitleConstraints(Map<String, String> values) {
+        String title = values.get("title");
+        if (title == null || title.isEmpty()) return;
+        String compact = title.replaceAll("[\\s\\u3000]+", "");
+        if (containsAny(compact, IDENTITY_TITLE_HINTS)) {
+            String responsible = values.get("responsible_party");
+            if (responsible != null && containsAny(responsible, IDENTITY_ISSUER_HINTS)) {
+                values.put("responsible_party", "");
+            }
+        }
+        if (containsAny(compact, NO_DOC_NUMBER_TITLE_HINTS)) {
+            values.put("document_number", "");
+        }
+    }
+
+    private static boolean containsAny(String text, List<String> hints) {
+        if (text == null) return false;
+        for (String hint : hints) {
+            if (text.contains(hint)) return true;
+        }
+        return false;
     }
 
     /**
@@ -781,6 +812,19 @@ public class BatchExtractionManager {
 
     /** 纯占位符号（X、×、○、※、下划线等）组成的取值 */
     private static final Pattern PLACEHOLDER_SYMBOLS = Pattern.compile("[XxＸ×〇○●※_\\-—.·]+");
+
+    /** 身份证明类材料的题名特征：责任者取证件本人／执照单位，不取签发机关 */
+    private static final List<String> IDENTITY_TITLE_HINTS = Arrays.asList(
+            "身份证明", "身份证", "户口", "常住人口登记", "营业执照", "工作证", "驾驶证", "护照");
+
+    /** 签发机关特征：出现在身份证明类材料的责任者位置上即为错值（公安局、市场监督管理局…） */
+    private static final List<String> IDENTITY_ISSUER_HINTS = Arrays.asList(
+            "公安局", "公安分局", "派出所", "市场监督管理", "监督管理局", "政务服务", "公证处");
+
+    /** 按立卷规则不编文号的材料：当事人提交的材料、送达凭证、记录类表格 */
+    private static final List<String> NO_DOC_NUMBER_TITLE_HINTS = Arrays.asList(
+            "笔录", "送达回证", "送达地址确认书", "身份证明", "身份证", "户口", "常住人口登记",
+            "缴费凭证", "缴款书", "证物处理单", "卷内目录", "快递单", "查询单", "存根", "回执");
 
     static boolean isPlaceholderValue(String value) {
         if (value == null) return true;
@@ -1291,6 +1335,7 @@ public class BatchExtractionManager {
                         }
                     }));
                 }
+                int inferredPages = 0;   // 本批真正走 LLM 的页数（跳过页不消耗推理，不进摊分分母）
                 for (int i = start; i < end; i++) {
                     AimpLlmClient.ExtractPageResult r;
                     try {
@@ -1306,6 +1351,7 @@ public class BatchExtractionManager {
                     if (r != null && r.success) {
                         // 回收一页就记一条预览，前端轮询即可看到最新识别结果，不必等整卷
                         recordPagePreview(task, unit, i, r);
+                        if (!r.skipped) inferredPages++;
                     }
                     consecutiveFailures = (r != null && r.success) ? 0 : consecutiveFailures + 1;
                     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
@@ -1315,8 +1361,11 @@ public class BatchExtractionManager {
                 // 进度上报：并发时逐页 ++ 要等整卷回收完才生效，改为按批累加，前端页数才能实时前进
                 task.processedPages += (end - start);
                 task.unitFraction = end / (double) Math.max(1, total);
-                // 记批耗时：批内并发，整批耗时摊到批内各页即为「平均每页耗时」
-                task.recordPageTiming(System.currentTimeMillis() - batchStart, end - start);
+                // 记批耗时：批内并发，整批耗时摊到「真正推理的页数」才是平均每页耗时。
+                // 分类器跳过 / OCR 文本过短的页毫秒级返回，若按批页数摊分，连续跳过的批会把平均值
+                // 拉得远小于真实速度，前端揭示节奏忽快忽慢、队列抽干后停在原地等下一批。
+                // 整批全跳过（inferredPages=0）时 recordPageTiming 直接忽略，不记账。
+                task.recordPageTiming(System.currentTimeMillis() - batchStart, inferredPages);
             }
             return true;
         } finally {

@@ -97,4 +97,16 @@ public class PagePreviewTest {
         task.recordPageTiming(4000, 4);
         Assert.assertEquals(1000, task.avgPageMillis());
     }
+
+    @Test
+    public void ignoresBatchesWithNoInferredPages() {
+        BatchExtractionManager.Task task = newTask();
+        task.recordPageTiming(1, 1);                  // 首批跳过
+        task.recordPageTiming(4000, 4);
+        Assert.assertEquals(1000, task.avgPageMillis());
+        // 整批被分类器跳过（推理页数按 0 上报）：毫秒级返回，不参与平均，
+        // 否则连续跳过的批会把「平均每页耗时」拉得远小于真实推理速度
+        task.recordPageTiming(120, 0);
+        Assert.assertEquals(1000, task.avgPageMillis());
+    }
 }
