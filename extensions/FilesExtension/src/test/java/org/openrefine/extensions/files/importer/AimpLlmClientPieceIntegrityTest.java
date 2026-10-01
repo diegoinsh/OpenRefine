@@ -146,25 +146,71 @@ public class AimpLlmClientPieceIntegrityTest {
         }
     }
 
+    /**
+     * 同步逐页响应的真实形态：流水线结果整份在 `data` 下（`data.processing_mode` /
+     * `data.document_status`）。只看顶层会恒为空——跳页与页型都读不到，前端标记就画不出来。
+     * 这是线上实测踩到的坑（跑完一卷一个标记都没有），故必须按真实结构卡住。
+     */
     @Test
-    public void syncPathRecognizesSkippedPage() throws IOException {
+    public void syncPathReadsSkippedAndPageTypeFromDataPayload() throws IOException {
+        AtomicReference<String> captured = new AtomicReference<>();
+        HttpServer server = stub("/extract/upload", captured,
+                "{\"success\":true,\"data\":{"
+                        + "\"results\":{},\"processing_mode\":\"single_page_skipped_by_classifier\","
+                        + "\"document_status\":{\"page_type\":\"content_page\"}},"
+                        + "\"results\":{},\"page_count\":1,\"task_id\":\"t1\"}");
+        try {
+            AimpLlmClient.ExtractPageResult r = extractOnePage(server);
+            Assert.assertTrue(r.success, r.error);
+            Assert.assertTrue(r.skipped, "同步路径须从 data.processing_mode 识别 single_page_skipped*");
+            Assert.assertEquals("content_page", r.pageType, "页型须从 data.document_status.page_type 读取");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    /** 未跳过的页：processing_mode 为普通值、页型照读 */
+    @Test
+    public void syncPathReadsPageTypeForExtractedPage() throws IOException {
+        AtomicReference<String> captured = new AtomicReference<>();
+        HttpServer server = stub("/extract/upload", captured,
+                "{\"success\":true,\"data\":{"
+                        + "\"results\":{\"title\":{\"value\":\"民事判决书\"}},"
+                        + "\"processing_mode\":\"single_page\","
+                        + "\"document_status\":{\"page_type\":\"signature_page\"}}}");
+        try {
+            AimpLlmClient.ExtractPageResult r = extractOnePage(server);
+            Assert.assertTrue(r.success, r.error);
+            Assert.assertFalse(r.skipped);
+            Assert.assertEquals("signature_page", r.pageType);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    /** 兼容扁平形态：老版服务端/测试桩把 processing_mode 放在顶层时也要认 */
+    @Test
+    public void syncPathFallsBackToTopLevelPayload() throws IOException {
         AtomicReference<String> captured = new AtomicReference<>();
         HttpServer server = stub("/extract/upload", captured,
                 "{\"results\":{},\"data\":{\"results\":{}},"
                         + "\"processing_mode\":\"single_page_skipped_by_classifier\"}");
         try {
-            Path tmp = Files.createTempFile("aimp-page-skip", ".jpg");
-            Files.write(tmp, new byte[] { 4, 5, 6 });
-            try {
-                AimpLlmClient.ExtractPageResult r = clientFor(server).extractPage(
-                        tmp.toString(), "title", null, 1, 3, null, false);
-                // 图片模式走同步路径：短路页必须能被认出来，否则它会被算进「平均每页耗时」的分母
-                Assert.assertTrue(r.skipped, "同步路径须识别 single_page_skipped*");
-            } finally {
-                Files.deleteIfExists(tmp);
-            }
+            AimpLlmClient.ExtractPageResult r = extractOnePage(server);
+            Assert.assertTrue(r.skipped, "顶层形态（无 data.processing_mode）时须回落顶层");
         } finally {
             server.stop(0);
+        }
+    }
+
+    /** 跑一次单页抽取，返回结果；服务端响应由 stub 固定 */
+    private static AimpLlmClient.ExtractPageResult extractOnePage(HttpServer server) throws IOException {
+        Path tmp = Files.createTempFile("aimp-page", ".jpg");
+        Files.write(tmp, new byte[] { 1 });
+        try {
+            return clientFor(server).extractPage(tmp.toString(), "title", null, 1, 3, null, false);
+        } finally {
+            Files.deleteIfExists(tmp);
         }
     }
 }

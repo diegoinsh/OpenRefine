@@ -284,9 +284,15 @@ public class AimpLlmClient {
                 JsonNode pc = json.get("page_count");
                 if (pc != null && pc.isNumber()) result.pageCount = pc.asInt(1);
                 // 同步逐页路径（图片模式）同样要认「本页是否走了 LLM」与页型：
-                // 前者供调用方从「平均每页耗时」的摊分里剔除短路页，后者供 pageMap 标注页型
-                result.skipped = json.path("processing_mode").asText("").startsWith("single_page_skipped");
-                result.pageType = json.path("document_status").path("page_type").asText("");
+                // 前者供调用方从「平均每页耗时」的摊分里剔除短路页，后者供 pageMap 标注页型。
+                // 注意取值位置：同步响应把流水线结果整份放在 data 下（data.processing_mode /
+                // data.document_status），只读顶层会恒为空——跳页与页型都拿不到，标记也就画不出来
+                JsonNode payload = json.path("data");
+                if (!payload.isObject() || !payload.has("processing_mode")) {
+                    payload = json;
+                }
+                result.skipped = payload.path("processing_mode").asText("").startsWith("single_page_skipped");
+                result.pageType = payload.path("document_status").path("page_type").asText("");
                 result.success = true;
             } else {
                 result.error = "HTTP " + c.getResponseCode();
