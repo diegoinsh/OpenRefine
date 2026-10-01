@@ -113,6 +113,13 @@ var BatchTitleExtractionMonitor = (function () {
   /** 已展示的页（按页号升序，最新在最下方）与待揭示队列 */
   var previewShown = [];
   var previewPending = [];
+  /**
+   * 已见过的页号。**必须独立于「已展示/待揭示」两个列表**：后端每轮返回的是最近 40 页的
+   * 滚动窗口，而这两个列表都有 40 条上限（会从最旧一端淘汰），一旦靠它们去重，被淘汰过的页
+   * 下一轮就会被当成新页重新塞回来——表现是清单乱序、同一页冒出来两次（跑过 40 页才现形）。
+   * 页号在卷内单调递增，故这里只增不减，换卷时清空。
+   */
+  var previewKnown = {};
   var previewTimer = null;
   /** 预览所属的卷序号：换卷后页号会重新从 1 开始，必须重置队列，否则新旧卷的页会混在一起 */
   var previewVolumeIndex = -1;
@@ -120,6 +127,7 @@ var BatchTitleExtractionMonitor = (function () {
   function resetPagePreview() {
     previewShown = [];
     previewPending = [];
+    previewKnown = {};
     previewIntervalMs = 0;
     previewVolumeIndex = -1;
     if (previewTimer) {
@@ -217,15 +225,13 @@ var BatchTitleExtractionMonitor = (function () {
       previewVolumeIndex = volumeIndex;
       previewShown = [];
       previewPending = [];
+      previewKnown = {};
       $banner.find('.batch-extraction-banner-preview').remove();
     }
     if (pages && pages.length > 0) {
-      var known = {};
-      previewShown.concat(previewPending).forEach(function (p) {
-        known[p.page] = true;
-      });
       pages.forEach(function (p) {
-        if (!known[p.page]) {
+        if (!previewKnown[p.page]) {
+          previewKnown[p.page] = true;
           previewPending.push(p);
         }
       });
