@@ -222,6 +222,8 @@
 }
 
 .file-view-thumb-item {
+  /* 跳过页角标的定位基准 */
+  position: relative;
   padding: 4px;
   margin-bottom: 4px;
   background: #fff;
@@ -230,6 +232,25 @@
   cursor: pointer;
   text-align: center;
   transition: border-color 0.2s;
+}
+
+/* 被判定跳过的页：角标标出「这一页没送模型抽取」，避免把空单元格误当成没抽漏 */
+.file-view-thumb-skip {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  padding: 0 3px;
+  font-size: 9px;
+  line-height: 14px;
+  color: #fff;
+  background: #b26a00;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* 底部信息里的同一结论：大图上看不到缩略图角标时靠它 */
+.file-view-page-skip-hint {
+  color: #b26a00;
 }
 
 .file-view-thumb-item:hover {

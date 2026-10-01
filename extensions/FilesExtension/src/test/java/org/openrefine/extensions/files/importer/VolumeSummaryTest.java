@@ -450,8 +450,8 @@ public class VolumeSummaryTest {
     }
 
     /**
-     * 页型按「卷路径 → 页号」分组挂在页映射的保留键下：页号只在卷内唯一，两卷各自的第 1 页
-     * 必须互不覆盖。页型为空（分类器未启用、或模型没给出）时不写——宁缺勿造。
+     * 页型与「是否被跳过」按「卷路径 → 页号」分组挂在页映射的保留键下：页号只在卷内唯一，
+     * 两卷各自的第 1 页必须互不覆盖，且回抽成功后要能整体替换（s 改回 false）。
      */
     @Test
     public void pageTypeMapGroupsByVolumeAndPage() {
@@ -460,19 +460,33 @@ public class VolumeSummaryTest {
                 Collections.<CustomElementType>emptyList(), null, null,
                 Collections.<String>emptyList(), Collections.<UnitScanner.Volume>emptyList(), false);
 
-        task.recordPageType("D:/arch/卷1", 1, "header_page");
-        task.recordPageType("D:/arch/卷1", 2, "content_page");
-        task.recordPageType("D:/arch/卷2", 1, "signature_page");
-        task.recordPageType("D:/arch/卷2", 2, "");
-        task.recordPageType(null, 3, "content_page");
+        task.recordPageType("D:/arch/卷1", 1, "header_page", false);
+        task.recordPageType("D:/arch/卷1", 2, "content_page", true);
+        task.recordPageType("D:/arch/卷2", 1, "signature_page", false);
+        task.recordPageType("D:/arch/卷2", 2, "", false);        // 页型为空且未跳过：宁缺勿造
+        task.recordPageType(null, 3, "content_page", true);      // 卷路径为空：不写
+        task.recordPageType("D:/arch/卷2", 3, "", true);         // 被跳过但无页型：仍要记
 
         JsonNode types = task.pageMap.get(BatchExtractionManager.PAGE_TYPE_MAP_KEY);
         Assert.assertNotNull(types, "页型应写在页映射的保留键下");
         Assert.assertEquals(2, types.size());
-        Assert.assertEquals("header_page", types.path("D:/arch/卷1").path("1").asText());
-        Assert.assertEquals("content_page", types.path("D:/arch/卷1").path("2").asText());
-        Assert.assertEquals("signature_page", types.path("D:/arch/卷2").path("1").asText());
-        Assert.assertFalse(types.path("D:/arch/卷2").has("2"), "空页型不应写入");
+
+        JsonNode vol1 = types.path("D:/arch/卷1");
+        Assert.assertEquals("header_page", vol1.path("1").path("t").asText());
+        Assert.assertFalse(vol1.path("1").path("s").asBoolean(true), "未跳过的页 s 应为 false");
+        Assert.assertEquals("content_page", vol1.path("2").path("t").asText());
+        Assert.assertTrue(vol1.path("2").path("s").asBoolean(false), "被跳过的页 s 应为 true");
+
+        // 两卷各自的第 1 页互不覆盖——页号只在卷内唯一，卷路径才是「页」的身份
+        Assert.assertEquals("signature_page", types.path("D:/arch/卷2").path("1").path("t").asText());
+        Assert.assertFalse(types.path("D:/arch/卷2").has("2"), "页型为空且未跳过时不应写入");
+        Assert.assertTrue(types.path("D:/arch/卷2").path("3").path("s").asBoolean(false),
+                "被跳过但无页型时也要记，否则前端看不到「这页没抽」");
+
+        // 层3 回抽成功后按新结果整体替换：s 必须改回 false，不能残留旧值
+        task.recordPageType("D:/arch/卷1", 2, "content_page", false);
+        Assert.assertFalse(types.path("D:/arch/卷1").path("2").path("s").asBoolean(true),
+                "回抽成功后应整体替换，s 改回 false");
     }
 
     /** 卷级行也要能点击定位到页：键加表前缀，要素列给来源页、非要素列给本卷首件首页 */

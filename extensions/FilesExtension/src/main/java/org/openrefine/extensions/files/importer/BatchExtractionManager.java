@@ -211,13 +211,19 @@ public class BatchExtractionManager {
         }
 
         /**
-         * 记一页的页型到页映射的保留键下（{卷路径: {页号: page_type}}）。
+         * 记一页的页型与「是否被判跳过」到页映射的保留键下
+         * （`{卷路径: {页号: {"t": 页型, "s": 是否跳过}}}`）。
          *
-         * <p>页型为空（分类器未启用、或模型没给出）时什么都不记——宁缺勿造，避免把"没判过"
-         * 写成某个具体页型，前端据此做的区分会失真。
+         * <p>`s` 是必要的：页型回答不了"这页有没有送过 LLM"——被跳过的页同样有页型（分类器
+         * 跳过分支也会回传 `document_status.page_type`），而 `content_page` 也可能是没跳过的页
+         * （层1 命中痕迹或 LR 判它是件首）。用户核对空单元格时，需要的是"这页没抽"这个确定答案。
+         *
+         * <p>页型为空且未跳过（分类器未启用、或模型没给出页型）时什么都不记——宁缺勿造。
+         * 每次写入**整体替换**该页节点，故层3 回抽成功后会把 `s` 正确改回 false。
          */
-        void recordPageType(String volumePath, int page, String pageType) {
-            if (volumePath == null || pageType == null || pageType.isEmpty()) return;
+        void recordPageType(String volumePath, int page, String pageType, boolean skipped) {
+            boolean hasType = pageType != null && !pageType.isEmpty();
+            if (volumePath == null || (!hasType && !skipped)) return;
             synchronized (pageMap) {
                 JsonNode typesNode = pageMap.get(PAGE_TYPE_MAP_KEY);
                 if (typesNode == null || !typesNode.isObject()) {
@@ -225,7 +231,11 @@ public class BatchExtractionManager {
                     pageMap.set(PAGE_TYPE_MAP_KEY, typesNode);
                 }
                 // 必须先按卷路径建一层：卷内页号只在卷内唯一，两卷各自的第 1 页不能互相覆盖
-                ((ObjectNode) typesNode).with(volumePath).put(String.valueOf(page), pageType);
+                ObjectNode volumeNode = ((ObjectNode) typesNode).with(volumePath);
+                ObjectNode pageNode = mapper.createObjectNode();
+                if (hasType) pageNode.put("t", pageType);
+                pageNode.put("s", skipped);
+                volumeNode.set(String.valueOf(page), pageNode);
             }
         }
 
@@ -1133,7 +1143,7 @@ public class BatchExtractionManager {
                             pageValues.add(ok ? r.values : null);
                             pageConfidences.add(ok ? r.confidences : null);
                             pageSkipped.add(ok && r.skipped);
-                            if (ok) task.recordPageType(unit.path, pageNo, r.pageType);
+                            if (ok) task.recordPageType(unit.path, pageNo, r.pageType, r.skipped);
                             // processedPages 已在并发过程中按批累加，此处不重复计数
                         }
                     } else {
@@ -1162,7 +1172,7 @@ public class BatchExtractionManager {
                             pageValues.add(r.success ? r.values : null);
                             pageConfidences.add(r.success ? r.confidences : null);
                             pageSkipped.add(r.success && r.skipped);
-                            if (r.success) task.recordPageType(unit.path, i + 1, r.pageType);
+                            if (r.success) task.recordPageType(unit.path, i + 1, r.pageType, r.skipped);
                             task.processedPages++;
                             task.unitFraction = (i + 1) / (double) Math.max(1, unit.pages.size());
                         }
@@ -1398,7 +1408,7 @@ public class BatchExtractionManager {
             pageConfidences.set(idx, r.confidences);
             if (idx < pageSkipped.size()) pageSkipped.set(idx, false);
             recordPagePreview(task, unit, idx, r);
-            task.recordPageType(unit.path, page, r.pageType);
+            task.recordPageType(unit.path, page, r.pageType, r.skipped);
             recovered++;
         }
         logger.info("卷 {} 层3 回溯补抽：候选 {} 页，成功 {} 页",

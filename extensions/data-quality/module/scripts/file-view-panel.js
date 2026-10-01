@@ -24,6 +24,8 @@ var FileViewPanel = {};
   FileViewPanel._pieceStart = null;
   FileViewPanel._pageMap = null;
   FileViewPanel._pageMapProjectId = null;
+  /** 当前卷的「页号 → {t:页型, s:是否跳过}」映射；无页映射/未命中该卷时为 null */
+  FileViewPanel._volumePageTypes = null;
   /** 当前预览内容类型（image / pdf / text），用于区分页面定位与文件切换的处理方式 */
   FileViewPanel._currentPreviewType = null;
   /** 当前图片文件的原始位图 data URL：OCR 模式下直接拿它当拉框底图，省掉一次后端渲染 */
@@ -83,6 +85,69 @@ var FileViewPanel = {};
 
   /** 「卷级」汇总表 id，与后端 BatchExtractionCommand.SUMMARY_SHEET_ID 保持一致 */
   FileViewPanel.SUMMARY_SHEET_ID = 'batch#卷级';
+
+  /**
+   * 页映射中「页型 / 是否跳过」的保留键，与后端 BatchExtractionManager.PAGE_TYPE_MAP_KEY 保持一致。
+   * 值为 `{卷路径: {卷内页号: {t: 页型, s: 是否被判跳过}}}`。
+   */
+  FileViewPanel.PAGE_TYPE_MAP_KEY = '__page_types__';
+
+  /**
+   * 路径归一化：后端写的键是 `unit.path` **原样**（Windows 下带反斜杠），而前端资源路径
+   * （取自「文件夹路径」列）已被换成斜杠。不做归一化会查不到卷的页型映射。
+   */
+  FileViewPanel._normalizePath = function(path) {
+    return String(path == null ? '' : path).replace(/\\/g, '/').replace(/\/+$/, '');
+  };
+
+  /** 在页映射的保留键下按卷路径取该卷的「页号 → {t,s}」映射；未命中返回 null */
+  FileViewPanel._lookupVolumePageTypes = function(resourcePath) {
+    if (!FileViewPanel._pageMap || !resourcePath) {
+      return null;
+    }
+    var byVolume = FileViewPanel._pageMap[FileViewPanel.PAGE_TYPE_MAP_KEY];
+    if (!byVolume) {
+      return null;
+    }
+    var target = FileViewPanel._normalizePath(resourcePath);
+    var keys = Object.keys(byVolume);
+    for (var i = 0; i < keys.length; i++) {
+      if (FileViewPanel._normalizePath(keys[i]) === target) {
+        return byVolume[keys[i]];
+      }
+    }
+    return null;
+  };
+
+  /** 取某一页（卷内页号）的记录 `{t,s}`；无记录返回 null */
+  FileViewPanel._getPageTypeInfo = function(page) {
+    if (!FileViewPanel._volumePageTypes || !(page > 0)) {
+      return null;
+    }
+    return FileViewPanel._volumePageTypes[String(page)] || null;
+  };
+
+  /** 页型枚举 → 展示名；未收录或翻译缺失时回落枚举本身 */
+  FileViewPanel._pageTypeName = function(pageType) {
+    if (!pageType) {
+      return '';
+    }
+    var key = 'data-quality-extension/file-view-page-type-' + pageType;
+    var name = $.i18n(key);
+    // $.i18n 查不到键时原样返回键名，此时回落到枚举值，避免把键名当页型显示
+    return (name && name !== key) ? name : pageType;
+  };
+
+  /**
+   * 跳过页的提示文案：带页型时点明页型，否则只说未抽取。
+   * 用户看到空单元格时必须能分清「这一页没送模型」与「这一页本来就没有该要素」。
+   */
+  FileViewPanel._skippedHint = function(typeInfo) {
+    var name = FileViewPanel._pageTypeName(typeInfo && typeInfo.t);
+    return name
+        ? $.i18n('data-quality-extension/file-view-skipped-hint', name)
+        : $.i18n('data-quality-extension/file-view-skipped-hint-unknown');
+  };
 
   /**
    * 页映射的键：卷内行用行号，卷级行用「表id:行号」。
@@ -367,6 +432,7 @@ var FileViewPanel = {};
     FileViewPanel._currentOffsetX = 0;
     FileViewPanel._currentOffsetY = 0;
     FileViewPanel._pageCount = 0;
+    FileViewPanel._volumePageTypes = null;
     FileViewPanel._thumbPaused = false;
     FileViewPanel._currentPreviewType = null;
     FileViewPanel._currentImageDataUrl = null;
@@ -394,6 +460,8 @@ var FileViewPanel = {};
 
     FileViewPanel._ensurePageMap(function() {
       FileViewPanel._resolveCellCandidates(rowIndex, FileViewPanel._currentCellIndex);
+      // 页型/跳过映射按卷取一次，缩略图渲染时逐页查即可，避免每张图都遍历一遍卷清单
+      FileViewPanel._volumePageTypes = FileViewPanel._lookupVolumePageTypes(resourcePath);
       FileViewPanel._fetchFilesForResourcePath(resourcePath, function(files, error) {
         if (!files || files.length === 0) {
           var content = FileViewPanel._panel.find('.file-view-content');
@@ -821,6 +889,17 @@ var FileViewPanel = {};
         .text(FileViewPanel._truncateFileName(file.name))
         .attr('title', file.name)
         .appendTo(thumb);
+
+      // 被判定跳过的页加角标：单元格为空到底是「这一页没抽」还是「这一页本来就没有」，
+      // 用户只能靠它分辨。页号口径与 _jumpToPage 一致——卷内页号 page 对应下标 page - 1。
+      var typeInfo = FileViewPanel._getPageTypeInfo(index + 1);
+      if (typeInfo && typeInfo.s) {
+        $('<span>')
+          .addClass('file-view-thumb-skip')
+          .text($.i18n('data-quality-extension/file-view-skipped-badge') || '跳')
+          .attr('title', FileViewPanel._skippedHint(typeInfo))
+          .appendTo(thumb);
+      }
 
       thumb.on('click', function() {
         FileViewPanel._currentFileIndex = index;
@@ -1416,6 +1495,14 @@ var FileViewPanel = {};
     if (FileViewPanel._currentFiles.length > 1) {
       $('<span>').addClass('file-view-file-counter')
         .text((FileViewPanel._currentFileIndex + 1) + ' / ' + FileViewPanel._currentFiles.length)
+        .appendTo(info);
+    }
+
+    // 当前页被判定跳过：大图上看不到缩略图角标时，这里必须给出同一结论
+    var currentTypeInfo = FileViewPanel._getPageTypeInfo(FileViewPanel._currentFileIndex + 1);
+    if (currentTypeInfo && currentTypeInfo.s) {
+      $('<span>').addClass('file-view-page-skip-hint')
+        .text(FileViewPanel._skippedHint(currentTypeInfo))
         .appendTo(info);
     }
 
