@@ -123,27 +123,136 @@ var BatchTitleExtractionMonitor = (function () {
     previewIntervalMs = 0;
     previewVolumeIndex = -1;
     if (previewTimer) {
-      window.clearInterval(previewTimer);
+      window.clearTimeout(previewTimer);
       previewTimer = null;
     }
   }
 
   /**
    * 按后端给的口径更新揭示间隔：并发批调用用实测的平均每页耗时，逐页串行用 0（到达即显示）。
-   * 间隔一变就停掉正在跑的定时器，避免继续沿用旧节奏。
+   *
+   * **只更新目标间隔，不动正在跑的定时器**：轮询每 2s 刷新一次平均每页耗时，若那点微小变化
+   * 就重建定时器，会把当前这一轮的等待相位整段丢掉（间隔 800ms、轮询 2s 时每次轮询白丢
+   * 近一轮等待），揭示速率掉到设计值的 1/2.5，观感就是「追不上」。相位改由
+   * schedulePreviewTick 在**下一次排程**时读取新值。
    */
   function updatePreviewInterval(pageConcurrency, avgPageMillis) {
-    var next = 0;
     if (pageConcurrency > 1) {
-      next = (typeof avgPageMillis === 'number' && avgPageMillis > 0)
+      previewIntervalMs = (typeof avgPageMillis === 'number' && avgPageMillis > 0)
           ? avgPageMillis : PAGE_REVEAL_FALLBACK_MS;
-      next = Math.max(PAGE_REVEAL_MIN_MS, Math.min(PAGE_REVEAL_MAX_MS, next));
+      previewIntervalMs = Math.max(PAGE_REVEAL_MIN_MS,
+          Math.min(PAGE_REVEAL_MAX_MS, previewIntervalMs));
+    } else {
+      previewIntervalMs = 0;
     }
-    if (next === previewIntervalMs) return;
-    previewIntervalMs = next;
-    if (previewTimer) {
-      window.clearInterval(previewTimer);
+  }
+
+  /** 把积压队列按当前间隔揭示若干条；all 为真或间隔为 0 时一次揭完 */
+  function revealPending(all) {
+    var count = 1;
+    if (all || previewIntervalMs <= 0) {
+      count = previewPending.length;
+    } else if (previewPending.length > 20) {
+      // 积压追赶：队列越长一次揭示越多，避免预览永远追不上顶部的进度文案
+      count = 4;
+    } else if (previewPending.length > 8) {
+      count = 2;
+    }
+    while (count-- > 0 && previewPending.length > 0) {
+      previewShown.push(previewPending.shift());
+      while (previewShown.length > PAGE_PREVIEW_MAX) {
+        previewShown.shift();
+      }
+    }
+  }
+
+  /**
+   * 自调度排一次揭示（setTimeout 链，不是 setInterval）。每次 tick 结束后按**当时**的
+   * 目标间隔排下一次，因此轮询刷新间隔不会打断正在等待的这一轮。
+   */
+  function schedulePreviewTick($banner) {
+    previewTimer = window.setTimeout(function () {
       previewTimer = null;
+      if (previewPending.length === 0) {
+        return;
+      }
+      revealPending(false);
+      renderPagePreview($banner);
+      if (previewPending.length > 0) {
+        schedulePreviewTick($banner);
+      }
+    }, Math.max(1, previewIntervalMs));
+  }
+
+  /**
+   * 把积压全部揭示出来。整卷页都抽完、任务进入 LLM 分件阶段时调用：分件要几秒到十几秒，
+   * 这段时间没有新页到达，正好把预览追平。否则等终态横幅被结果页（reinitializeProjectData
+   * 重建项目 UI）顶掉，最后那几条用户永远看不到。
+   */
+  function flushPagePreview($banner) {
+    if (previewTimer) {
+      window.clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+    if (previewPending.length === 0) {
+      return;
+    }
+    revealPending(true);
+    renderPagePreview($banner);
+  }
+
+  /**
+   * 接收后端页级预览并逐条揭示。
+   *
+   * 件级行要等整卷抽完、分件矫正后才写入，2-300 页的长卷会让界面长时间空白，故页级每抽完
+   * 一页就回传一条。并发批调用（4 页同时返回）时排入队列、按实测的平均每页耗时逐条追加到
+   * 末尾（最新在最下，像日志一样往下长）。
+   *
+   * **首次到达的一批不重放**：进入项目时后端往往已经抽了几十页，那是「历史」而非"刚发生"。
+   * 逐条重放会永远落后于实际进度（界面停在几十页前，看不到当下正在抽的页），故只接上
+   * 最新一条，从那里往下长。
+   */
+  function feedPagePreview($banner, pages, volumeIndex) {
+    if (volumeIndex !== previewVolumeIndex) {
+      previewVolumeIndex = volumeIndex;
+      previewShown = [];
+      previewPending = [];
+      $banner.find('.batch-extraction-banner-preview').remove();
+    }
+    if (pages && pages.length > 0) {
+      var known = {};
+      previewShown.concat(previewPending).forEach(function (p) {
+        known[p.page] = true;
+      });
+      pages.forEach(function (p) {
+        if (!known[p.page]) {
+          previewPending.push(p);
+        }
+      });
+      previewPending.sort(function (a, b) {
+        return a.page - b.page;
+      });
+      while (previewPending.length > PAGE_PENDING_LIMIT) {
+        previewPending.shift();
+      }
+    }
+    // 首次（含换卷后第一次）：此刻列表里还没有任何一条，整批都是进项目前就抽完的，只留最新一条
+    if (previewShown.length === 0 && previewPending.length > 1 && previewIntervalMs > 0) {
+      previewShown.push(previewPending.pop());
+      previewPending = [];
+    }
+    // 逐页串行调用（间隔为 0）：每页到达本身就是一条，直接显示，不必排队等定时器
+    if (previewIntervalMs <= 0) {
+      if (previewPending.length > 0) {
+        revealPending(true);
+        renderPagePreview($banner);
+      }
+      return;
+    }
+    // 间隔变化后若那一轮恰好没有新页到达，这里负责把积压的队列重新驱动起来，
+    // 否则预览会停在原地等下一页（长卷单页可达 20s，观感就是「卡住不动」）
+    if (!previewTimer && previewPending.length > 0) {
+      schedulePreviewTick($banner);
     }
   }
 
@@ -202,79 +311,6 @@ var BatchTitleExtractionMonitor = (function () {
       }
     });
     return parts.join(' · ');
-  }
-
-  /**
-   * 接收后端页级预览并逐条揭示。
-   *
-   * 件级行要等整卷抽完、分件矫正后才写入，2-300 页的长卷会让界面长时间空白，故页级每抽完
-   * 一页就回传一条。并发批调用（4 页同时返回）时排入队列、按实测的平均每页耗时逐条追加到
-   * 末尾（最新在最下，像日志一样往下长），**第一批同样逐条揭示**——不因「算是历史」就一次
-   * 性铺开；逐页串行调用时每页到达本身就是一条，间隔为 0，直接显示。
-   */
-  function feedPagePreview($banner, pages, volumeIndex) {
-    if (volumeIndex !== previewVolumeIndex) {
-      previewVolumeIndex = volumeIndex;
-      previewShown = [];
-      previewPending = [];
-      $banner.find('.batch-extraction-banner-preview').remove();
-    }
-    if (pages && pages.length > 0) {
-      var known = {};
-      previewShown.concat(previewPending).forEach(function (p) {
-        known[p.page] = true;
-      });
-      pages.forEach(function (p) {
-        if (!known[p.page]) {
-          previewPending.push(p);
-        }
-      });
-      previewPending.sort(function (a, b) {
-        return a.page - b.page;
-      });
-      while (previewPending.length > PAGE_PENDING_LIMIT) {
-        previewPending.shift();
-      }
-    }
-    // 逐页串行调用（间隔为 0）：每页到达本身就是一条，直接显示，不必排队等定时器
-    if (previewIntervalMs <= 0) {
-      if (previewPending.length > 0) {
-        previewShown = previewShown.concat(previewPending);
-        previewPending = [];
-        while (previewShown.length > PAGE_PREVIEW_MAX) {
-          previewShown.shift();
-        }
-        renderPagePreview($banner);
-      }
-      return;
-    }
-    // 间隔变化（updatePreviewInterval）会重建定时器；若那一轮恰好没有新页到达，
-    // 这里负责把积压的队列重新驱动起来，否则预览会停在原地等下一页
-    // （长卷单页可达 20s，观感就是「卡住不动」）
-    if (!previewTimer && previewPending.length > 0) {
-      previewTimer = window.setInterval(function () {
-        if (previewPending.length === 0) {
-          window.clearInterval(previewTimer);
-          previewTimer = null;
-          return;
-        }
-        // 积压追赶：定时器按「平均每页耗时」逐条揭示，比实际抽取略慢时会越积越多，
-        // 队列越长一次揭示越多，避免预览永远追不上顶部的进度文案
-        var revealCount = 1;
-        if (previewPending.length > 20) {
-          revealCount = 4;
-        } else if (previewPending.length > 8) {
-          revealCount = 2;
-        }
-        while (revealCount-- > 0 && previewPending.length > 0) {
-          previewShown.push(previewPending.shift());
-          while (previewShown.length > PAGE_PREVIEW_MAX) {
-            previewShown.shift();
-          }
-        }
-        renderPagePreview($banner);
-      }, previewIntervalMs);
-    }
   }
 
   /**
@@ -467,6 +503,11 @@ var BatchTitleExtractionMonitor = (function () {
       }
       updatePreviewInterval(d.pageConcurrency, d.avgPageMillis);
       feedPagePreview($banner, d.recentPages, d.volumeIndex);
+      // 页都抽完了但任务还没结束：此刻后端正在做 LLM 分件（几秒到十几秒），这段时间没有
+      // 新页到达，正好把积压一次追平
+      if ((d.totalPages || 0) > 0 && (d.processedPages || 0) >= d.totalPages) {
+        flushPagePreview($banner);
+      }
     } else if (kind === 'completed') {
       text = $.i18n('files-import/batch-banner-completed', d.rowsAppended || 0);
       $bar.css('width', '100%');
@@ -478,6 +519,10 @@ var BatchTitleExtractionMonitor = (function () {
       $banner.addClass('banner-error');
       $bar.addClass('banner-bar-error');
       $bar.css('width', '100%');
+    }
+    // 终态已到：再按节奏揭示就来不及了——横幅很快被结果页（重建的项目 UI）替换掉
+    if (kind !== 'running') {
+      flushPagePreview($banner);
     }
     $text.text(text);
     // 状态图标：运行中转圈，终态切换为静态图标
