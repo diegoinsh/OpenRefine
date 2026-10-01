@@ -1,5 +1,6 @@
 package org.openrefine.extensions.files.importer;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -29,6 +30,7 @@ import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -76,6 +78,18 @@ public class BatchExtractionManager {
      * 两张表的行号都从 0 起，不加前缀会互相串页；前端按当前活动表决定用哪种键。
      */
     public static final String SUMMARY_PAGE_MAP_PREFIX = BatchExtractionCommand.SUMMARY_SHEET_ID + ":";
+
+    /**
+     * 页映射的保留键「页型」：值为 `{卷路径: {页号: page_type}}`。
+     *
+     * <p>页型是**逐页**信息，而页映射的其余键都是**逐行（逐件）**信息——一件多页，塞进行节点
+     * 装不下（只留一个丢信息，塞成数组又破坏 {v,p,f} 的单值结构，前端的定位解析会踩空）。
+     * 故按「卷 + 页号」建一层卷级映射：页号只在卷内唯一，卷路径才是「页」的身份。
+     *
+     * <p>挂在同一份 pageMap metadata 下而非另开 metadata 键：前端拉 pageMap 时免费拿到，
+     * 无需新增一次请求；数值型行号键与它以 `__` 前缀天然不冲突。
+     */
+    public static final String PAGE_TYPE_MAP_KEY = "__page_types__";
 
     /**
      * 诉讼档案单批并发页数。需与以下两处对齐，否则以最小值生效：
@@ -193,6 +207,25 @@ public class BatchExtractionManager {
         void clearPagePreviews() {
             synchronized (recentPages) {
                 recentPages.clear();
+            }
+        }
+
+        /**
+         * 记一页的页型到页映射的保留键下（{卷路径: {页号: page_type}}）。
+         *
+         * <p>页型为空（分类器未启用、或模型没给出）时什么都不记——宁缺勿造，避免把"没判过"
+         * 写成某个具体页型，前端据此做的区分会失真。
+         */
+        void recordPageType(String volumePath, int page, String pageType) {
+            if (volumePath == null || pageType == null || pageType.isEmpty()) return;
+            synchronized (pageMap) {
+                JsonNode typesNode = pageMap.get(PAGE_TYPE_MAP_KEY);
+                if (typesNode == null || !typesNode.isObject()) {
+                    typesNode = mapper.createObjectNode();
+                    pageMap.set(PAGE_TYPE_MAP_KEY, typesNode);
+                }
+                // 必须先按卷路径建一层：卷内页号只在卷内唯一，两卷各自的第 1 页不能互相覆盖
+                ((ObjectNode) typesNode).with(volumePath).put(String.valueOf(page), pageType);
             }
         }
 
@@ -1072,6 +1105,9 @@ public class BatchExtractionManager {
                     List<String> titles = new ArrayList<>();
                     List<Map<String, String>> pageValues = new ArrayList<>();
                     List<Map<String, Double>> pageConfidences = new ArrayList<>();
+                    // 逐页「本页是否被判跳过 LLM」：层2 件级完整性校验靠它区分「真缺要素」与
+                    // 「当初这一页压根没送 LLM」，层3 也据此把回抽范围锁在跳过的页上
+                    List<Boolean> pageSkipped = new ArrayList<>();
                     int unitFailedPages = 0;
                     if (isLitigationArchive(task)) {
                         // 诉讼档案页间彼此独立（不传页间上下文），按 PAGE_CONCURRENCY 路并发提交：
@@ -1084,7 +1120,9 @@ public class BatchExtractionManager {
                             }
                             return;
                         }
+                        int pageNo = 0;
                         for (AimpLlmClient.ExtractPageResult r : pageResults) {
+                            pageNo++;
                             if (r == null && task.cancelRequested) break;   // 取消后未处理的页不再计数
                             boolean ok = r != null && r.success;
                             if (!ok) {
@@ -1094,6 +1132,8 @@ public class BatchExtractionManager {
                             titles.add(ok ? r.values.getOrDefault("title", "") : "");
                             pageValues.add(ok ? r.values : null);
                             pageConfidences.add(ok ? r.confidences : null);
+                            pageSkipped.add(ok && r.skipped);
+                            if (ok) task.recordPageType(unit.path, pageNo, r.pageType);
                             // processedPages 已在并发过程中按批累加，此处不重复计数
                         }
                     } else {
@@ -1121,6 +1161,8 @@ public class BatchExtractionManager {
                             titles.add(r.success ? r.values.getOrDefault("title", "") : "");
                             pageValues.add(r.success ? r.values : null);
                             pageConfidences.add(r.success ? r.confidences : null);
+                            pageSkipped.add(r.success && r.skipped);
+                            if (r.success) task.recordPageType(unit.path, i + 1, r.pageType);
                             task.processedPages++;
                             task.unitFraction = (i + 1) / (double) Math.max(1, unit.pages.size());
                         }
@@ -1198,6 +1240,14 @@ public class BatchExtractionManager {
                             }
                             logger.info("卷 {} 分件结果（{} 件，页号为卷内页号）: {}",
                                     unit.name, pieces.size(), sb.toString());
+                        }
+                        // 层2 + 层3：件边界已定，先按件体检必需要素，再对「缺要素的件里那些被判跳过
+                        // 的页」定向回抽。判页是概率决策，这一步是它的兜底——不依赖分类器准确率，
+                        // 只看件级产出是否真的缺了必需要素。回抽结果直接写回 titles/pageValues，
+                        // 后面的按件合并与卷级回填都能吃到（故必须放在它们之前）。
+                        if (litigationArchive) {
+                            runPieceBacktrack(task, client, unit, pieces, pageSkipped, titles,
+                                    pageValues, pageConfidences, keyList, customJson);
                         }
                         Map<String, String> volumeLevelValues = new LinkedHashMap<>();
                         // 卷级要素的候选页：回填取值时必须一并回填，否则单元格有值却找不到
@@ -1292,6 +1342,67 @@ public class BatchExtractionManager {
         Map<String, String> values = new LinkedHashMap<>(filterLowConfidence(r.values, r.confidences));
         normalizePieceValues(values);
         task.recordPagePreview(pageIndex + 1, new File(unit.pages.get(pageIndex)).getName(), values);
+    }
+
+    /**
+     * 层3 定向回溯补抽：对件级完整性校验判定「缺必需要素」的件，回抽其区间内当初被判跳过的页。
+     *
+     * <p>跳页是概率决策，天然可能误判；这一步是它的兜底——不依赖分类器准确率，只看件级产出是否
+     * 真的缺了必需要素。回抽带 {@code force_extract}，服务端不会再把同一页判成可跳页。回抽结果
+     * 原地写回 titles/pageValues/pageConfidences，后续按件合并即可吃到。
+     *
+     * <p>服务端体检不可用时静默跳过：它只负责"跳页的兜底"，不该影响正常出结果。
+     */
+    private void runPieceBacktrack(Task task, AimpLlmClient client, UnitScanner.Volume unit,
+                                   List<TitleSplitter.Piece> pieces, List<Boolean> pageSkipped,
+                                   List<String> titles, List<Map<String, String>> pageValues,
+                                   List<Map<String, Double>> pageConfidences,
+                                   String keyList, String customJson) {
+        AimpLlmClient.PieceIntegrityResult integrity =
+                client.pieceIntegrity(pieces, pageSkipped, pageValues, null, null);
+        if (!integrity.success) {
+            logger.warn("卷 {} 件级完整性校验不可用（{}），跳过层3 回溯", unit.name, integrity.reason);
+            return;
+        }
+        if (integrity.retryPageCount == 0) {
+            logger.info("卷 {} 件级完整性：{} 件均无缺失要素，无需回溯",
+                    unit.name, integrity.dashboard.size());
+            return;
+        }
+        // 可疑件明细必须落日志：跳页到底有没有让要素变少，靠它一眼看出是哪件缺什么
+        for (AimpLlmClient.PieceIntegrityItem item : integrity.dashboard) {
+            if (!item.suspect) continue;
+            logger.info("卷 {} 可疑件 {}-{}「{}」缺 {}，回抽页 {}",
+                    unit.name, item.start, item.end,
+                    item.title.isEmpty() ? "(无题名)" : item.title,
+                    item.missing, item.retryPages);
+        }
+        // 升序 + 去重：同一页即使被多个件列为候选也只抽一次
+        TreeSet<Integer> retryPages = new TreeSet<>();
+        for (AimpLlmClient.PieceIntegrityItem item : integrity.dashboard) {
+            retryPages.addAll(item.retryPages);
+        }
+        int recovered = 0;
+        for (int page : retryPages) {
+            if (task.cancelRequested) break;
+            int idx = page - 1;
+            if (idx < 0 || idx >= unit.pages.size() || idx >= titles.size()) continue;
+            AimpLlmClient.ExtractPageResult r = client.extractPage(unit.pages.get(idx), keyList,
+                    customJson, page, unit.pages.size(), null, true);
+            if (!r.success) {
+                logger.warn("卷 {} 第 {} 页回溯补抽失败：{}", unit.name, page, r.error);
+                continue;
+            }
+            titles.set(idx, r.values.getOrDefault("title", ""));
+            pageValues.set(idx, r.values);
+            pageConfidences.set(idx, r.confidences);
+            if (idx < pageSkipped.size()) pageSkipped.set(idx, false);
+            recordPagePreview(task, unit, idx, r);
+            task.recordPageType(unit.path, page, r.pageType);
+            recovered++;
+        }
+        logger.info("卷 {} 层3 回溯补抽：候选 {} 页，成功 {} 页",
+                unit.name, retryPages.size(), recovered);
     }
 
     /**

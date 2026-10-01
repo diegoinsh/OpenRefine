@@ -159,8 +159,22 @@ public class AimpLlmClient {
      */
     public ExtractPageResult extractPage(String filePath, String keyList, String customElementsJson,
                                          Integer currentPage, Integer totalPages, String previousExtractionsJson) {
+        return extractPage(filePath, keyList, customElementsJson, currentPage, totalPages,
+                previousExtractionsJson, false);
+    }
+
+    /**
+     * 提取单页信息，并可用 {@code forceExtract} 覆盖服务端的判页结论。
+     *
+     * <p>层3 定向回溯补抽走的就是这条路：件级完整性校验发现某件缺要素时，对它当初被判跳过的页
+     * 回抽一次；带上 {@code force_extract=true}，服务端才不会再按分类器把它判成可跳页
+     * （否则规划阶段判「必抽」、抽取阶段又被判「可跳」，要素照样丢）。
+     */
+    public ExtractPageResult extractPage(String filePath, String keyList, String customElementsJson,
+                                         Integer currentPage, Integer totalPages,
+                                         String previousExtractionsJson, boolean forceExtract) {
         return extractUpload(filePath, keyList, customElementsJson, currentPage, totalPages,
-                previousExtractionsJson, true);
+                previousExtractionsJson, true, forceExtract);
     }
 
     /**
@@ -169,12 +183,12 @@ public class AimpLlmClient {
      * 避免同步等待在大页数文档上触发读取超时。
      */
     public ExtractPageResult submitAsync(String filePath, String keyList, String customElementsJson) {
-        return extractUpload(filePath, keyList, customElementsJson, null, null, null, false);
+        return extractUpload(filePath, keyList, customElementsJson, null, null, null, false, false);
     }
 
     private ExtractPageResult extractUpload(String filePath, String keyList, String customElementsJson,
                                             Integer currentPage, Integer totalPages, String previousExtractionsJson,
-                                            boolean sync) {
+                                            boolean sync, boolean forceExtract) {
         ExtractPageResult result = new ExtractPageResult();
         try {
             File file = new File(filePath);
@@ -212,11 +226,12 @@ public class AimpLlmClient {
             boolean hasArchiveCategory = archiveCategory != null && !archiveCategory.isEmpty();
             boolean hasArchiveSubCategory = archiveSubCategory != null && !archiveSubCategory.isEmpty();
             if (currentPage != null || totalPages != null || disableCache || hasPrev
-                    || hasArchiveCategory || hasArchiveSubCategory) {
+                    || hasArchiveCategory || hasArchiveSubCategory || forceExtract) {
                 ObjectNode opts = mapper.createObjectNode();
                 if (currentPage != null) opts.put("current_page", currentPage);
                 if (totalPages != null) opts.put("total_pages", totalPages);
                 if (disableCache) opts.put("disable_cache", true);
+                if (forceExtract) opts.put("force_extract", true);
                 if (hasArchiveCategory) opts.put("archive_category", archiveCategory);
                 if (hasArchiveSubCategory) opts.put("archive_sub_category", archiveSubCategory);
                 if (hasPrev) {
@@ -268,6 +283,10 @@ public class AimpLlmClient {
                 }
                 JsonNode pc = json.get("page_count");
                 if (pc != null && pc.isNumber()) result.pageCount = pc.asInt(1);
+                // 同步逐页路径（图片模式）同样要认「本页是否走了 LLM」与页型：
+                // 前者供调用方从「平均每页耗时」的摊分里剔除短路页，后者供 pageMap 标注页型
+                result.skipped = json.path("processing_mode").asText("").startsWith("single_page_skipped");
+                result.pageType = json.path("document_status").path("page_type").asText("");
                 result.success = true;
             } else {
                 result.error = "HTTP " + c.getResponseCode();
@@ -478,6 +497,117 @@ public class AimpLlmClient {
         public List<TitleSplitter.Piece> pieces = new ArrayList<>();
     }
 
+    /**
+     * 层2 件级完整性校验：把分件边界与逐页状态交给服务端体检，取回可疑件与建议回抽的页。
+     *
+     * <p>服务端只做纯计算（不调模型、不读图片），失败或不可用时 success=false——调用方直接
+     * 跳过层3 即可，不影响正常出结果。
+     *
+     * @param pieces         分件结果（件区间 + 件名）
+     * @param pageSkipped    逐页「是否被判跳过 LLM」，下标 0 为卷内第 1 页
+     * @param pageElements   逐页抽到的要素，下标对齐 pageSkipped；元素可为 null
+     * @param requiredElements 必需要素 key 清单；null 或空则取服务端配置（默认仅题名必需）
+     * @param maxRetryPages  每件最多回抽页数；null 取服务端配置
+     */
+    public PieceIntegrityResult pieceIntegrity(List<TitleSplitter.Piece> pieces,
+                                              List<Boolean> pageSkipped,
+                                              List<Map<String, String>> pageElements,
+                                              List<String> requiredElements,
+                                              Integer maxRetryPages) {
+        PieceIntegrityResult r = new PieceIntegrityResult();
+        try {
+            ObjectNode body = mapper.createObjectNode();
+            ArrayNode pieceArr = body.putArray("pieces");
+            for (TitleSplitter.Piece p : pieces) {
+                ObjectNode n = pieceArr.addObject();
+                n.put("start", p.startPage);
+                n.put("end", p.endPage);
+                n.put("title", p.title == null ? "" : p.title);
+            }
+            ArrayNode pageArr = body.putArray("pages");
+            int pageTotal = pageSkipped == null ? 0 : pageSkipped.size();
+            for (int i = 0; i < pageTotal; i++) {
+                ObjectNode n = pageArr.addObject();
+                n.put("page", i + 1);
+                n.put("skipped", Boolean.TRUE.equals(pageSkipped.get(i)));
+                ObjectNode els = n.putObject("elements");
+                Map<String, String> vals = pageElements != null && i < pageElements.size()
+                        ? pageElements.get(i) : null;
+                if (vals != null) {
+                    for (Map.Entry<String, String> e : vals.entrySet()) {
+                        if (e.getValue() != null && !e.getValue().trim().isEmpty()) {
+                            els.put(e.getKey(), e.getValue());
+                        }
+                    }
+                }
+            }
+            if (requiredElements != null && !requiredElements.isEmpty()) {
+                ArrayNode req = body.putArray("required_elements");
+                for (String k : requiredElements) req.add(k);
+            }
+            if (maxRetryPages != null) body.put("max_retry_pages", maxRetryPages);
+
+            HttpURLConnection c = (HttpURLConnection) new URL(serviceUrl + "/extract/piece-integrity").openConnection();
+            c.setRequestMethod("POST");
+            c.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            c.setConnectTimeout(CONNECT_TIMEOUT);
+            c.setReadTimeout(READ_TIMEOUT);
+            c.setDoOutput(true);
+            try (OutputStream os = c.getOutputStream()) {
+                os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+            }
+            if (c.getResponseCode() == 200) {
+                JsonNode json = mapper.readTree(readStream(c.getInputStream()));
+                r.success = json.path("success").asBoolean(false);
+                r.reason = json.path("reason").asText("");
+                JsonNode summary = json.path("summary");
+                r.suspectPieces = summary.path("suspect_pieces").asInt(0);
+                r.retryPageCount = summary.path("retry_pages").asInt(0);
+                for (JsonNode n : json.path("dashboard")) {
+                    PieceIntegrityItem item = new PieceIntegrityItem();
+                    item.index = n.path("index").asInt(0);
+                    item.start = n.path("start").asInt(0);
+                    item.end = n.path("end").asInt(0);
+                    item.title = n.path("title").asText("");
+                    item.suspect = n.path("suspect").asBoolean(false);
+                    for (JsonNode m : n.path("missing")) item.missing.add(m.asText(""));
+                    for (JsonNode pg : n.path("retry_pages")) item.retryPages.add(pg.asInt(0));
+                    r.dashboard.add(item);
+                }
+                if (!r.success) r.dashboard.clear();
+            } else {
+                r.success = false;
+                r.reason = "HTTP " + c.getResponseCode();
+            }
+            c.disconnect();
+        } catch (Exception e) {
+            logger.warn("Error calling piece integrity", e);
+            r.success = false;
+            r.reason = e.getMessage() == null ? e.toString() : e.getMessage();
+        }
+        return r;
+    }
+
+    /** 单件体检结论：缺哪些要素、建议回抽哪些页 */
+    public static class PieceIntegrityItem {
+        public int index;
+        public int start;
+        public int end;
+        public String title = "";
+        public List<String> missing = new ArrayList<>();
+        public List<Integer> retryPages = new ArrayList<>();
+        public boolean suspect;
+    }
+
+    /** 件级完整性校验结果：dashboard 逐件一条，统计值来自服务端 summary */
+    public static class PieceIntegrityResult {
+        public boolean success;
+        public String reason = "";
+        public List<PieceIntegrityItem> dashboard = new ArrayList<>();
+        public int suspectPieces;
+        public int retryPageCount;
+    }
+
     private String readStream(InputStream s) throws IOException {
         if (s == null) return "";
         try (BufferedReader br = new BufferedReader(new InputStreamReader(s, StandardCharsets.UTF_8))) {
@@ -509,6 +639,11 @@ public class AimpLlmClient {
          * 拉得远小于真实推理速度，前端揭示节奏随之忽快忽慢。
          */
         public boolean skipped;
+        /**
+         * 本页页型（AIMP 六分类之一：header_page/content_page/signature_page/tail_page/
+         * table_content_page/attachment_page）。分类器未启用或模型没给出时为空串。
+         */
+        public String pageType = "";
         /** 异步提交时 AIMP 返回的任务号 */
         public String taskId;
         public Map<String, String> values = new HashMap<>();

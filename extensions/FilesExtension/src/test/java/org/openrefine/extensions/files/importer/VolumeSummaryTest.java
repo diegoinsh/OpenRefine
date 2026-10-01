@@ -449,6 +449,32 @@ public class VolumeSummaryTest {
         Assert.assertEquals(parts[1], expectedDocType);
     }
 
+    /**
+     * 页型按「卷路径 → 页号」分组挂在页映射的保留键下：页号只在卷内唯一，两卷各自的第 1 页
+     * 必须互不覆盖。页型为空（分类器未启用、或模型没给出）时不写——宁缺勿造。
+     */
+    @Test
+    public void pageTypeMapGroupsByVolumeAndPage() {
+        BatchExtractionManager.Task task = new BatchExtractionManager.Task(
+                4L, "C:/tmp/root", ExtractionTemplate.BATCH_TITLE_VOLUME,
+                Collections.<CustomElementType>emptyList(), null, null,
+                Collections.<String>emptyList(), Collections.<UnitScanner.Volume>emptyList(), false);
+
+        task.recordPageType("D:/arch/卷1", 1, "header_page");
+        task.recordPageType("D:/arch/卷1", 2, "content_page");
+        task.recordPageType("D:/arch/卷2", 1, "signature_page");
+        task.recordPageType("D:/arch/卷2", 2, "");
+        task.recordPageType(null, 3, "content_page");
+
+        JsonNode types = task.pageMap.get(BatchExtractionManager.PAGE_TYPE_MAP_KEY);
+        Assert.assertNotNull(types, "页型应写在页映射的保留键下");
+        Assert.assertEquals(2, types.size());
+        Assert.assertEquals("header_page", types.path("D:/arch/卷1").path("1").asText());
+        Assert.assertEquals("content_page", types.path("D:/arch/卷1").path("2").asText());
+        Assert.assertEquals("signature_page", types.path("D:/arch/卷2").path("1").asText());
+        Assert.assertFalse(types.path("D:/arch/卷2").has("2"), "空页型不应写入");
+    }
+
     /** 卷级行也要能点击定位到页：键加表前缀，要素列给来源页、非要素列给本卷首件首页 */
     @Test
     public void buildsSummaryPageMapForVolumeRows() throws Exception {
