@@ -193,9 +193,10 @@ var BatchTitleExtractionMonitor = (function () {
   }
 
   /**
-   * 把积压全部揭示出来。整卷页都抽完、任务进入 LLM 分件阶段时调用：分件要几秒到十几秒，
-   * 这段时间没有新页到达，正好把预览追平。否则等终态横幅被结果页（reinitializeProjectData
-   * 重建项目 UI）顶掉，最后那几条用户永远看不到。
+   * 把积压全部揭示出来，只在**转终态**时调用：终态横幅马上会被结果页（reinitializeProjectData
+   * 重建项目 UI）顶掉，再按节奏逐条放就来不及了，最后那几条会永远看不到。故这里一次放完——
+   * 是兜底，不是常规路径：页抽完进入 LLM 分件后没有新页到达，剩余几条按原节奏（0.8s/条）
+   * 放得完，不必抢。
    */
   function flushPagePreview($banner) {
     if (previewTimer) {
@@ -512,11 +513,6 @@ var BatchTitleExtractionMonitor = (function () {
       }
       updatePreviewInterval(d.pageConcurrency, d.avgPageMillis);
       feedPagePreview($banner, d.recentPages, d.volumeIndex);
-      // 页都抽完了但任务还没结束：此刻后端正在做 LLM 分件（几秒到十几秒），这段时间没有
-      // 新页到达，正好把积压一次追平
-      if ((d.totalPages || 0) > 0 && (d.processedPages || 0) >= d.totalPages) {
-        flushPagePreview($banner);
-      }
     } else if (kind === 'completed') {
       text = $.i18n('files-import/batch-banner-completed', d.rowsAppended || 0);
       $bar.css('width', '100%');
