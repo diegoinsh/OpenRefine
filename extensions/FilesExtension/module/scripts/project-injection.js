@@ -242,10 +242,13 @@ var BatchTitleExtractionMonitor = (function () {
         previewPending.shift();
       }
     }
-    // 首次（含换卷后第一次）：此刻列表里还没有任何一条，整批都是进项目前就抽完的，只留最新一条
-    if (previewShown.length === 0 && previewPending.length > 1 && previewIntervalMs > 0) {
-      previewShown.push(previewPending.pop());
-      previewPending = [];
+    // 首次（含换卷后第一次）：列表还空着，此刻到达的都是「进项目之前就抽完」的历史。
+    // 一次性铺开、**不逐条重放**——重放会让预览永远落后于实际进度；但**也不能丢**：
+    // 列表可往上翻，用户回头能看见这段时间认出了什么。只有后续新页才逐条揭示。
+    if (previewShown.length === 0 && previewPending.length > 0 && previewIntervalMs > 0) {
+      revealPending(true);
+      renderPagePreview($banner);
+      return;
     }
     // 逐页串行调用（间隔为 0）：每页到达本身就是一条，直接显示，不必排队等定时器
     if (previewIntervalMs <= 0) {
