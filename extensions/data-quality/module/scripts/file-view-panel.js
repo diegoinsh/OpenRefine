@@ -127,28 +127,6 @@ var FileViewPanel = {};
     return FileViewPanel._volumePageTypes[String(page)] || null;
   };
 
-  /** 页型枚举 → 展示名；未收录或翻译缺失时回落枚举本身 */
-  FileViewPanel._pageTypeName = function(pageType) {
-    if (!pageType) {
-      return '';
-    }
-    var key = 'data-quality-extension/file-view-page-type-' + pageType;
-    var name = $.i18n(key);
-    // $.i18n 查不到键时原样返回键名，此时回落到枚举值，避免把键名当页型显示
-    return (name && name !== key) ? name : pageType;
-  };
-
-  /**
-   * 跳过页的提示文案：带页型时点明页型，否则只说未抽取。
-   * 用户看到空单元格时必须能分清「这一页没送模型」与「这一页本来就没有该要素」。
-   */
-  FileViewPanel._skippedHint = function(typeInfo) {
-    var name = FileViewPanel._pageTypeName(typeInfo && typeInfo.t);
-    return name
-        ? $.i18n('data-quality-extension/file-view-skipped-hint', name)
-        : $.i18n('data-quality-extension/file-view-skipped-hint-unknown');
-  };
-
   /**
    * 页映射的键：卷内行用行号，卷级行用「表id:行号」。
    * 两张表的行号都各自从 0 起，不加前缀会互相串页；后端写入时按同一规则区分。
@@ -890,14 +868,13 @@ var FileViewPanel = {};
         .attr('title', file.name)
         .appendTo(thumb);
 
-      // 被判定跳过的页加角标：单元格为空到底是「这一页没抽」还是「这一页本来就没有」，
-      // 用户只能靠它分辨。页号口径与 _jumpToPage 一致——卷内页号 page 对应下标 page - 1。
+      // 被判定跳过的页加角标：跳过不是用户关心的重点，只求扫一眼能看见，故不做 tooltip。
+      // 页号口径与 _jumpToPage 一致——卷内页号 page 对应下标 page - 1。
       var typeInfo = FileViewPanel._getPageTypeInfo(index + 1);
       if (typeInfo && typeInfo.s) {
         $('<span>')
           .addClass('file-view-thumb-skip')
           .text($.i18n('data-quality-extension/file-view-skipped-badge') || '跳')
-          .attr('title', FileViewPanel._skippedHint(typeInfo))
           .appendTo(thumb);
       }
 
@@ -1495,14 +1472,6 @@ var FileViewPanel = {};
     if (FileViewPanel._currentFiles.length > 1) {
       $('<span>').addClass('file-view-file-counter')
         .text((FileViewPanel._currentFileIndex + 1) + ' / ' + FileViewPanel._currentFiles.length)
-        .appendTo(info);
-    }
-
-    // 当前页被判定跳过：大图上看不到缩略图角标时，这里必须给出同一结论
-    var currentTypeInfo = FileViewPanel._getPageTypeInfo(FileViewPanel._currentFileIndex + 1);
-    if (currentTypeInfo && currentTypeInfo.s) {
-      $('<span>').addClass('file-view-page-skip-hint')
-        .text(FileViewPanel._skippedHint(currentTypeInfo))
         .appendTo(info);
     }
 
