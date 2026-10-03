@@ -31,8 +31,11 @@ import java.util.NavigableMap;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -1392,31 +1395,94 @@ public class BatchExtractionManager {
         for (AimpLlmClient.PieceIntegrityItem item : integrity.dashboard) {
             retryPages.addAll(item.retryPages);
         }
+        // 回抽并发：候选页彼此独立，串行会按「页数 × 单页 LLM 耗时」线性叠加
+        // （单页 decode 现约 19s，一次回抽十几页就多出好几分钟）。按 PAGE_CONCURRENCY 路并发，
+        // 结果仍按候选页升序回收后再统一写回，保证写回顺序确定。
+        List<Integer> pages = new ArrayList<>(retryPages);
         int recovered = 0;
-        for (int page : retryPages) {
-            if (task.cancelRequested) break;
-            int idx = page - 1;
-            if (idx < 0 || idx >= unit.pages.size() || idx >= titles.size()) continue;
-            AimpLlmClient.ExtractPageResult r = client.extractPage(unit.pages.get(idx), keyList,
-                    customJson, page, unit.pages.size(), null, true);
-            if (!r.success) {
-                logger.warn("卷 {} 第 {} 页回溯补抽失败：{}", unit.name, page, r.error);
-                continue;
+        if (pages.isEmpty()) {
+            logger.info("卷 {} 层3 回溯补抽：候选 0 页，成功 0 页", unit.name);
+            return;
+        }
+        ExecutorService pool = Executors.newFixedThreadPool(
+                Math.min(PAGE_CONCURRENCY, pages.size()), r -> {
+                    Thread t = new Thread(r, "aimp-piece-backtrack");
+                    t.setDaemon(true);
+                    return t;
+                });
+        try {
+            List<Future<AimpLlmClient.ExtractPageResult>> futures = new ArrayList<>(pages.size());
+            for (int page : pages) {
+                final int pageNo = page;
+                futures.add(pool.submit(() -> client.extractPage(
+                        unit.pages.get(pageNo - 1), keyList, customJson,
+                        pageNo, unit.pages.size(), null, true)));
             }
-            titles.set(idx, r.values.getOrDefault("title", ""));
-            pageValues.set(idx, r.values);
-            pageConfidences.set(idx, r.confidences);
-            if (idx < pageSkipped.size()) pageSkipped.set(idx, false);
-            recordPagePreview(task, unit, idx, r);
-            task.recordPageType(unit.path, page, r.pageType, r.skipped);
-            recovered++;
+            for (int i = 0; i < pages.size(); i++) {
+                if (task.cancelRequested) break;
+                int page = pages.get(i);
+                int idx = page - 1;
+                if (idx < 0 || idx >= unit.pages.size() || idx >= titles.size()) continue;
+                AimpLlmClient.ExtractPageResult r;
+                try {
+                    r = futures.get(i).get();
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (ExecutionException ee) {
+                    logger.warn("卷 {} 第 {} 页回溯补抽异常", unit.name, page, ee.getCause());
+                    continue;
+                }
+                if (r == null || !r.success) {
+                    logger.warn("卷 {} 第 {} 页回溯补抽失败：{}", unit.name, page,
+                            r == null ? "无结果" : r.error);
+                    continue;
+                }
+                titles.set(idx, r.values.getOrDefault("title", ""));
+                pageValues.set(idx, r.values);
+                pageConfidences.set(idx, r.confidences);
+                if (idx < pageSkipped.size()) pageSkipped.set(idx, false);
+                recordPagePreview(task, unit, idx, r);
+                task.recordPageType(unit.path, page, r.pageType, r.skipped);
+                recovered++;
+            }
+        } finally {
+            pool.shutdownNow();
         }
         logger.info("卷 {} 层3 回溯补抽：候选 {} 页，成功 {} 页",
                 unit.name, retryPages.size(), recovered);
     }
 
+    /** 滑动窗口下的一次页级提取结果：带上页下标，因为完成顺序与页序无关。 */
+    private static final class PageOutcome {
+        final int index;
+        final AimpLlmClient.ExtractPageResult result;
+
+        PageOutcome(int index, AimpLlmClient.ExtractPageResult result) {
+            this.index = index;
+            this.result = result;
+        }
+    }
+
+    /** 单页提取任务：页间无依赖，不传已提取信息（previousExtractions 传 null）。 */
+    private Callable<PageOutcome> pageExtractTask(AimpLlmClient client, UnitScanner.Volume unit,
+                                                  String keyList, String customJson, int index) {
+        final String pagePath = unit.pages.get(index);
+        final int pageNo = index + 1;
+        final int total = unit.pages.size();
+        return () -> {
+            try {
+                return new PageOutcome(index, client.extractPage(pagePath, keyList, customJson,
+                        pageNo, total, null));
+            } catch (Exception e) {
+                logger.warn("第 {} 页提取异常", pageNo, e);
+                return new PageOutcome(index, null);
+            }
+        };
+    }
+
     /**
-     * 诉讼档案按 {@link #PAGE_CONCURRENCY} 路并发调用 AIMP：分批提交（批内并行、批间按页序），
+     * 诉讼档案按 {@link #PAGE_CONCURRENCY} 路并发调用 AIMP：滑动窗口（见方法内的说明），
      * 结果按页序写入 results，保证落行顺序与页序一致、不受完成先后影响。
      * 仅在页间无依赖时使用（诉讼档案不传页间上下文）。
      *
@@ -1426,67 +1492,73 @@ public class BatchExtractionManager {
                                              String keyList, String customJson,
                                              List<AimpLlmClient.ExtractPageResult> results) {
         int total = unit.pages.size();
+        if (total <= 0) {
+            return true;
+        }
+        // 滑动窗口：始终维持 PAGE_CONCURRENCY 个请求在途，完成一页立刻补下一页，不再等整批返回。
+        // 旧实现"每 PAGE_CONCURRENCY 页一批、批满才发下一批"：批里只要有跳过页（毫秒级返回）
+        // 或长尾页，窗口就空转——跳过页占用批位却不产出，长尾页让同批其余槽位闲置。
+        // 6 卷实测跳过率 15.8%（61/386），批屏障约浪费一成五的吞吐。
         ExecutorService pool = Executors.newFixedThreadPool(PAGE_CONCURRENCY, r -> {
             Thread t = new Thread(r, "aimp-page-extract");
             t.setDaemon(true);
             return t;
         });
         try {
+            CompletionService<PageOutcome> completion = new ExecutorCompletionService<>(pool);
+            int next = 0;               // 下一个待提交的页下标
+            int inFlight = 0;           // 在途请求数
+            int done = 0;               // 已回收页数
             int consecutiveFailures = 0;
-            for (int start = 0; start < total; start += PAGE_CONCURRENCY) {
-                if (task.cancelRequested) return true;
-                int end = Math.min(total, start + PAGE_CONCURRENCY);
-                // 口径与预览对齐：顶部同时给出「已完成页数」与正在提取的范围。只写「正在提取 33-36」
-                // 会让人拿它去比「预览到 32」而以为差了一档——其实前者是「正在做」，后者是「已完成」。
-                task.message = "已完成 " + start + " / " + total + " 页，正在提取第 "
-                        + (start + 1) + "-" + end + " 页";
-                long batchStart = System.currentTimeMillis();
-                List<Future<AimpLlmClient.ExtractPageResult>> futures = new ArrayList<>(end - start);
-                for (int i = start; i < end; i++) {
-                    final int pageIndex = i;
-                    final String pagePath = unit.pages.get(i);
-                    futures.add(pool.submit(() -> {
-                        try {
-                            // 页间无依赖，不传已提取信息（传 null）
-                            return client.extractPage(pagePath, keyList, customJson,
-                                    pageIndex + 1, total, null);
-                        } catch (Exception e) {
-                            logger.warn("第 {} 页提取异常", pageIndex + 1, e);
-                            return null;
-                        }
-                    }));
+            // 计时口径不变：每回收 PAGE_CONCURRENCY 页记一次「该窗口墙钟 ÷ 其中真正推理的页数」
+            long markTime = System.currentTimeMillis();
+            int inferredInWindow = 0;
+            int completedInWindow = 0;
+            task.message = "已完成 0 / " + total + " 页";
+            while (next < total || inFlight > 0) {
+                while (next < total && inFlight < PAGE_CONCURRENCY) {
+                    completion.submit(pageExtractTask(client, unit, keyList, customJson, next));
+                    next++;
+                    inFlight++;
                 }
-                int inferredPages = 0;   // 本批真正走 LLM 的页数（跳过页不消耗推理，不进摊分分母）
-                for (int i = start; i < end; i++) {
-                    AimpLlmClient.ExtractPageResult r;
-                    try {
-                        r = futures.get(i - start).get();
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        return true;
-                    } catch (ExecutionException ee) {
-                        logger.warn("第 {} 页提取失败", i + 1, ee.getCause());
-                        r = null;
-                    }
-                    results.set(i, r);
+                if (task.cancelRequested) return true;
+                if (inFlight == 0) break;
+                PageOutcome outcome;
+                try {
+                    outcome = completion.take().get();
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return true;
+                } catch (ExecutionException ee) {
+                    logger.warn("页级提取任务失败", ee.getCause());
+                    outcome = null;
+                }
+                inFlight--;
+                done++;
+                AimpLlmClient.ExtractPageResult r = outcome == null ? null : outcome.result;
+                if (outcome != null) {
+                    results.set(outcome.index, r);
                     if (r != null && r.success) {
                         // 回收一页就记一条预览，前端轮询即可看到最新识别结果，不必等整卷
-                        recordPagePreview(task, unit, i, r);
-                        if (!r.skipped) inferredPages++;
-                    }
-                    consecutiveFailures = (r != null && r.success) ? 0 : consecutiveFailures + 1;
-                    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                        return false;
+                        recordPagePreview(task, unit, outcome.index, r);
+                        if (!r.skipped) inferredInWindow++;
                     }
                 }
-                // 进度上报：并发时逐页 ++ 要等整卷回收完才生效，改为按批累加，前端页数才能实时前进
-                task.processedPages += (end - start);
-                task.unitFraction = end / (double) Math.max(1, total);
-                // 记批耗时：批内并发，整批耗时摊到「真正推理的页数」才是平均每页耗时。
-                // 分类器跳过 / OCR 文本过短的页毫秒级返回，若按批页数摊分，连续跳过的批会把平均值
-                // 拉得远小于真实速度，前端揭示节奏忽快忽慢、队列抽干后停在原地等下一批。
-                // 整批全跳过（inferredPages=0）时 recordPageTiming 直接忽略，不记账。
-                task.recordPageTiming(System.currentTimeMillis() - batchStart, inferredPages);
+                consecutiveFailures = (r != null && r.success) ? 0 : consecutiveFailures + 1;
+                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                    return false;
+                }
+                completedInWindow++;
+                task.processedPages++;
+                task.unitFraction = done / (double) Math.max(1, total);
+                task.message = "已完成 " + done + " / " + total + " 页，正在提取第 "
+                        + Math.min(done + 1, total) + "-" + Math.min(done + PAGE_CONCURRENCY, total) + " 页";
+                if (completedInWindow >= PAGE_CONCURRENCY) {
+                    task.recordPageTiming(System.currentTimeMillis() - markTime, inferredInWindow);
+                    markTime = System.currentTimeMillis();
+                    inferredInWindow = 0;
+                    completedInWindow = 0;
+                }
             }
             return true;
         } finally {

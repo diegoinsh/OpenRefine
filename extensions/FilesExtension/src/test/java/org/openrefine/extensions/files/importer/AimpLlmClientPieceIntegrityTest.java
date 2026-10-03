@@ -203,6 +203,60 @@ public class AimpLlmClientPieceIntegrityTest {
         }
     }
 
+    /**
+     * 层3 完整版：把逐页全文痕迹与 OCR 文本长度一并回传，服务端据此排序与预筛。
+     * 字段名拼错不会报错、只会静默退回简化版，故必须卡住请求体。
+     */
+    @Test
+    public void pieceIntegritySendsLayer3Signals() throws IOException {
+        AtomicReference<String> captured = new AtomicReference<>();
+        HttpServer server = stub("/extract/piece-integrity", captured,
+                "{\"success\":true,\"dashboard\":[],\"summary\":{},\"reason\":\"\"}");
+        try {
+            TitleSplitter.Piece piece = new TitleSplitter.Piece();
+            piece.startPage = 1;
+            piece.endPage = 3;
+            piece.title = "";
+
+            List<List<String>> pageEvidence = Arrays.asList(
+                    null, Collections.singletonList("date"), Collections.<String>emptyList());
+            List<Integer> pageTextLengths = Arrays.asList(null, 120, 8);
+
+            clientFor(server).pieceIntegrity(Collections.singletonList(piece),
+                    Arrays.asList(false, true, true), null,
+                    pageEvidence, pageTextLengths, null, null);
+
+            String body = captured.get();
+            Assert.assertTrue(body.contains("\"evidence\":[\"date\"]"),
+                    "层3 完整版须回传全文痕迹：" + body);
+            Assert.assertTrue(body.contains("\"text_length\":120"), body);
+            Assert.assertTrue(body.contains("\"text_length\":8"),
+                    "无痕迹但要预筛的页也要回传长度：" + body);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    /** 同步逐页路径读取层3 候选页信号：page_status.full_evidence / page_status.text_length */
+    @Test
+    public void syncPathReadsLayer3Signals() throws IOException {
+        AtomicReference<String> captured = new AtomicReference<>();
+        HttpServer server = stub("/extract/upload", captured,
+                "{\"success\":true,\"data\":{"
+                        + "\"results\":{},\"processing_mode\":\"single_page_skipped_by_classifier\","
+                        + "\"document_status\":{\"page_type\":\"content_page\"},"
+                        + "\"page_status\":{\"full_evidence\":[\"date\",\"org\"],"
+                        + "\"text_length\":137}}}");
+        try {
+            AimpLlmClient.ExtractPageResult r = extractOnePage(server);
+            Assert.assertTrue(r.success, r.error);
+            Assert.assertEquals(Arrays.asList("date", "org"), r.evidenceHits);
+            Assert.assertEquals(Integer.valueOf(137), r.textLength);
+        } finally {
+            server.stop(0);
+        }
+    }
+
     /** 跑一次单页抽取，返回结果；服务端响应由 stub 固定 */
     private static AimpLlmClient.ExtractPageResult extractOnePage(HttpServer server) throws IOException {
         Path tmp = Files.createTempFile("aimp-page", ".jpg");

@@ -293,6 +293,18 @@ public class AimpLlmClient {
                 }
                 result.skipped = payload.path("processing_mode").asText("").startsWith("single_page_skipped");
                 result.pageType = payload.path("document_status").path("page_type").asText("");
+                // 层3 候选页信号：跳过的页会回带 page_status.full_evidence（全文痕迹）与
+                // page_status.text_length（OCR 文本长度）。两者随页序收集，分件后交给
+                // /extract/piece-integrity 做优先级排序与正则预筛
+                JsonNode pageStatus = payload.path("page_status");
+                if (pageStatus.isObject()) {
+                    JsonNode fullEvidence = pageStatus.path("full_evidence");
+                    if (fullEvidence.isArray()) {
+                        for (JsonNode n : fullEvidence) result.evidenceHits.add(n.asText(""));
+                    }
+                    JsonNode textLength = pageStatus.path("text_length");
+                    if (textLength.isNumber()) result.textLength = textLength.asInt();
+                }
                 result.success = true;
             } else {
                 result.error = "HTTP " + c.getResponseCode();
@@ -520,6 +532,24 @@ public class AimpLlmClient {
                                               List<Map<String, String>> pageElements,
                                               List<String> requiredElements,
                                               Integer maxRetryPages) {
+        return pieceIntegrity(pieces, pageSkipped, pageElements, null, null,
+                requiredElements, maxRetryPages);
+    }
+
+    /**
+     * 层3 完整版重载：额外回传逐页的全文要素痕迹与 OCR 文本长度，服务端据此给回抽候选页
+     * 做优先级排序并正则预筛（无这两个信号时服务端回落「件尾优先」简化版）。
+     *
+     * @param pageEvidence    逐页全文要素痕迹命中，下标对齐 pageSkipped；可为 null
+     * @param pageTextLengths 逐页 OCR 文本长度，下标对齐 pageSkipped；可为 null
+     */
+    public PieceIntegrityResult pieceIntegrity(List<TitleSplitter.Piece> pieces,
+                                              List<Boolean> pageSkipped,
+                                              List<Map<String, String>> pageElements,
+                                              List<List<String>> pageEvidence,
+                                              List<Integer> pageTextLengths,
+                                              List<String> requiredElements,
+                                              Integer maxRetryPages) {
         PieceIntegrityResult r = new PieceIntegrityResult();
         try {
             ObjectNode body = mapper.createObjectNode();
@@ -545,6 +575,20 @@ public class AimpLlmClient {
                             els.put(e.getKey(), e.getValue());
                         }
                     }
+                }
+                // 层3 完整版候选页信号：有痕迹才带 evidence（无痕迹页不带，服务端视作无信号页），
+                // text_length 有回传就带——服务端靠它做正则预筛（剔除文本过短的页）
+                List<String> evidence = pageEvidence != null && i < pageEvidence.size()
+                        ? pageEvidence.get(i) : null;
+                if (evidence != null && !evidence.isEmpty()) {
+                    ArrayNode evArr = n.putArray("evidence");
+                    for (String h : evidence) {
+                        if (h != null && !h.trim().isEmpty()) evArr.add(h);
+                    }
+                }
+                if (pageTextLengths != null && i < pageTextLengths.size()
+                        && pageTextLengths.get(i) != null) {
+                    n.put("text_length", pageTextLengths.get(i));
                 }
             }
             if (requiredElements != null && !requiredElements.isEmpty()) {
@@ -650,6 +694,17 @@ public class AimpLlmClient {
          * table_content_page/attachment_page）。分类器未启用或模型没给出时为空串。
          */
         public String pageType = "";
+        /**
+         * 层3 回抽的候选页信号（AIMP 逐页响应的 page_status.full_evidence）：本页**全文口径**
+         * 的要素痕迹命中类别。层1 的位置化判据对本页无命中才会跳过，但全文里往往仍有痕迹，
+         * 层3 据此给回抽候选页排序。非跳过页或分类器未启用时为空列表。
+         */
+        public List<String> evidenceHits = new ArrayList<>();
+        /**
+         * 层3 正则预筛用：本页 OCR 文本长度（AIMP page_status.text_length）。AIMP 未回传时为
+         * null，此时服务端不做预筛，保持与简化版一致的候选池。
+         */
+        public Integer textLength;
         /** 异步提交时 AIMP 返回的任务号 */
         public String taskId;
         public Map<String, String> values = new HashMap<>();
