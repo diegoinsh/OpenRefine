@@ -138,6 +138,17 @@ public class BatchExtractionManager {
         /** 已进入的卷序号（从 1 起）：页号只在卷内唯一，前端据此判断预览队列是否该重置 */
         public volatile int volumeIndex;
 
+        // ── 耗时归因打点（2026-10-03）：整批各阶段累计毫秒数 ──
+        // 目的：OR 全链路实测 5.6s/页，而页级提取仅 1.5~2.0s/页，差额去向未知。
+        // 在阶段边界记账，批次结束由 logTimingSummary() 打一条 [TIMING] 汇总。
+        public volatile long tScanMs;       // 卷扫描（UnitScanner.scanVolumes，start 阶段）
+        public volatile long tExecMs;       // executeExtraction 全程（分母，含未打点部分）
+        public volatile long tExtractMs;    // 页级提取（AIMP OCR+LLM，含并发等待）
+        public volatile long tSplitMs;      // 卷级分件（AIMP LLM 定件）
+        public volatile long tBacktrackMs;  // 层3 定向回溯补抽
+        public volatile long tMergeMs;      // 件级归并 + 写行 + 页映射（含 appendUnitRow）
+        public volatile long tSaveMs;       // 落盘（flushPageMap + ensureProjectSaved）
+
         /**
          * 页级预览的环形容量：只保留最近若干页。生产线上 2-300 页一卷很常见，
          * 预览既要够看，又不能随页数无限增长。
@@ -908,11 +919,13 @@ public class BatchExtractionManager {
                       List<CustomElementType> customElements, String archiveCategory,
                       String archiveSubCategory, List<String> selectedKeys,
                       String aimpUrl, boolean disableCache) {
+        long scanStart = System.nanoTime();
         List<UnitScanner.Volume> units = template == ExtractionTemplate.BATCH_TITLE_CASE
                 ? UnitScanner.scanCases(rootPath)
                 : UnitScanner.scanVolumes(rootPath);
         Task task = new Task(projectId, rootPath, template, customElements,
                 archiveCategory, archiveSubCategory, selectedKeys, units, disableCache);
+        task.tScanMs = (System.nanoTime() - scanStart) / 1_000_000;
         tasks.put(projectId, task);
         executor.submit(() -> run(task, aimpUrl));
         return task;
@@ -930,12 +943,45 @@ public class BatchExtractionManager {
     }
 
     private void run(Task task, String aimpUrl) {
+        long t0 = System.nanoTime();
         try {
             executeExtraction(task, aimpUrl);
         } catch (Throwable t) {
             logger.error("Batch extraction task aborted", t);
             fail(task, t.toString());
+        } finally {
+            task.tExecMs = (System.nanoTime() - t0) / 1_000_000;
+            logTimingSummary(task);
         }
+    }
+
+    /** 单段耗时：绝对毫秒 + 占总时比例 + 页均毫秒 */
+    private static String timingSeg(String name, long ms, long total, int pages) {
+        return String.format("%s=%dms(%.1f%%,%.0fms/页) ", name, ms,
+                total > 0 ? ms * 100.0 / total : 0.0, ms / (double) pages);
+    }
+
+    /**
+     * 批次结束输出一条耗时归因日志：各阶段绝对耗时 / 占比 / 页均。
+     *
+     * <p>「其他」= 执行总时长 − 已打点阶段之和，用于暴露未打点的开销（项目加载、兼容性握手、
+     * 卷内条目筛选、卷级要素回填、预览与日志等）。分母含扫描阶段，与「OR 项目 created→modified」
+     * 的口径接近，便于和实测 5.6s/页 对齐。
+     */
+    private void logTimingSummary(Task task) {
+        long total = task.tScanMs + task.tExecMs;
+        long accounted = task.tExtractMs + task.tSplitMs + task.tBacktrackMs
+                + task.tMergeMs + task.tSaveMs;
+        long other = Math.max(0, task.tExecMs - accounted);
+        int pages = Math.max(1, task.processedPages);
+        logger.info("[TIMING] 整批 {} 卷 {} 页 总计={}ms（扫描={}ms 执行={}ms）| {}{}{}{}{}其他={}ms",
+                task.units.size(), task.processedPages, total, task.tScanMs, task.tExecMs,
+                timingSeg("页级提取", task.tExtractMs, total, pages),
+                timingSeg("卷级分件", task.tSplitMs, total, pages),
+                timingSeg("层3回溯", task.tBacktrackMs, total, pages),
+                timingSeg("归并写行", task.tMergeMs, total, pages),
+                timingSeg("落盘", task.tSaveMs, total, pages),
+                other);
     }
 
     private void executeExtraction(Task task, String aimpUrl) {
@@ -1127,12 +1173,14 @@ public class BatchExtractionManager {
                         // 结果按页序回收后再统计，保证落行顺序与页序一致，不受完成先后影响
                         List<AimpLlmClient.ExtractPageResult> pageResults =
                                 new ArrayList<>(Collections.nCopies(unit.pages.size(), null));
+                        long tExtract0 = System.nanoTime();
                         if (!extractPagesConcurrently(task, client, unit, keyList, customJson, pageResults)) {
                             if (!task.cancelRequested) {
                                 fail(task, "AIMP 连续失败 " + MAX_CONSECUTIVE_FAILURES + " 次，任务中止");
                             }
                             return;
                         }
+                        task.tExtractMs += (System.nanoTime() - tExtract0) / 1_000_000;
                         int pageNo = 0;
                         for (AimpLlmClient.ExtractPageResult r : pageResults) {
                             pageNo++;
@@ -1151,6 +1199,7 @@ public class BatchExtractionManager {
                         }
                     } else {
                         // 其余门类页间存在上下文依赖，保持逐页串行的原有行为
+                        long tExtract0 = System.nanoTime();
                         for (int i = 0; i < unit.pages.size(); i++) {
                             String page = unit.pages.get(i);
                             if (task.cancelRequested) break;
@@ -1179,6 +1228,7 @@ public class BatchExtractionManager {
                             task.processedPages++;
                             task.unitFraction = (i + 1) / (double) Math.max(1, unit.pages.size());
                         }
+                        task.tExtractMs += (System.nanoTime() - tExtract0) / 1_000_000;
                     }
                     if (task.cancelRequested) break;
                     String remark = unitFailedPages > 0 ? unitFailedPages + " 页提取失败" : null;
@@ -1221,9 +1271,11 @@ public class BatchExtractionManager {
                                 Map<String, String> vals = idx < pageValues.size() ? pageValues.get(idx) : null;
                                 itemParties.add(vals == null ? "" : vals.getOrDefault("responsible_party", ""));
                             }
+                            long tSplit0 = System.nanoTime();
                             AimpLlmClient.SplitResult split = client.splitVolumePieces(
                                     itemTitles, itemParties, firstPartyRoles(pageValues),
                                     task.archiveCategory, task.archiveSubCategory);
+                            task.tSplitMs += (System.nanoTime() - tSplit0) / 1_000_000;
                             if (split.success && !split.pieces.isEmpty()) {
                                 logger.info("卷 {} 卷级分件成功（{} 件）", unit.name, split.pieces.size());
                                 pieces = mapToVolumeIndexes(split.pieces, itemIndexes, unit);
@@ -1259,8 +1311,10 @@ public class BatchExtractionManager {
                         // 只看件级产出是否真的缺了必需要素。回抽结果直接写回 titles/pageValues，
                         // 后面的按件合并与卷级回填都能吃到（故必须放在它们之前）。
                         if (litigationArchive) {
+                            long tBack0 = System.nanoTime();
                             runPieceBacktrack(task, client, unit, pieces, pageSkipped, titles,
                                     pageValues, pageConfidences, keyList, customJson);
+                            task.tBacktrackMs += (System.nanoTime() - tBack0) / 1_000_000;
                         }
                         Map<String, String> volumeLevelValues = new LinkedHashMap<>();
                         // 卷级要素的候选页：回填取值时必须一并回填，否则单元格有值却找不到
@@ -1300,6 +1354,7 @@ public class BatchExtractionManager {
                             }
                         }
                         int pieceNo = 1;
+                        long tRow0 = System.nanoTime();
                         for (TitleSplitter.Piece p : pieces) {
                             List<Map<String, String>> pieceValues =
                                     pageValues.subList(p.startPage - 1, p.endPage);
@@ -1327,6 +1382,7 @@ public class BatchExtractionManager {
                                     withFileNames(rowCandidates, unit.pages));
                             pieceNo++;
                         }
+                        task.tMergeMs += (System.nanoTime() - tRow0) / 1_000_000;
                     }
                 }
             }
@@ -1337,8 +1393,10 @@ public class BatchExtractionManager {
                 task.status = STATUS_COMPLETED;
                 task.message = "提取完成";
             }
+            long tSave0 = System.nanoTime();
             flushPageMap(task);
             saveProject(task);
+            task.tSaveMs += (System.nanoTime() - tSave0) / 1_000_000;
         } catch (Exception e) {
             logger.error("Batch extraction failed", e);
             fail(task, e.getMessage() == null ? e.toString() : e.getMessage());
