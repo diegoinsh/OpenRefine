@@ -94,6 +94,18 @@ public class TitleSplitter {
         return new String[] { t, "" };
     }
 
+    /**
+     * 文本末尾是否已是某个文种词。卷级题名拼接时用它避免「…的通知的通知」这类叠字：
+     * 事由条整条保留（尾段文种不在词表）时会自带文种后缀（如「…的紧急通知」）。
+     */
+    public static boolean endsWithDocType(String text) {
+        if (text == null || text.isEmpty()) return false;
+        for (String docType : DOC_TYPES) {
+            if (text.endsWith(docType)) return true;
+        }
+        return false;
+    }
+
     public static List<Piece> split(List<String> pageTitles) {
         return split(pageTitles, DEFAULT_SIMILARITY_THRESHOLD, true);
     }

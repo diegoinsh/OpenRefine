@@ -152,6 +152,16 @@ DataTableCellUI.prototype._startInlineEdit = function() {
     return;
   }
 
+  // 同一时刻只允许一个就地编辑器。进入本格编辑前，若仍有其它单元格处于编辑态，
+  // 先提交它——不能只依赖 document 上的「点击别处提交」（mousedown.inlineEditOutside）：
+  // 双击切格时该处理器可能因浮窗抢焦点／表格重排等原因漏触发，前一格就会一直停在
+  // 编辑态不复原。在这里显式互斥，保证切格时前一格一定收尾。
+  var active = DataTableCellUI.activeInlineEditor;
+  if (active && active.ownerTd && active.ownerTd !== this._td
+      && typeof active.commit === 'function') {
+    active.commit();
+  }
+
   var originalContent = (!cell || !("v" in cell) || cell.v === null) ? "" : String(cell.v);
   var dataType = (cell !== null && "t" in cell && cell.t != null) ? cell.t
       : (typeof (cell ? cell.v : null) === 'string' ? 'text' : typeof (cell ? cell.v : null));
@@ -184,12 +194,16 @@ DataTableCellUI.prototype._startInlineEdit = function() {
   $td.addClass('data-table-cell-editing');
 
   var finished = false;
+  // 绑在 document 上的「点击别处提交」处理器。收尾时必须按引用精确解绑：
+  // 双击切格时新旧编辑器可能短暂共存，若此处无差别 off，一方收尾会把另一方的
+  // 处理器一并摘掉，另一格便再也无法通过点击别处提交（表现为一直停在编辑态）。
+  var outsideHandler = null;
 
   var cleanup = function() {
     finished = true;
     self._inlineEditing = false;
     DataTableCellUI.activeInlineEditor = null;
-    $(document).off('mousedown.inlineEditOutside');
+    $(document).off('mousedown.inlineEditOutside', outsideHandler);
   };
 
   var restore = function() {
@@ -230,6 +244,10 @@ DataTableCellUI.prototype._startInlineEdit = function() {
 
     cleanup();
     $td.removeClass('data-table-cell-editing');
+    // 立即复原这一格（清掉编辑框），不要等异步写回完成：写回是网络往返，
+    // 期间若用户已双击切到别处，本格会一直显示着文本框，观感上就是「没有复原」。
+    // 写回成功后 onDone 会带着新值再渲染一次；失败则 onError 也回退到原值。
+    self._render();
 
     Refine.postCoreProcess(
       "edit-one-cell",
@@ -320,7 +338,7 @@ DataTableCellUI.prototype._startInlineEdit = function() {
         || (scrollbarWidth > 0 && e.clientX >= rect.left + borderLeft + el.clientWidth);
   };
 
-  $(document).on('mousedown.inlineEditOutside', function(e) {
+  outsideHandler = function(e) {
     if ($(e.target).closest($td).length) {
       return;
     }
@@ -331,10 +349,12 @@ DataTableCellUI.prototype._startInlineEdit = function() {
       return;
     }
     commit();
-  });
+  };
+  $(document).on('mousedown.inlineEditOutside', outsideHandler);
 
   DataTableCellUI.activeInlineEditor = {
     textarea: textarea,
+    ownerTd: this._td,
     commit: commit,
     cancel: restore,
     /** 有选区则替换选区，否则插入到光标之后 */

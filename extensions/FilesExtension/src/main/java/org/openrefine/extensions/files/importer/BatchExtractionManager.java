@@ -345,6 +345,8 @@ public class BatchExtractionManager {
         private final Map<String, List<AimpLlmClient.ElementCandidate>> datePageSources = new LinkedHashMap<>();
         /** 本卷首件的首页候选：卷级行点击要素以外的列时定位到这里 */
         ObjectNode firstPieceStart;
+        /** 本卷第 1 页文件名：首件首页信息缺失（如 PDF 模式）时的兜底定位，保证每卷都能点回一页 */
+        String firstPageFileName;
         String minDate;
         String maxDate;
         int totalPages;
@@ -491,10 +493,20 @@ public class BatchExtractionManager {
             if (candidates == null) return;
             List<AimpLlmClient.ElementCandidate> list = candidates.get("date");
             if (list == null || list.isEmpty()) return;
+            // 候选值是页面原文（可能写作「2023年9月28日」），与规范化后的成文日期不同形，
+            // 比较前统一规范化；实在匹配不上时退到该件全部日期候选页，避免整卷时间列无处可点
+            List<AimpLlmClient.ElementCandidate> matched = new ArrayList<>();
+            List<AimpLlmClient.ElementCandidate> all = new ArrayList<>();
             for (AimpLlmClient.ElementCandidate c : list) {
-                if (date.equals(c.value)) {
-                    datePageSources.computeIfAbsent(date, k -> new ArrayList<>()).add(c);
+                if (c.value == null) continue;
+                all.add(c);
+                if (date.equals(normalizeDate(c.value))) {
+                    matched.add(c);
                 }
+            }
+            List<AimpLlmClient.ElementCandidate> picked = matched.isEmpty() ? all : matched;
+            if (!picked.isEmpty()) {
+                datePageSources.computeIfAbsent(date, k -> new ArrayList<>()).addAll(picked);
             }
         }
 
@@ -677,7 +689,8 @@ public class BatchExtractionManager {
          * 「立卷法院」+「关于」+「当事人」+「案由」+「一案」+「的审级」+「诉讼档案」，
          * 例如「河北省张家口市中级人民法院关于袁连顺、袁凤莲与袁凤仙、袁凤鸣继承纠纷一案的二审诉讼档案」；
          * 条件不足时退回通用写法：「关于」+ 事由1、事由2、… +「的」+ 汇总文种
-         * （文种唯一时取该文种，缺失或多种文种时兜底为「材料」）。
+         * （文种唯一时取该文种，缺失或多种文种时兜底为「材料」）；
+         * 事由条已自带「关于」或文种后缀时不重复叠加。
          */
         String volumeTitle() {
             String litigation = litigationVolumeTitle();
@@ -686,7 +699,23 @@ public class BatchExtractionManager {
             String docType = docTypes.size() == 1
                     ? docTypes.iterator().next()
                     : TitleSplitter.FALLBACK_DOC_TYPE;
-            return "关于" + String.join("、", causes) + "的" + docType;
+            // 事由条可能整条保留（尾段文种不在词表，见 TitleSplitter.splitCauseAndDocType），
+            // 此时它自带「关于」前缀或文种后缀。按条去掉开头的「关于」；整体已含「关于」时不再
+            // 补前缀，末尾已是文种时不再补后缀——否则会拼出「关于关于…」「…的通知的通知」。
+            List<String> body = new ArrayList<>(causes.size());
+            for (String cause : causes) {
+                body.add(cause.startsWith("关于") ? cause.substring("关于".length()) : cause);
+            }
+            String joined = String.join("、", body);
+            StringBuilder title = new StringBuilder();
+            if (!joined.contains("关于")) {
+                title.append("关于");
+            }
+            title.append(joined);
+            if (!TitleSplitter.endsWithDocType(joined)) {
+                title.append("的").append(docType);
+            }
+            return title.toString();
         }
 
         /** 诉讼档案卷级题名；要素不足时返回 null，由调用方退回通用写法 */
@@ -1888,6 +1917,10 @@ public class BatchExtractionManager {
             summary = new VolumeSummary(unit.name, unit.path);
             task.volumeSummaries.put(unit.name, summary);
         }
+        // 记下本卷第 1 页文件名：首件首页信息缺失时用它兜底，保证卷级行仍能点回一页
+        if (summary.firstPageFileName == null && unit.pages != null && !unit.pages.isEmpty()) {
+            summary.firstPageFileName = new File(unit.pages.get(0)).getName();
+        }
         summary.add(responsibleParty, documentDate, piece.pageCount(), piece.title,
                 values, candidates, pieceStart);
     }
@@ -2045,6 +2078,11 @@ public class BatchExtractionManager {
     private void saveProject(Task task) {
         try {
             rebuildVolumeSummary(task);
+            // 卷级行的页映射是在 rebuildVolumeSummary 里才生成的，必须再 flush 一次把它同步进
+            // 项目 metadata 后再落盘；否则落盘的仍是上一轮快照——调用方都是「先 flush 再
+            // saveProject」，本轮新生成的卷级键（尤其是最后一卷）会整批丢失，表现为「卷级」
+            // 表所有单元格点击都定位不到页。
+            flushPageMap(task);
             ProjectManager.singleton.ensureProjectSaved(task.projectId);
         } catch (Exception e) {
             logger.warn("Failed to save project {}", task.projectId, e);
@@ -2109,8 +2147,17 @@ public class BatchExtractionManager {
         if (!endSources.isEmpty()) {
             writeCandidates(rowNode, "终止时间", endSources);
         }
-        if (summary.firstPieceStart != null) {
-            rowNode.set(PIECE_START_KEY, summary.firstPieceStart);
+        // 行级兜底页：优先本卷首件首页；缺失（PDF 模式等）时退到本卷第 1 页。没有它，
+        // 该卷级行任何单元格都点不动——前端取不到要素候选时正是靠这一项回到卷首页。
+        ObjectNode rowStart = summary.firstPieceStart;
+        if (rowStart == null && summary.firstPageFileName != null) {
+            rowStart = mapper.createObjectNode();
+            rowStart.put("v", "卷首页");
+            rowStart.put("p", 1);
+            rowStart.put("f", summary.firstPageFileName);
+        }
+        if (rowStart != null) {
+            rowNode.set(PIECE_START_KEY, rowStart);
         }
         if (rowNode.size() == 0) return;
         synchronized (task.pageMap) {
@@ -2353,7 +2400,7 @@ public class BatchExtractionManager {
         return c >= '0' && c <= '9';
     }
 
-    private String normalizeDate(String raw) {
+    private static String normalizeDate(String raw) {
         if (raw == null) return "";
         String s = raw.trim();
         if (s.isEmpty()) return "";

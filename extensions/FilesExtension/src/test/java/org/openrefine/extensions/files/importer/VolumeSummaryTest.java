@@ -330,8 +330,35 @@ public class VolumeSummaryTest {
         summary.add("张三", "20240105", 1, "XX公司采购合同", null);
         summary.add("张三", "20240106", 1, "关于XX工作的其他事项", null);
 
+        // 事由条整条保留（尾段文种不在词表）时自带「关于」，拼接时按条去掉，避免「关于关于…」
         Assert.assertEquals(summary.volumeTitle(),
-                "关于XX公司采购合同、关于XX工作的其他事项的材料");
+                "关于XX公司采购合同、XX工作的其他事项的材料");
+    }
+
+    /** 事由条自带文种后缀时不再追加，避免「…的通知的通知」（WS 0033/0034 实测） */
+    @Test
+    public void doesNotStackSuffixOnRawCauses() {
+        BatchExtractionManager.VolumeSummary summary =
+                new BatchExtractionManager.VolumeSummary("卷6", "D:\\cases\\卷6");
+
+        // 「紧急通知」不在文种词表 → 首条整条保留（自带「关于」与文种后缀）；次条尾段「通知」在词表 → 拆出事由
+        summary.add("通江县人民政府办公室", "20190621", 3, "关于进一步做好水旱灾害防御工作的紧急通知", null);
+        summary.add("通江县人民政府办公室", "20191205", 2, "关于对通江县部分乡镇地名命（更）名及撤销的通知", null);
+
+        Assert.assertEquals(summary.volumeTitle(),
+                "关于进一步做好水旱灾害防御工作的紧急通知、对通江县部分乡镇地名命（更）名及撤销的通知");
+    }
+
+    /** 单条事由自带「关于」且末尾已是文种：既不补前缀也不补后缀（WS 0035 实测） */
+    @Test
+    public void keepsRawCauseWhenItAlreadyLooksComplete() {
+        BatchExtractionManager.VolumeSummary summary =
+                new BatchExtractionManager.VolumeSummary("卷7", "D:\\cases\\卷7");
+
+        summary.add("河池市财政局", "20230928", 3, "河池市财政局关于下达2023年市级财政衔接推进乡村振兴补助资金的通知", null);
+
+        Assert.assertEquals(summary.volumeTitle(),
+                "河池市财政局关于下达2023年市级财政衔接推进乡村振兴补助资金的通知");
     }
 
     @Test
@@ -537,6 +564,43 @@ public class VolumeSummaryTest {
         Assert.assertEquals(rowNode.get("案由").size(), 2);
         // 要素以外的列：定位到本卷首件首页
         Assert.assertEquals(rowNode.get(BatchExtractionManager.PIECE_START_KEY).get("p").asInt(), 2);
+    }
+
+    /**
+     * 卷级行必须有行级兜底页：没有要素候选、也没有首件首页信息（PDF 模式等）时，
+     * 仍要写「卷首页」，否则该行任何单元格点击都无处可去（实测 WS 0035 整行缺失页映射）。
+     */
+    @Test
+    public void summaryRowKeepsRowStartFallback() throws Exception {
+        BatchExtractionManager.Task task = new BatchExtractionManager.Task(
+                5L, "n/a", ExtractionTemplate.BATCH_TITLE_VOLUME,
+                Collections.emptyList(), null, null, Collections.emptyList(),
+                Collections.emptyList(), false);
+
+        List<String> columns = ExtractionTemplate.volumeSummaryColumns();
+        SheetData summarySheet = new SheetData(BatchExtractionCommand.SUMMARY_SHEET_ID,
+                BatchExtractionCommand.SUMMARY_SHEET_NAME, "");
+        for (int i = 0; i < columns.size(); i++) {
+            summarySheet.columnModel.addColumn(i, new Column(i, columns.get(i)), false);
+        }
+        summarySheet.columnModel.update();
+        task.summarySheet = summarySheet;
+
+        BatchExtractionManager.VolumeSummary summary =
+                new BatchExtractionManager.VolumeSummary("0035", "D:\\WS\\0035");
+        summary.add("河池市财政局", "20230928", 3, "关于下达2023年市级财政衔接推进乡村振兴补助资金的通知",
+                Collections.emptyMap());
+        summary.firstPageFileName = "0001.Jpeg";
+        task.volumeSummaries.put("0035", summary);
+
+        BatchExtractionManager.get().rebuildVolumeSummary(task);
+
+        JsonNode rowNode = task.pageMap.get(BatchExtractionManager.SUMMARY_PAGE_MAP_PREFIX + 0);
+        Assert.assertNotNull(rowNode, "无候选时卷级行也必须写入页映射");
+        JsonNode rowStart = rowNode.get(BatchExtractionManager.PIECE_START_KEY);
+        Assert.assertNotNull(rowStart, "卷级行应带行级兜底页");
+        Assert.assertEquals(rowStart.get("p").asInt(), 1);
+        Assert.assertEquals(rowStart.get("f").asText(), "0001.Jpeg");
     }
 
     /** 证件类件识别：身份证、户口簿、营业执照等证面上的签发日期不作为成文日期 */
