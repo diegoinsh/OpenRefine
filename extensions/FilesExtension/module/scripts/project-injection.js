@@ -155,6 +155,21 @@ var BatchTitleExtractionMonitor = (function () {
     }
   }
 
+  /**
+   * 把一条按页号升序插入已展示列表。
+   *
+   * 并发批调用（后端 4 页同时返回）下"后到的页"页号可能比已展示的更小：被跳过的页
+   * （分类器判跳/短文本短路）秒级返回，需走 LLM 的页要数秒——完成顺序与页号顺序不一致。
+   * 只往末尾压就会出现「第 4 页、第 3 页、第 6 页、第 1 页…」这类乱序，故这里按页号就位。
+   */
+  function insertShown(p) {
+    var i = previewShown.length;
+    while (i > 0 && previewShown[i - 1].page > p.page) {
+      i--;
+    }
+    previewShown.splice(i, 0, p);
+  }
+
   /** 把积压队列按当前间隔揭示若干条；all 为真或间隔为 0 时一次揭完 */
   function revealPending(all) {
     var count = 1;
@@ -167,7 +182,7 @@ var BatchTitleExtractionMonitor = (function () {
       count = 2;
     }
     while (count-- > 0 && previewPending.length > 0) {
-      previewShown.push(previewPending.shift());
+      insertShown(previewPending.shift());
       while (previewShown.length > PAGE_PREVIEW_MAX) {
         previewShown.shift();
       }
@@ -214,8 +229,9 @@ var BatchTitleExtractionMonitor = (function () {
    * 接收后端页级预览并逐条揭示。
    *
    * 件级行要等整卷抽完、分件矫正后才写入，2-300 页的长卷会让界面长时间空白，故页级每抽完
-   * 一页就回传一条。并发批调用（4 页同时返回）时排入队列、按实测的平均每页耗时逐条追加到
-   * 末尾（最新在最下，像日志一样往下长）。
+   * 一页就回传一条。并发批调用（4 页同时返回）时排入队列、按实测的平均每页耗时逐条揭示，
+   * 并**按页号就位**（不是压到末尾）：被跳过的页秒级返回、需走 LLM 的页要数秒，完成顺序与
+   * 页号顺序并不一致，只往末尾压就会出现乱序。
    *
    * **首次到达的一批不重放**：进入项目时后端往往已经抽了几十页，那是「历史」而非"刚发生"。
    * 逐条重放会永远落后于实际进度（界面停在几十页前，看不到当下正在抽的页），故只接上
@@ -324,7 +340,8 @@ var BatchTitleExtractionMonitor = (function () {
   }
 
   /**
-   * 渲染已展示的页。**增量追加**，不整块重建——重建会丢失滚动位置、内容跳动（像跑马灯）。
+   * 渲染已展示的页。**增量插入**，不整块重建——重建会丢失滚动位置、内容跳动（像跑马灯）。
+   * 新条目按页号插到正确位置（并发下后到的页页号可能更小），仍只对单条增删。
    * 一条为「第 N 页 · 各要素值」；容器固定可视高度约 6 行，超过即出竖向滚动条。
    */
   function renderPagePreview($banner) {
@@ -365,9 +382,22 @@ var BatchTitleExtractionMonitor = (function () {
     var follow = listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight <= 20;
     previewShown.forEach(function (p) {
       if (rendered[p.page]) return;
-      $list.append($('<span class="batch-preview-item">')
+      var $item = $('<span class="batch-preview-item">')
           .attr('data-page', p.page)
-          .text(buildPreviewText(p)));
+          .text(buildPreviewText(p));
+      // 按页号插入到正确位置（局部 insertBefore，不重建整块，保住滚动位置）
+      var $next = null;
+      $list.children('.batch-preview-item').each(function () {
+        if ($next) return;
+        if (parseInt($(this).attr('data-page'), 10) > p.page) {
+          $next = $(this);
+        }
+      });
+      if ($next) {
+        $item.insertBefore($next);
+      } else {
+        $list.append($item);
+      }
     });
     if (follow) {
       listEl.scrollTop = listEl.scrollHeight;
