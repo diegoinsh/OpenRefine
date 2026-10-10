@@ -174,6 +174,9 @@ DataTableCellUI.prototype._startInlineEdit = function() {
 
   this._inlineEditing = true;
 
+  // 填充柄弹出浮动菜单期间，禁止「点击别处提交」把源单元格作为另一条历史提交掉
+  var suppressCommit = false;
+
   var $td = $(this._td);
   var $holder = $td.find('.data-table-cell-content');
 
@@ -204,6 +207,7 @@ DataTableCellUI.prototype._startInlineEdit = function() {
     self._inlineEditing = false;
     DataTableCellUI.activeInlineEditor = null;
     $(document).off('mousedown.inlineEditOutside', outsideHandler);
+    teardownFill();
   };
 
   var restore = function() {
@@ -339,6 +343,10 @@ DataTableCellUI.prototype._startInlineEdit = function() {
   };
 
   outsideHandler = function(e) {
+    // 填充柄拖动 / 浮动菜单期间，点击别处不结束编辑（菜单自身的 mousedown 也会冒泡到这里）
+    if (suppressCommit) {
+      return;
+    }
     if ($(e.target).closest($td).length) {
       return;
     }
@@ -372,6 +380,247 @@ DataTableCellUI.prototype._startInlineEdit = function() {
       el.focus();
     }
   };
+
+  // ---- 填充柄（Excel 风格的复制 / 序列填充）----------------------------------
+  // 编辑态单元格右下角的小圆点；按住拖动可把内容复制或按序列填充到相邻单元格。
+  var fillDrag = null;      // 拖动状态：{ startX, startY, axis }；未拖动为 null
+  var previewTds = [];      // 当前高亮的目标单元格
+
+  var handle = document.createElement('div');
+  handle.className = 'data-table-cell-fill-handle';
+  self._td.appendChild(handle);
+
+  var clearPreview = function() {
+    previewTds.forEach(function(td) {
+      td.classList.remove('data-table-cell-fill-preview');
+    });
+    previewTds = [];
+  };
+
+  // ---- 填充结果高亮：填充完成后保留「本次改动区域」的绿色框 --------------------
+  // 刷新会重建整表 DOM，标记必须等重绘之后（onFinallyDone）再加；点击任意别处（失焦）即清除。
+  var clearFillResult = function() {
+    $('.data-table-cell-fill-result').removeClass('data-table-cell-fill-result');
+  };
+
+  var showFillResult = function(cells) {
+    clearFillResult();
+    var wanted = {};
+    cells.forEach(function(c) {
+      wanted[c.row + ':' + c.cell] = true;
+    });
+    $('.data-table-container td').each(function() {
+      var ui = this.dataTableCellUI;
+      if (ui && wanted[ui._rowIndex + ':' + ui._cellIndex]) {
+        $(this).addClass('data-table-cell-fill-result');   // 按项目行/列号匹配，非 DOM 序号
+      }
+    });
+  };
+
+  $(document).off('mousedown.fillResult').on('mousedown.fillResult', function() {
+    clearFillResult();
+  });
+
+  var endMouseDrag = function() {
+    $(document)
+      .off('mousemove.fillHandle')
+      .off('mouseup.fillHandle')
+      .off('keydown.fillHandle');
+  };
+
+  /** 收尾：解绑拖动监听、去掉高亮、移除圆点。cleanup / restore 时都会调用。 */
+  var teardownFill = function() {
+    endMouseDrag();
+    clearPreview();
+    if (handle && handle.parentNode) {
+      handle.parentNode.removeChild(handle);
+    }
+    fillDrag = null;
+  };
+
+  /**
+   * 沿拖动方向收集「已越过中线」的连续相邻数据格；仅单向（横向向右 / 竖向向下）。
+   * 越过哪一格的中线就纳入哪一格，一旦某格未过半即停止，保证选区连续。
+   */
+  var computeTargets = function(axis, clientX, clientY) {
+    var result = [];
+    if (axis === 'x') {
+      var tr = self._td.parentNode;
+      if (!tr) {
+        return result;
+      }
+      var startIndex = Array.prototype.indexOf.call(tr.cells, self._td);
+      for (var i = startIndex + 1; i < tr.cells.length; i++) {
+        var td = tr.cells[i];
+        if (!td.dataTableCellUI) {
+          continue;   // 星标 / 旗标 / 行号等非数据格跳过
+        }
+        var rect = td.getBoundingClientRect();
+        if (clientX < rect.left + rect.width / 2) {
+          break;
+        }
+        result.push(td);
+      }
+    } else {
+      for (var nextTr = self._td.parentNode.nextElementSibling; nextTr; nextTr = nextTr.nextElementSibling) {
+        var targetTd = null;
+        for (var j = 0; j < nextTr.cells.length; j++) {
+          var ui = nextTr.cells[j].dataTableCellUI;
+          if (ui && ui._cellIndex === self._cellIndex) {
+            targetTd = nextTr.cells[j];
+            break;
+          }
+        }
+        if (!targetTd) {
+          continue;
+        }
+        var tr2 = targetTd.getBoundingClientRect();
+        if (clientY < tr2.top + tr2.height / 2) {
+          break;
+        }
+        result.push(targetTd);
+      }
+    }
+    return result;
+  };
+
+  /** 选定填充方式后：一次性提交源格 + 全部目标格（覆盖原值），只产生一条历史。 */
+  var applyFill = function(mode, targets) {
+    var source = {
+      row: self._rowIndex,
+      cell: self._cellIndex,
+      value: textarea.value,   // 编辑框当前内容（含未提交的就地编辑）
+      type: dataType
+    };
+    var targetCells = targets.map(function(td) {
+      var ui = td.dataTableCellUI;
+      return { row: ui._rowIndex, cell: ui._cellIndex };   // 用项目行 / 列号，不能用 DOM 序号
+    });
+    // 源格 + 目标格 = 本次改动区域，刷新后高亮，便于确认改了哪里
+    var resultCells = [{ row: source.row, cell: source.cell }].concat(targetCells);
+    // 整表重绘不保留纵向滚动位置（data-table-view.render 只存了 scrollLeft），会跳回顶部，这里记下以恢复
+    var $containerBefore = $('.data-table-container');
+    var scrollTop = $containerBefore.length ? $containerBefore[0].scrollTop : 0;
+    var scrollLeft = $containerBefore.length ? $containerBefore[0].scrollLeft : 0;
+
+    teardownFill();
+    suppressCommit = false;
+    cleanup();
+    $td.removeClass('data-table-cell-editing');
+    // 立即复原本格（清掉文本框与圆点），写回成功后 Refine.update 会整表重绘
+    self._render();
+
+    Refine.postCoreProcess(
+      "fill-cells",
+      {},
+      {
+        mode: mode,
+        source: JSON.stringify(source),
+        targets: JSON.stringify(targetCells)
+      },
+      // 必须带 cellsChanged：Refine.update 只在设置了变更标志时才调 dataTableView.update 重绘表格。
+      // 传空对象时后端已写入数据、历史也已记录，但界面不会刷新（表现为「填充没生效」）。
+      { cellsChanged: true, rowIdsPreserved: true, recordIdsPreserved: true },
+      {
+        onDone: function() {
+          DataTableCellUI._showHistoryTab();
+        },
+        onError: function() {
+          Refine.update({}, null);
+        },
+        // onDone 早于表格重绘，不能在此操作 DOM；onFinallyDone 才是 Refine.update 完成后的回调。
+        // 重绘后：先恢复纵向滚动位置，再高亮本次填充区域。
+        onFinallyDone: function() {
+          var $container = $('.data-table-container');
+          if ($container.length) {
+            $container[0].scrollTop = scrollTop;
+            $container[0].scrollLeft = scrollLeft;
+          }
+          showFillResult(resultCells);
+        }
+      }
+    );
+  };
+
+  /** 松开鼠标后，在最后一个目标格下方弹出浮动菜单。 */
+  var showFillMenu = function(targets) {
+    var endTd = targets[targets.length - 1];
+    MenuSystem.createAndShowStandardMenu([
+      {
+        label: $.i18n('core-views/fill-copy'),
+        click: function() { applyFill('copy', targets); }
+      },
+      {
+        label: $.i18n('core-views/fill-series'),
+        click: function() { applyFill('series', targets); }
+      }
+    ], $(endTd), {
+      horizontal: false,
+      onDismiss: function() {
+        clearPreview();
+        suppressCommit = false;
+      }
+    });
+    // 菜单挂在 body 下，点菜单项时 mousedown 会冒泡到 document；这里再吞一层，
+    // 与 suppressCommit 一起确保「点击别处提交」不会误触发
+    $('.menu-container').on('mousedown', function(evt) {
+      evt.stopPropagation();
+    });
+  };
+
+  handle.addEventListener('mousedown', function(e) {
+    if (e.button !== 0) {
+      return;
+    }
+    // 保持编辑框焦点与选中，不要因按下圆点而结束编辑
+    e.preventDefault();
+    e.stopPropagation();
+    fillDrag = { startX: e.clientX, startY: e.clientY, axis: null };
+
+    $(document)
+      .on('mousemove.fillHandle', function(evt) {
+        if (!fillDrag) {
+          return;
+        }
+        var dx = evt.clientX - fillDrag.startX;
+        var dy = evt.clientY - fillDrag.startY;
+        if (!fillDrag.axis) {
+          // 超过阈值再定轴，避免抖动；定轴后不再改变
+          if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
+            return;
+          }
+          fillDrag.axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+        }
+        suppressCommit = true;
+        clearPreview();
+        previewTds = computeTargets(fillDrag.axis, evt.clientX, evt.clientY);
+        previewTds.forEach(function(td) {
+          td.classList.add('data-table-cell-fill-preview');
+        });
+        evt.preventDefault();
+      })
+      .on('mouseup.fillHandle', function() {
+        if (!fillDrag) {
+          return;
+        }
+        var axis = fillDrag.axis;
+        var targets = previewTds.slice();
+        endMouseDrag();
+        if (!axis || targets.length === 0) {
+          teardownFill();
+          suppressCommit = false;
+          return;
+        }
+        showFillMenu(targets);
+      })
+      .on('keydown.fillHandle', function(evt) {
+        if (evt.key === 'Escape') {
+          teardownFill();
+          suppressCommit = false;
+          textarea.focus();
+        }
+      });
+  });
 
   textarea.focus();
   textarea.select();

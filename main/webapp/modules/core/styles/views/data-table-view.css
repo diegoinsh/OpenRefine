@@ -283,6 +283,31 @@ div.data-table-cell-content-numeric {
   box-shadow: inset 0 0 0 1px #92d492;
 }
 
+/* 填充柄：编辑态单元格右下角的小圆点。圆心对准单元格右下角顶点（translate 50%/50%），
+   与 Excel 观感一致；圆点一半溢出到单元格外，避免被 .data-table-container 的 overflow 裁掉 */
+.data-table-cell-fill-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  transform: translate(50%, 50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #92d492;   /* 与编辑态边框同色 */
+  border: 1px solid #fff;      /* 外圈白色隔离 */
+  box-sizing: content-box;
+  cursor: crosshair;
+  z-index: 3;
+  user-select: none;
+}
+
+/* 拖动经过的目标格 / 填充完成后保留的改动区域：同一观感 */
+.data-table-cell-fill-preview,
+.data-table-cell-fill-result {
+  background-color: var(--fill-primary);
+  box-shadow: inset 0 0 0 1px #92d492;
+}
+
 textarea.data-table-cell-inline-editor {
   display: block;
   width: 100%;               /* 宽度跟随单元格内容区；折叠左面板等列宽变化时自动保持与单元格边框重合 */

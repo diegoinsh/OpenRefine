@@ -334,6 +334,8 @@
     "core-util-enc/working": "工作副本",
     "core-util-enc/invalid-date": "日期字符串格式错误",
     "core-views/edit-cell": "编辑这个单元格",
+    "core-views/fill-copy": "复制内容",
+    "core-views/fill-series": "序列方式填充",
     "core-views/choose-match": "选择新的匹配",
     "core-views/match-all-cells": "将这个主题匹配到这个和所有相同的单元格",
     "core-views/match-this-cell": "匹配这个主题和此单元格",

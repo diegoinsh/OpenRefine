@@ -40,6 +40,7 @@ public class ExtractionChangeGuard implements CommandGuard {
             "apply-operations",
             "undo-redo",
             "edit-one-cell",
+            "fill-cells",
             "edit-one-command",
             "join-new-column",
             "add-column",
