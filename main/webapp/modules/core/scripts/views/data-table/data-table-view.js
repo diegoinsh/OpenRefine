@@ -1244,6 +1244,14 @@ DataTableView.prototype._createMenuForAllColumns = function(elmt) {
             new RemoveDuplicateRowsDialog();
           }
         },
+        {
+          label: $.i18n('core-views/split-marked-rows'),
+          id: "core/split-marked-rows",
+          icon: "images/operations/split-marked-rows.svg",
+          click: function() {
+            new SplitMarkedRowsDialog();
+          }
+        },
       ]
     },
     {

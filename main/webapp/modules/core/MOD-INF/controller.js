@@ -140,6 +140,7 @@ function registerCommands() {
   RS.registerCommand(module, "add-rows", new Packages.com.google.refine.commands.row.AddRowsCommand());
   RS.registerCommand(module, "remove-duplicate-rows", new Packages.com.google.refine.commands.row.RemoveDuplicateRowsCommand());
   RS.registerCommand(module, "keep-matching-rows", new Packages.com.google.refine.commands.row.KeepMatchingRowsCommand());
+  RS.registerCommand(module, "split-marked-rows", new Packages.com.google.refine.commands.row.SplitMarkedRowsCommand());
 
   RS.registerCommand(module, "get-expression-language-info", new Packages.com.google.refine.commands.expr.GetExpressionLanguageInfoCommand());
   RS.registerCommand(module, "get-expression-history", new Packages.com.google.refine.commands.expr.GetExpressionHistoryCommand());
@@ -190,6 +191,7 @@ function registerOperations() {
   OR.registerOperation(module, "row-addition", Packages.com.google.refine.operations.row.RowAdditionOperation);
   OR.registerOperation(module, "row-duplicate-removal", Packages.com.google.refine.operations.row.RowDuplicatesRemovalOperation);
   OR.registerOperation(module, "row-keep-matched", Packages.com.google.refine.operations.row.RowKeepMatchedOperation);
+  OR.registerOperation(module, "split-marked-rows", Packages.com.google.refine.operations.row.SplitMarkedRowsOperation);
 
   OR.registerOperation(module, "recon", Packages.com.google.refine.operations.recon.ReconOperation);
   OR.registerOperation(module, "recon-mark-new-topics", Packages.com.google.refine.operations.recon.ReconMarkNewTopicsOperation);
@@ -567,7 +569,8 @@ function init() {
       "scripts/dialogs/http-headers-dialog.js",
       "scripts/dialogs/clustering-functions-dialog.js",
       "scripts/dialogs/add-rows-dialog.js",
-      "scripts/dialogs/remove-duplicate-rows-dialog.js"
+      "scripts/dialogs/remove-duplicate-rows-dialog.js",
+      "scripts/dialogs/split-marked-rows-dialog.js"
     ])
   );
 
