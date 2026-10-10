@@ -400,6 +400,16 @@
   background-color: #bbdefb !important;
 }
 
+/* 奇数行的单元格自带底色（data-table-view.css 的 tr.odd>td），会盖住行级高亮，
+   故高亮必须同时作用于该行的单元格 */
+.data-table tr.file-view-active-row > td {
+  background-color: #e3f2fd !important;
+}
+
+.data-table tr.file-view-active-row:hover > td {
+  background-color: #bbdefb !important;
+}
+
 /* OCR 拉框识别 */
 .file-view-ocr-btn {
   flex-shrink: 0;
