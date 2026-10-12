@@ -453,16 +453,47 @@ body.extraction-readonly .data-table-cell {
   color: #8c1d18;
 }
 
-.batch-extraction-banner-close {
+/* 右上角操作列：收缩按钮在上、关闭按钮在下（收缩按钮位于关闭按钮正上方） */
+.batch-extraction-banner-actions {
   position: absolute;
   right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
+  top: 3px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+}
+
+.batch-extraction-banner-toggle,
+.batch-extraction-banner-close {
   border: none;
   background: transparent;
-  font-size: 16px;
   cursor: pointer;
   color: inherit;
+  padding: 0;
+  line-height: 1;
+}
+
+.batch-extraction-banner-toggle {
+  font-size: 15px;
+  transition: transform 0.15s ease;
+}
+
+.batch-extraction-banner-close {
+  font-size: 16px;
+}
+
+/* 收缩后箭头转向，提示可再次展开 */
+.batch-extraction-banner.collapsed .batch-extraction-banner-toggle {
+  transform: rotate(-90deg);
+}
+
+/* 收缩后只保留「批量题名提取进行中」标题行：图标、进度条、只读提示、页级预览全部隐藏 */
+.batch-extraction-banner.collapsed .batch-extraction-banner-icon,
+.batch-extraction-banner.collapsed .batch-banner-progress-track,
+.batch-extraction-banner.collapsed .batch-extraction-banner-hint,
+.batch-extraction-banner.collapsed .batch-extraction-banner-preview {
+  display: none;
 }
 
 .batch-banner-progress-track {

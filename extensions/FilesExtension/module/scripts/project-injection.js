@@ -466,22 +466,34 @@ var BatchTitleExtractionMonitor = (function () {
                 '<div class="batch-progress-bar batch-banner-progress-bar"></div></div>')
           )
           .append(
-              $('<button type="button" class="batch-extraction-banner-close">&times;</button>')
-                  .on('click', function () {
-                    // 终态横幅：关闭后按项目持久化，刷新/重进不再出现；
-                    // 运行中横幅：静默直到下一次进度更新
-                    var pid = getProjectId();
-                    var currentKind = $banner ? $banner.data('banner-kind') : null;
-                    if (isFinalStatus(currentKind) && pid !== null) {
-                      writeDismissedFinal(pid, currentKind);
-                    } else if (currentKind === 'running') {
-                      runningDismissed = {
-                        processedPages: $banner.data('processed-pages') || 0,
-                        rowsAppended: $banner.data('rows-appended') || 0
-                      };
-                    }
-                    removeBanner();
-                  })
+              // 右上角操作列：收缩按钮在上、关闭按钮在下（收缩按钮位于关闭按钮正上方）
+              $('<div class="batch-extraction-banner-actions">')
+                  .append(
+                      $('<button type="button" class="batch-extraction-banner-toggle">&#9662;</button>')
+                          .on('click', function () {
+                            // 收缩：只保留标题行，图标/进度条/只读提示/页级预览全部隐藏；
+                            // 再点一次恢复。只切 class，不重建本块，故轮询刷新不会重置收缩状态
+                            $banner.toggleClass('collapsed');
+                          })
+                  )
+                  .append(
+                      $('<button type="button" class="batch-extraction-banner-close">&times;</button>')
+                          .on('click', function () {
+                            // 终态横幅：关闭后按项目持久化，刷新/重进不再出现；
+                            // 运行中横幅：静默直到下一次进度更新
+                            var pid = getProjectId();
+                            var currentKind = $banner ? $banner.data('banner-kind') : null;
+                            if (isFinalStatus(currentKind) && pid !== null) {
+                              writeDismissedFinal(pid, currentKind);
+                            } else if (currentKind === 'running') {
+                              runningDismissed = {
+                                processedPages: $banner.data('processed-pages') || 0,
+                                rowsAppended: $banner.data('rows-appended') || 0
+                              };
+                            }
+                            removeBanner();
+                          })
+                  )
           );
       $banner = $('<div class="batch-extraction-banner">').append($head);
       $('body').append($banner);
@@ -506,16 +518,42 @@ var BatchTitleExtractionMonitor = (function () {
       $banner.removeData('last-percent');
     }
     if (kind === 'running') {
-      var hint = d.message ? d.message + '。' : '';
+      // 耗时：批次开始时间由后端随 payload 回传，跨刷新稳定
+      var startedAt = d.startedAt || 0;
+      var elapsedMin = startedAt > 0
+          ? Math.max(0, Math.round((Date.now() - startedAt) / 60000)) : 0;
+      // 完成度（与进度条同口径）：已完成件数 + 当前件内完成度
+      var fraction = 0;
+      if ((d.totalFiles || 0) > 0) {
+        fraction = ((d.processedFiles || 0) - 1
+            + (typeof d.unitFraction === 'number' ? d.unitFraction : 0)) / d.totalFiles;
+      } else if ((d.totalPages || 0) > 0) {
+        fraction = (d.processedPages || 0) / d.totalPages;
+      }
+      fraction = Math.max(0, Math.min(1, fraction));
+      // 完成度过低时按比例外推会得出离谱的预估值，此时只显示已耗时
+      var timingHint;
+      if (startedAt > 0 && fraction >= 0.02) {
+        var etaMin = Math.max(1, Math.round(elapsedMin / fraction));
+        timingHint = $.i18n('files-import/batch-banner-elapsed', elapsedMin, etaMin);
+      } else {
+        timingHint = $.i18n('files-import/batch-banner-elapsed-only', elapsedMin);
+      }
+      // 「当前处理」在前、件内进度在后：当前处理：X，已完成 m / n 页。
+      var unitHint = '';
       if (d.currentUnit) {
-        hint += $.i18n('files-import/batch-banner-current', d.currentUnit);
+        unitHint = $.i18n('files-import/batch-banner-current', d.currentUnit);
+        if (d.message) {
+          unitHint += '，' + d.message;
+        }
+        unitHint += '。';
       }
       var unitLabel = $.i18n(d.unitKind === 'volume'
           ? 'files-import/batch-unit-volume' : 'files-import/batch-unit-case');
       text = $.i18n('files-import/batch-banner-running',
           d.processedFiles || 0, d.totalFiles || 0, unitLabel,
           d.processedPages || 0, d.totalPages || 0,
-          d.rowsAppended || 0, hint);
+          d.rowsAppended || 0, timingHint, unitHint);
       // 进度条按件口径推进（已完成件数 + 当前件内完成度）。
       // 不能直接用 processedPages/totalPages：PDF 实际页数只能在处理中探明，
       // 分母被动态修正后移会让百分比回退，表现为进度条来回跳动。

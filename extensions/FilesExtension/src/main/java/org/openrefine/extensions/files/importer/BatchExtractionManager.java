@@ -138,6 +138,9 @@ public class BatchExtractionManager {
         /** 已进入的卷序号（从 1 起）：页号只在卷内唯一，前端据此判断预览队列是否该重置 */
         public volatile int volumeIndex;
 
+        /** 批次开始时间（epoch 毫秒）：前端据此计算「已耗时」并按进度推算总耗时 */
+        public volatile long startedAt;
+
         // ── 耗时归因打点（2026-10-03）：整批各阶段累计毫秒数 ──
         // 目的：OR 全链路实测 5.6s/页，而页级提取仅 1.5~2.0s/页，差额去向未知。
         // 在阶段边界记账，批次结束由 logTimingSummary() 打一条 [TIMING] 汇总。
@@ -955,6 +958,7 @@ public class BatchExtractionManager {
         Task task = new Task(projectId, rootPath, template, customElements,
                 archiveCategory, archiveSubCategory, selectedKeys, units, disableCache);
         task.tScanMs = (System.nanoTime() - scanStart) / 1_000_000;
+        task.startedAt = System.currentTimeMillis();
         tasks.put(projectId, task);
         executor.submit(() -> run(task, aimpUrl));
         return task;
@@ -1638,8 +1642,7 @@ public class BatchExtractionManager {
                 completedInWindow++;
                 task.processedPages++;
                 task.unitFraction = done / (double) Math.max(1, total);
-                task.message = "已完成 " + done + " / " + total + " 页，正在提取第 "
-                        + Math.min(done + 1, total) + "-" + Math.min(done + PAGE_CONCURRENCY, total) + " 页";
+                task.message = "已完成 " + done + " / " + total + " 页";
                 if (completedInWindow >= PAGE_CONCURRENCY) {
                     task.recordPageTiming(System.currentTimeMillis() - markTime, inferredInWindow);
                     markTime = System.currentTimeMillis();

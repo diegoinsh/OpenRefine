@@ -244,6 +244,8 @@ public class BatchExtractionCommand extends Command {
         result.put("rowsAppended", task.rowsAppended);
         result.put("message", task.message);
         result.put("volumeIndex", task.volumeIndex);
+        // 批次开始时间（epoch 毫秒）：前端据此显示「已耗时」并按完成度推算总耗时
+        result.put("startedAt", task.startedAt);
         // 页级预览：件级行要等整卷抽完并分件后才写入，长卷（2-300 页）期间靠这里
         // 让用户看到「AI 认出了什么」。取值为页级原始识别结果，未做件级合并与分件矫正。
         ArrayNode previews = result.putArray("recentPages");
