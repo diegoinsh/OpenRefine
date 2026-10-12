@@ -484,6 +484,6 @@ public class RefineServlet extends Butterfly {
     }
 
     static public String getUserAgent() {
-        return "OpenRefine/" + FULL_VERSION;
+        return "JinRefine/" + FULL_VERSION;
     }
 }
