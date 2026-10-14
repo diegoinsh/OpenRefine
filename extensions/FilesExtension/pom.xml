@@ -7,6 +7,9 @@
     <!-- Change the values below, as well as the groupId & url, to reflect your extension -->
     <extension.id>openrefine-files-extension</extension.id>
     <extension.name>OpenRefine Files Extension</extension.name>
+    <!-- 构建元数据：打包时用 -Dgit.sha 注入短 sha（取自 git rev-parse 的 short HEAD），
+         写入 jar 的 MANIFEST，用于把某个构建产物精确定位到具体提交 -->
+    <git.sha>unknown</git.sha>
   </properties>
 
   <groupId>org.openrefine</groupId>
@@ -45,6 +48,12 @@
             <configuration>
               <skipIfEmpty>true</skipIfEmpty>
               <outputDirectory>module/MOD-INF/lib</outputDirectory>
+              <archive>
+                <manifestEntries>
+                  <Implementation-Version>${project.version}</Implementation-Version>
+                  <Git-Sha>${git.sha}</Git-Sha>
+                </manifestEntries>
+              </archive>
             </configuration>
           </execution>
         </executions>

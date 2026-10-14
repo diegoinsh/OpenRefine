@@ -1,0 +1,68 @@
+/*
+ * 数据抽取控制台样式
+ *
+ * 结构与观感刻意与「数据质量」保持一致：布局、Tab、表格、按钮、状态、分页、设置表单
+ * 全部复用 data-quality 已注入的同名类（dq-*），这里只补两处按 ID 作用域、无法复用的规则
+ * （标签/搜索栏容器、错误提示），避免两套视觉各自演化。
+ */
+
+#ec-project-tags {
+  position: relative;
+  padding: 3px 10px;
+  margin: 5px 0 0 5px;
+  font-size: 130%;
+  border-radius: 5px;
+  background: #fffefd;
+  min-height: 18px;
+  height: auto;
+  overflow: auto;
+}
+
+ul#ec-tags-ul {
+  margin: 0;
+  padding: 0;
+}
+
+ul#ec-tags-ul li {
+  list-style: none;
+  float: left;
+  text-align: center;
+  min-width: 80px;
+}
+
+ul#ec-tags-ul li a {
+  padding: 6px 5px;
+  display: inline-block;
+  text-align: center;
+  color: #444;
+  text-shadow: 0 -1px 2px rgba(255, 255, 255, 0.60);
+  cursor: pointer;
+  font-weight: bold;
+  min-width: 50px;
+  text-decoration: none;
+}
+
+ul#ec-tags-ul li a:hover {
+  text-decoration: underline;
+}
+
+#ec-project-tags .current {
+  background-color: #F5F1EB;
+  border-radius: 10px;
+}
+
+/* 对话框内的错误提示与行内说明（抽取参数对话框） */
+.dq-error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: #fdecea;
+  border: 1px solid #f5c2bd;
+  border-radius: 4px;
+  color: #a12622;
+}
+
+.dq-hint-inline {
+  margin-left: 10px;
+  color: #888;
+  font-size: 12px;
+}

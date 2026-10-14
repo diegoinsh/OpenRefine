@@ -25,6 +25,9 @@ Refine.FilesImportingController = function(createProjectUI) {
   this._createProjectUI = createProjectUI;
   this._parsingPanel = createProjectUI.addCustomPanel();
 
+  // 「新建项目 → 本地目录」：标准模式（按文件清单建项目）与批量抽取的来源入口。
+  // 该入口保留在这里；「数据抽取」控制台（scripts/index/extraction-console.js）只做
+  // 已建项目的抽取任务管理（启动 / 编辑），不承担新建。
   createProjectUI.addSourceSelectionUI({
     label: $.i18n('files-import/menu-localdirectory'),
     id: "files-local-directory",

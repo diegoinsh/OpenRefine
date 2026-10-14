@@ -53,8 +53,8 @@ ManageRulesDialog.prototype._loadRulesSummary = function() {
 
   var formatCount = Object.keys(formatRules).length;
   var contentCount = contentRules.length;
-  // Check if resource config has basePath and pathFields configured
-  var hasResourceConfig = resourceConfig.basePath && resourceConfig.pathFields && resourceConfig.pathFields.length > 0;
+  // Check if resource config has basePath or pathFields configured
+  var hasResourceConfig = (resourceConfig.pathFields && resourceConfig.pathFields.length > 0) || !!resourceConfig.basePath;
 
   if (formatCount === 0 && contentCount === 0 && !hasResourceConfig) {
     rulesList.html('<p class="no-rules">' + $.i18n('data-quality-extension/no-rules-configured') + '</p>');
@@ -87,7 +87,9 @@ ManageRulesDialog.prototype._loadRulesSummary = function() {
 
     var resourceInfo = $('<div></div>').appendTo(resourceSection);
     // Show base path
-    $('<p></p>').text($.i18n('data-quality-extension/base-path') + ': ' + resourceConfig.basePath).appendTo(resourceInfo);
+    if (resourceConfig.basePath) {
+      $('<p></p>').text($.i18n('data-quality-extension/base-path') + ': ' + resourceConfig.basePath).appendTo(resourceInfo);
+    }
     // Show path fields
     $('<p></p>').text($.i18n('data-quality-extension/path-fields') + ': ' + resourceConfig.pathFields.join(', ')).appendTo(resourceInfo);
     // Show folder checks

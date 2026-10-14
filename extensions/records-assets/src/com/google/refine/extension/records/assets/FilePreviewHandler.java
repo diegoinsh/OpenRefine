@@ -4,12 +4,22 @@
 
 package com.google.refine.extension.records.assets;
 
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Base64;
+import java.util.Iterator;
+
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReadParam;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
@@ -26,6 +36,8 @@ public class FilePreviewHandler {
     private static final Logger logger = LoggerFactory.getLogger("FilePreviewHandler");
     private static final int MAX_TEXT_PREVIEW_SIZE = 100 * 1024; // 100KB
     private static final int MAX_IMAGE_PREVIEW_SIZE = 5 * 1024 * 1024; // 5MB
+    /** 缩略图长边像素；面板内实际显示 60x45，留出高清屏余量 */
+    private static final int THUMBNAIL_MAX_SIZE = 160;
 
     /**
      * Generate file preview
@@ -203,9 +215,95 @@ public class FilePreviewHandler {
         // For simplicity, just return full image (frontend can resize)
         // In production, could use ImageIO to create actual thumbnails
         JSONUtilities.safePut(result, "status", "ok");
-        generateImagePreview(result, file, mimeType);
+        generateThumbnailImage(result, file, mimeType);
 
         return result;
+    }
+
+    /**
+     * 生成真正的小尺寸缩略图。目录内页数多时，若直接回传整张原图（base64 后体积再膨胀约 1/3），
+     * 一次要传上百张原图，缩略图条出图极慢，也会占满浏览器并发连接把主图请求挤到队尾。
+     */
+    private static void generateThumbnailImage(ObjectNode result, File file, String mimeType) throws IOException {
+        BufferedImage source = readDownsampled(file);
+        if (source == null) {
+            // 无法解码的格式退回原图，保持与改造前一致的行为
+            generateImagePreview(result, file, mimeType);
+            return;
+        }
+
+        BufferedImage scaled = scaleDown(source, THUMBNAIL_MAX_SIZE);
+        boolean hasAlpha = scaled.getColorModel().hasAlpha();
+        String format = hasAlpha ? "png" : "jpg";
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        if (!ImageIO.write(scaled, format, out)) {
+            generateImagePreview(result, file, mimeType);
+            return;
+        }
+        String outMimeType = hasAlpha ? "image/png" : "image/jpeg";
+        JSONUtilities.safePut(result, "preview",
+                "data:" + outMimeType + ";base64," + Base64.getEncoder().encodeToString(out.toByteArray()));
+        JSONUtilities.safePut(result, "previewType", "image");
+    }
+
+    /**
+     * 解码原图。大图按 1/2、1/4 … 降采样解码，避免先解出整张位图再缩放带来的内存与耗时开销
+     * （JPEG 等格式支持按比例解码）。
+     */
+    private static BufferedImage readDownsampled(File file) {
+        ImageReader reader = null;
+        try (ImageInputStream input = ImageIO.createImageInputStream(file)) {
+            if (input == null) {
+                return null;
+            }
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
+            if (!readers.hasNext()) {
+                return null;
+            }
+            reader = readers.next();
+            reader.setInput(input, false, true);
+
+            int width = reader.getWidth(0);
+            int height = reader.getHeight(0);
+            int subsample = 1;
+            while (width / (subsample * 2) >= THUMBNAIL_MAX_SIZE && height / (subsample * 2) >= THUMBNAIL_MAX_SIZE) {
+                subsample *= 2;
+            }
+
+            ImageReadParam param = reader.getDefaultReadParam();
+            if (subsample > 1) {
+                param.setSourceSubsampling(subsample, subsample, 0, 0);
+            }
+            return reader.read(0, param);
+        } catch (Exception e) {
+            logger.debug("Thumbnail decode failed for {}: {}", file.getName(), e.getMessage());
+            return null;
+        } finally {
+            if (reader != null) {
+                reader.dispose();
+            }
+        }
+    }
+
+    /** 等比缩放到长边不超过 maxSize */
+    private static BufferedImage scaleDown(BufferedImage source, int maxSize) {
+        int width = source.getWidth();
+        int height = source.getHeight();
+        double ratio = Math.min(1.0, (double) maxSize / Math.max(width, height));
+        int targetWidth = Math.max(1, (int) Math.round(width * ratio));
+        int targetHeight = Math.max(1, (int) Math.round(height * ratio));
+
+        int type = source.getColorModel().hasAlpha() ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB;
+        BufferedImage target = new BufferedImage(targetWidth, targetHeight, type);
+        Graphics2D g = target.createGraphics();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            g.drawImage(source, 0, 0, targetWidth, targetHeight, null);
+        } finally {
+            g.dispose();
+        }
+        return target;
     }
 
     /**

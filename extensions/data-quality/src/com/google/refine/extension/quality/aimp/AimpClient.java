@@ -6,6 +6,7 @@ package com.google.refine.extension.quality.aimp;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -631,6 +632,104 @@ public class AimpClient {
         }
 
         return result;
+    }
+
+    /**
+     * 裁剪区域 OCR：调用 AIMP /ocr 接口，由服务端完成版面分类后再路由识别流程。
+     *
+     * @param imageBytes 裁剪后的图片字节（PNG）
+     * @param fileName   上传时使用的文件名
+     * @param mode       识别模式：auto（自动分类）/ text / seal
+     * @return OcrCropResult 识别结果
+     */
+    public OcrCropResult ocrCrop(byte[] imageBytes, String fileName, String mode) {
+        OcrCropResult result = new OcrCropResult();
+
+        try {
+            String boundary = "----AimpOcrBoundary" + System.currentTimeMillis();
+            URL url = new URL(serviceUrl + "/ocr");
+            logger.info("Calling AIMP ocr: {}", url.toString());
+
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+            conn.setConnectTimeout(TIMEOUT_MS);
+            conn.setReadTimeout(120000);
+            conn.setDoOutput(true);
+
+            try (OutputStream os = conn.getOutputStream()) {
+                StringBuilder filePart = new StringBuilder();
+                filePart.append("--").append(boundary).append("\r\n");
+                filePart.append("Content-Disposition: form-data; name=\"img\"; filename=\"")
+                        .append(fileName != null && !fileName.isEmpty() ? fileName : "crop.png")
+                        .append("\"\r\n");
+                filePart.append("Content-Type: image/png\r\n\r\n");
+                os.write(filePart.toString().getBytes(StandardCharsets.UTF_8));
+                os.write(imageBytes);
+                os.write("\r\n".getBytes(StandardCharsets.UTF_8));
+
+                writeFormField(os, boundary, "mode", mode != null && !mode.isEmpty() ? mode : "auto");
+                os.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+            }
+
+            int responseCode = conn.getResponseCode();
+            logger.info("AIMP ocr response code: {}", responseCode);
+
+            InputStream stream = responseCode == 200 ? conn.getInputStream() : conn.getErrorStream();
+            StringBuilder response = new StringBuilder();
+            if (stream != null) {
+                try (BufferedReader br = new BufferedReader(
+                        new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        response.append(line);
+                    }
+                }
+            }
+
+            if (responseCode == 200) {
+                JsonNode json = mapper.readTree(response.toString());
+                result.setSuccess(json.has("success") && json.get("success").asBoolean());
+                result.setText(json.has("text") ? json.get("text").asText() : "");
+                result.setCategory(json.has("category") ? json.get("category").asText() : "");
+                result.setConfidence(json.has("confidence") ? json.get("confidence").asDouble() : 0.0);
+                if (json.has("error")) {
+                    result.setError(json.get("error").asText());
+                }
+            } else {
+                logger.warn("AIMP ocr failed: {}, error: {}", responseCode, response);
+                result.setSuccess(false);
+                result.setError("HTTP " + responseCode + ": " + response);
+            }
+        } catch (Exception e) {
+            logger.error("Error calling AIMP ocr", e);
+            result.setSuccess(false);
+            result.setError(e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * 裁剪区域 OCR 识别结果
+     */
+    public static class OcrCropResult {
+        private boolean success;
+        private String text = "";
+        private String category = "";
+        private double confidence;
+        private String error = "";
+
+        public boolean isSuccess() { return success; }
+        public void setSuccess(boolean success) { this.success = success; }
+        public String getText() { return text; }
+        public void setText(String text) { this.text = text != null ? text : ""; }
+        public String getCategory() { return category; }
+        public void setCategory(String category) { this.category = category != null ? category : ""; }
+        public double getConfidence() { return confidence; }
+        public void setConfidence(double confidence) { this.confidence = confidence; }
+        public String getError() { return error; }
+        public void setError(String error) { this.error = error != null ? error : ""; }
     }
 }
 

@@ -263,15 +263,17 @@ DataTableColumnHeaderUI.prototype._createMenuForColumnHeader = function(elmt) {
         }
       ]
     },
-    {},
-    {
-      id: "core/reconcile",
-      label: $.i18n('core-views/reconcile'),
-      tooltip: $.i18n('core-views/reconcile-tooltip'),
-      width: "170px",
-      submenu: []
-    },
-    {},
+    ...(self._columnIndex === 0 ? [
+      {},
+      {
+        id: "core/reconcile",
+        label: $.i18n('core-views/reconcile'),
+        tooltip: $.i18n('core-views/reconcile-tooltip'),
+        width: "170px",
+        submenu: []
+      },
+      {}
+    ] : [{}]),
     {
       id: "core/rename-column",
       label: $.i18n('core-views/rename-col'),

@@ -272,7 +272,7 @@ Client user-agent: ${navigator.userAgent}`;
   };
 
   // 定义菜单顺序，open-project 放第一个
-  var menuOrder = ['open-project', 'create-project', 'data-quality'];
+  var menuOrder = ['open-project', 'create-project', 'data-quality', 'data-extract'];
   Refine.actionAreas.sort(function(a, b) {
     var indexA = menuOrder.indexOf(a.id);
     var indexB = menuOrder.indexOf(b.id);

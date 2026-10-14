@@ -207,21 +207,22 @@ ImageQualityTab._initResourceConfig = function() {
 
   this._resourceConfig = QualityAlignment._resourceConfig || {};
 
-  if (this._resourceConfig.basePath && this._resourceConfig.pathFields && this._resourceConfig.pathFields.length > 0) {
-    var config = this._resourceConfig;
+  var config = this._resourceConfig;
+  var pathFields = config.pathFields || [];
+  if (pathFields.length > 0 || config.basePath) {
     var defaultSep = QualityAlignment._getPathSeparator ? QualityAlignment._getPathSeparator() : '\\';
     var sep = config.separator || defaultSep;
-    var formattedPath = config.basePath;
-    if (!formattedPath.endsWith('/') && !formattedPath.endsWith('\\')) {
+    var formattedPath = config.basePath || '';
+    if (formattedPath && !formattedPath.endsWith('/') && !formattedPath.endsWith('\\')) {
       formattedPath += sep;
     }
     if (config.pathMode === 'template' && config.template) {
       formattedPath += config.template.replace(/\{(\d+)\}/g, function(match, index) {
         var idx = parseInt(index);
-        return idx < config.pathFields.length ? '{' + config.pathFields[idx] + '}' : match;
+        return idx < pathFields.length ? '{' + pathFields[idx] + '}' : match;
       });
     } else {
-      formattedPath += config.pathFields.map(function(f) { return '{' + f + '}'; }).join(sep);
+      formattedPath += pathFields.map(function(f) { return '{' + f + '}'; }).join(sep);
     }
     resourceConfigElmt.text(formattedPath);
     resourceWarning.hide();

@@ -85,6 +85,13 @@
             <configuration>
                 <outputDirectory>webapp/WEB-INF/lib</outputDirectory>
                 <includeScope>runtime</includeScope>
+                <!-- Jetty core classes must be provided only by the server classpath
+                     (REFINE_LIB_DIR=server/target/lib in refine.bat). If they are also copied
+                     into the webapp lib, WebAppClassLoader loads a second copy of GzipHandler/
+                     HandlerWrapper, so the insertHandler(HandlerWrapper) call in
+                     WEB-INF/jetty-web.xml no longer type-matches the server-loaded
+                     WebAppContext -> NoSuchMethodException -> context UNAVAILABLE -> HTTP 503. -->
+                <excludeArtifactIds>jetty-server,jetty-http,jetty-io,jetty-util</excludeArtifactIds>
             </configuration>
             </execution>
         </executions>

@@ -1,0 +1,68 @@
+<div class="dialog-frame" id="extraction-task-dialog" style="max-width: 780px;">
+  <div class="dialog-header" bind="dialogHeader">抽取任务参数</div>
+  <div class="dialog-body">
+    <!-- 字段与「新建项目 → 本地目录」的 batch-config-panel 一致（去掉进度区），
+         门类/要素定义取自同一份 Refine.ARCHIVE_* / Refine.*_ELEMENTS，样式共用 batch-* 类 -->
+    <div class="batch-config-panel" style="display:block">
+      <div class="batch-field-row">
+        <label bind="rootPathLabel">根目录</label>
+        <input type="text" class="batch-project-name-input" bind="rootPathInput" readonly="readonly"/>
+      </div>
+      <div class="batch-field-row">
+        <label bind="batchProjectNameLabel"></label>
+        <input type="text" class="batch-project-name-input" bind="batchProjectName"/>
+      </div>
+      <div class="batch-field-row">
+        <label bind="batchModeRowLabel">抽取模式</label>
+        <select class="batch-archive-select" bind="templateSelect"></select>
+      </div>
+      <div class="batch-field-row">
+        <label bind="batchArchiveSectionLabel" class="batch-section-title"></label>
+        <div class="batch-archive-row">
+          <label bind="archiveCategoryLabel" class="batch-archive-label"></label>
+          <select bind="archiveCategorySelect" class="batch-archive-select"></select>
+        </div>
+        <div class="batch-archive-row" bind="archiveSubCategoryRow" style="display:none">
+          <label bind="archiveSubCategoryLabel" class="batch-archive-label"></label>
+          <select bind="archiveSubCategorySelect" class="batch-archive-select"></select>
+        </div>
+        <div class="batch-archive-row">
+          <label bind="extractionElementsLabel" class="batch-archive-label"></label>
+          <div class="batch-elements-options" bind="extractionElementsOptions"></div>
+        </div>
+        <div class="batch-archive-row" bind="extractionElementsExtraRow" style="display:none">
+          <label class="batch-archive-label"></label>
+          <div class="batch-elements-options" bind="extractionElementsExtraOptions"></div>
+        </div>
+      </div>
+      <div class="batch-field-row">
+        <label bind="batchCustomElementsLabel" class="batch-custom-elements-toggle"></label>
+        <div class="batch-custom-elements-section" bind="customElementsSection" style="display:none">
+          <table class="batch-custom-elements-table" bind="customElementsTable">
+            <thead>
+              <tr>
+                <th class="batch-el-name-col" bind="elNameHeader"></th>
+                <th class="batch-el-key-col" bind="elKeyHeader"></th>
+                <th class="batch-el-action-col" bind="elActionHeader"></th>
+                <th class="batch-el-desc-col" bind="elDescHeader"></th>
+                <th class="batch-el-op-col"></th>
+              </tr>
+            </thead>
+            <tbody bind="customElementsBody"></tbody>
+          </table>
+          <button type="button" bind="addRowButton"></button>
+        </div>
+      </div>
+    </div>
+    <!-- 清除缓存：勾选则忽略历史提取结果与已识别页，全部重新识别；默认不勾选 -->
+    <div class="batch-field-row">
+      <label class="batch-clear-cache"><input type="checkbox" bind="batchClearCache"/>
+        <span bind="batchClearCacheLabel"></span></label>
+    </div>
+    <div class="dq-error" bind="errorText" style="display:none"></div>
+  </div>
+  <div class="dialog-footer">
+    <button class="button button-secondary" bind="cancelButton">取消</button>
+    <button class="button button-primary" bind="confirmButton">保存</button>
+  </div>
+</div>

@@ -63,6 +63,11 @@ public class QualityCheckTask {
     // Content check specific progress
     private volatile int contentCheckTotal;
     private final AtomicInteger contentCheckProcessed;
+    // 当前正在交由 AIMP 处理的那一件：件标识（案卷号|件号 等）与本件页数。
+    // AIMP 按「件」为原子单位同步处理（件内全部页 OCR+LLM 完成后才返回），
+    // 期间件内无任何信号，只能靠这两个字段让界面显示"正在处理哪一件、共几页"。
+    private volatile String contentCheckCurrentItem;
+    private volatile int contentCheckCurrentItemPages;
 
     // Image quality check specific progress
     private volatile int imageQualityCheckTotal;
@@ -442,6 +447,14 @@ public class QualityCheckTask {
 
     @JsonProperty("contentCheckProcessed")
     public int getContentCheckProcessed() { return contentCheckProcessed.get(); }
+
+    @JsonProperty("contentCheckCurrentItem")
+    public String getContentCheckCurrentItem() { return contentCheckCurrentItem; }
+    public void setContentCheckCurrentItem(String item) { this.contentCheckCurrentItem = item; }
+
+    @JsonProperty("contentCheckCurrentItemPages")
+    public int getContentCheckCurrentItemPages() { return contentCheckCurrentItemPages; }
+    public void setContentCheckCurrentItemPages(int pages) { this.contentCheckCurrentItemPages = pages; }
 
     @JsonProperty("imageQualityCheckTotal")
     public int getImageQualityCheckTotal() { return imageQualityCheckTotal; }

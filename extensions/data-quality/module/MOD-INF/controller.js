@@ -66,6 +66,16 @@ function registerCommands() {
   RS.registerCommand(module, "run-image-quality-check",
       new Packages.com.google.refine.extension.quality.commands.RunImageQualityCheckCommand());
 
+  // SSO project ingest command (external systems push entry data in)
+  RS.registerCommand(module, "ingest-project",
+      new Packages.com.google.refine.extension.quality.commands.IngestProjectCommand());
+
+  // OCR crop commands (file view panel)
+  RS.registerCommand(module, "render-file-page",
+      new Packages.com.google.refine.extension.quality.commands.RenderFilePageCommand());
+  RS.registerCommand(module, "ocr-crop",
+      new Packages.com.google.refine.extension.quality.commands.OcrCropCommand());
+
   logger.trace("Data-Quality Extension Command Registration done!");
 }
 
@@ -149,7 +159,8 @@ function init() {
       "scripts/dialogs/run-check-dialog.js",
       "scripts/dialogs/image-quality-tab.js",
       // "scripts/dialogs/image-annotation.js",
-      "scripts/dialogs/regex-editor-dialog.js"
+      "scripts/dialogs/regex-editor-dialog.js",
+      "scripts/file-view-panel.js"
     ]
   );
 
@@ -162,7 +173,8 @@ function init() {
       "styles/dialogs/manage-rules-dialog.css",
       "styles/dialogs/run-check-dialog.css",
       "styles/dialogs/image-quality-tab.css",
-      "styles/dialogs/regex-editor-dialog.css"
+      "styles/dialogs/regex-editor-dialog.css",
+      "styles/file-view-panel.css"
     ]
   );
 

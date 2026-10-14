@@ -45,7 +45,7 @@ function ClusteringFunctionsDialog(title, clusteringDialog) {
 
     this._elmts = DOM.bind(html);
     this._elmts.or_dialog_descr.html($.i18n('core-dialogs/custom-cluster-descr'));
-    this._elmts.or_dialog_findMore.html($.i18n('core-dialogs/find-more'));
+// this._elmts.or_dialog_findMore.html($.i18n('core-dialogs/find-more'));
 
     $('<button class="button" id="add-new-functions"></button>').text($.i18n("core-buttons/add-keying-function")).on('click', function () {
         self._addFunction(self._column);

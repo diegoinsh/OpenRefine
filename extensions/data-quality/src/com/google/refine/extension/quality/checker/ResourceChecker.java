@@ -5,7 +5,6 @@ package com.google.refine.extension.quality.checker;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +18,8 @@ import com.google.refine.extension.quality.model.CheckResult;
 import com.google.refine.extension.quality.model.CheckResult.CheckError;
 import com.google.refine.extension.quality.model.QualityRulesConfig;
 import com.google.refine.extension.quality.model.ResourceCheckConfig;
+import com.google.refine.extension.quality.util.ColumnSemantics;
+import com.google.refine.extension.quality.util.ResourceSelector;
 import com.google.refine.model.Cell;
 import com.google.refine.model.Column;
 import com.google.refine.model.Project;
@@ -67,9 +68,13 @@ public class ResourceChecker {
 
         // Build column index map
         Map<String, Integer> columnIndexMap = new HashMap<>();
+        List<String> columnNames = new ArrayList<>();
         for (Column col : project.columnModel.columns) {
             columnIndexMap.put(col.getName(), col.getCellIndex());
+            columnNames.add(col.getName());
         }
+        // 同卷多件共用目录时，逐件的检查范围应为「本件的页」，而非目录内全部文件
+        ResourceSelector.PageColumns pageColumns = ResourceSelector.resolvePageColumns(columnNames);
 
         // Get separator
         String sep = config.getSeparator();
@@ -112,7 +117,7 @@ public class ResourceChecker {
             boolean rowPassed = true;
 
             // Build resource path for this row
-            String resourcePath = buildResourcePath(row, columnIndexMap, config, sep);
+            String resourcePath = buildResourcePath(row, columnNames, columnIndexMap, config, sep);
             if (resourcePath == null || resourcePath.isEmpty()) {
                 continue; // Skip rows without valid path
             }
@@ -135,8 +140,11 @@ public class ResourceChecker {
 
             // If folder exists, do additional checks
             if (resourceDir.exists() && resourceDir.isDirectory()) {
-                File[] files = resourceDir.listFiles();
-                List<File> fileList = files != null ? Arrays.asList(files) : new ArrayList<>();
+                // 本件页区间：目录在人工录入场景下即为该件的全部页，在自动分件场景下需按页区间切片
+                int[] range = pageColumns.resolveRange(row, columnIndexMap);
+                String fileName = ResourceSelector.cellValue(row, columnIndexMap, pageColumns.file);
+                List<File> pieceFiles = ResourceSelector.resolvePieceFiles(resourcePath, fileName, range);
+                List<File> fileList = pieceFiles != null ? pieceFiles : new ArrayList<>();
 
                 // Folder name format check
                 String folderNameFormat = config.getFolderChecks().getNameFormat();
@@ -183,7 +191,7 @@ public class ResourceChecker {
 
                 // File count check
                 if (config.getFileChecks().isCountMatch()) {
-                    String countColumn = config.getFileChecks().getCountColumn();
+                    String countColumn = ColumnSemantics.resolveColumnName(config.getFileChecks().getCountColumn(), columnNames);
                     if (countColumn != null && !countColumn.isEmpty()) {
                         Integer countIdx = columnIndexMap.get(countColumn);
                         if (countIdx != null) {
@@ -253,7 +261,8 @@ public class ResourceChecker {
     /**
      * Build resource path from row data based on configuration.
      */
-    private String buildResourcePath(Row row, Map<String, Integer> columnIndexMap,
+    private String buildResourcePath(Row row, List<String> columnNames,
+                                      Map<String, Integer> columnIndexMap,
                                       ResourceCheckConfig config, String sep) {
         List<String> pathFields = config.getPathFields();
         if (pathFields == null || pathFields.isEmpty()) {
@@ -263,7 +272,9 @@ public class ResourceChecker {
         // Get field values
         List<String> values = new ArrayList<>();
         for (String fieldName : pathFields) {
-            Integer idx = columnIndexMap.get(fieldName);
+            // 列名归一化：人工录入用「源路径」、批量提取用「文件夹路径」，语义相同
+            String resolvedField = ColumnSemantics.resolveColumnName(fieldName, columnNames);
+            Integer idx = resolvedField == null ? null : columnIndexMap.get(resolvedField);
             if (idx == null) continue;
             Cell cell = row.getCell(idx);
             String val = getCellValue(cell);
