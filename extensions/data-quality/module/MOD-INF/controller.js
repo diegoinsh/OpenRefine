@@ -66,6 +66,10 @@ function registerCommands() {
   RS.registerCommand(module, "run-image-quality-check",
       new Packages.com.google.refine.extension.quality.commands.RunImageQualityCheckCommand());
 
+  // SSO project ingest command (external systems push entry data in)
+  RS.registerCommand(module, "ingest-project",
+      new Packages.com.google.refine.extension.quality.commands.IngestProjectCommand());
+
   // OCR crop commands (file view panel)
   RS.registerCommand(module, "render-file-page",
       new Packages.com.google.refine.extension.quality.commands.RenderFilePageCommand());

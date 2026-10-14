@@ -683,8 +683,8 @@ public class ExportQualityReportCommand extends Command {
             int formatErrors = summary != null ? summary.path("formatErrors").asInt(0) : 0;
             int resourceErrors = summary != null ? summary.path("resourceErrors").asInt(0) : 0;
             int contentErrors = summary != null ? summary.path("contentErrors").asInt(0) : 0;
-            int imageErrors = summary.path("imageQualityErrors").asInt(0);
-            if (imageErrors == 0) {
+            int imageErrors = summary != null ? summary.path("imageQualityErrors").asInt(0) : 0;
+            if (imageErrors == 0 && summary != null) {
                 imageErrors = summary.path("imageErrors").asInt(0);
             }
 
