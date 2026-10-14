@@ -31,6 +31,13 @@ var ResourceExplorerPanel = {};
       ResourceExplorerPanel._createPanel();
     }
 
+    // 本面板挂在左侧栏内，而 JinRefine 进入项目时默认收起左侧面板
+    // （见 core/scripts/project.js）。若仍处于收起状态，面板虽被创建却不可见，
+    // 用户点击单元格后界面毫无变化，会误以为"资源/图片无法查看"。故此处先展开左侧栏。
+    if (typeof Refine !== 'undefined' && typeof Refine.showLeftPanel === 'function') {
+      Refine.showLeftPanel();
+    }
+
     // Show panel and hide original tabs
     ResourceExplorerPanel._panelElement.show();
     if (ui && ui.leftPanelTabs) {
@@ -376,7 +383,9 @@ var ResourceExplorerPanel = {};
    */
   ResourceExplorerPanel._getFileIcon = function(filename) {
     var ext = filename.split('.').pop().toLowerCase();
-    var basePath = '/images/extensions/';
+    // 用相对路径（而非根相对 "/images/..."），以便在外壳反代下经 <base> 解析到 /or-proxy/images/...；
+    // 根相对路径会绕过 base 直指外壳域，导致 404（图标全裂）。
+    var basePath = 'images/extensions/';
     var iconMap = {
       // 图片类型
       'jpg': 'file-image.svg', 'jpeg': 'file-image.svg', 'png': 'file-image.svg',
