@@ -1,3 +1,86 @@
+// 档案门类（依据《机关档案管理规定》国家档案局令第13号第二十三条）：
+// value 即提交给 AIMP 的门类名，AIMP 据此选用该门类的提取规则提示词
+Refine.ARCHIVE_CATEGORIES = [
+  { value: '文书档案', i18n: 'archive-cat-wenshu' },
+  { value: '科技档案', i18n: 'archive-cat-keji' },
+  { value: '科研档案', i18n: 'archive-cat-keyan' },
+  { value: '基建档案', i18n: 'archive-cat-jijian' },
+  { value: '设备档案', i18n: 'archive-cat-shebei' },
+  { value: '人事档案', i18n: 'archive-cat-renshi' },
+  { value: '会计档案', i18n: 'archive-cat-kuaiji' },
+  { value: '专业档案', i18n: 'archive-cat-zhuanye' },
+  { value: '照片档案', i18n: 'archive-cat-zhaopian' },
+  { value: '录音档案', i18n: 'archive-cat-luyin' },
+  { value: '录像档案', i18n: 'archive-cat-luxiang' },
+  { value: '业务数据档案', i18n: 'archive-cat-yewushuju' },
+  { value: '公务电子邮件档案', i18n: 'archive-cat-gongwu-email' },
+  { value: '网页信息档案', i18n: 'archive-cat-wangye' },
+  { value: '社交媒体档案', i18n: 'archive-cat-shejiao' },
+  { value: '实物档案', i18n: 'archive-cat-shiwu' },
+  { value: '其他档案', i18n: 'archive-cat-qita' }
+];
+
+// 专业档案的二级细分类别（依据《国家基本专业档案目录（第一批）》档函〔2011〕261号）：
+// 仅「专业档案」有二级细分；value 即提交给 AIMP 的二级类别名，AIMP 优先按它匹配提取规则。
+// 未列入二级细分的门类不提交该参数，AIMP 按门类规则处理。
+Refine.ARCHIVE_SUB_CATEGORIES = {
+  '专业档案': [
+    { value: '人民法院诉讼档案', i18n: 'sub-cat-court' },
+    { value: '人民检察院诉讼档案', i18n: 'sub-cat-procuratorate' },
+    { value: '公安业务档案', i18n: 'sub-cat-police' },
+    { value: '公证档案', i18n: 'sub-cat-notary' },
+    { value: '纪检监察机关案件档案', i18n: 'sub-cat-discipline' },
+    { value: '信访档案', i18n: 'sub-cat-petition' },
+    { value: '婚姻登记档案', i18n: 'sub-cat-marriage' },
+    { value: '社会保险业务档案', i18n: 'sub-cat-social-insurance' },
+    { value: '病历档案', i18n: 'sub-cat-medical' },
+    { value: '学籍档案', i18n: 'sub-cat-student' },
+    { value: '会计档案', i18n: 'sub-cat-accounting' },
+    { value: '土地管理档案', i18n: 'sub-cat-land' },
+    { value: '城建档案', i18n: 'sub-cat-urban' },
+    { value: '房屋产权登记档案', i18n: 'sub-cat-property' },
+    { value: '审计档案', i18n: 'sub-cat-audit' },
+    { value: '税收征管档案', i18n: 'sub-cat-tax' },
+    { value: '海关业务档案', i18n: 'sub-cat-customs' },
+    { value: '商标档案', i18n: 'sub-cat-trademark' },
+    { value: '专利档案', i18n: 'sub-cat-patent' },
+    { value: '地名档案', i18n: 'sub-cat-toponym' },
+    { value: '气象档案', i18n: 'sub-cat-meteorology' },
+    { value: '测绘档案', i18n: 'sub-cat-surveying' },
+    { value: '艺术档案', i18n: 'sub-cat-art' },
+    { value: '非物质文化遗产档案', i18n: 'sub-cat-heritage' },
+    { value: '其他专业档案', i18n: 'sub-cat-other' }
+  ]
+};
+
+// 固定四要素默认勾选；密级与开放状态在 DA/T 18—2022《档案著录规则》中分别为
+// 「有则必著」「必著」，故一并默认勾选；取消勾选则不向 AIMP 请求该要素
+Refine.FIXED_ELEMENTS = [
+  { key: 'title', i18n: 'el-title', checked: true },
+  { key: 'responsible_party', i18n: 'el-responsible', checked: true },
+  { key: 'document_number', i18n: 'el-docno', checked: true },
+  { key: 'date', i18n: 'el-date', checked: true }
+];
+// 密级、开放状态：勾选后按「自定义提取类型」的方式追加到 custom_elements
+Refine.OPTIONAL_ELEMENTS = [
+  { key: 'miji', nameKey: 'el-security', promptKey: 'el-security-prompt', checked: true },
+  { key: 'kaifang_zhuangtai', nameKey: 'el-open-status', promptKey: 'el-open-status-prompt', checked: true }
+];
+// 专门档案的扩展要素池（诉讼类档案用）：默认不勾选，勾选后同样按自定义要素方式追加
+Refine.EXTRA_ELEMENTS = [
+  { key: 'anyou', nameKey: 'el-case-cause', promptKey: 'el-case-cause-prompt', checked: false },
+  { key: 'dangshiren', nameKey: 'el-party', promptKey: 'el-party-prompt', checked: false },
+  { key: 'shenji', nameKey: 'el-trial-level', promptKey: 'el-trial-level-prompt', checked: false },
+  { key: 'jiean_fangshi', nameKey: 'el-closing-method', promptKey: 'el-closing-method-prompt', checked: false },
+  { key: 'baoguan_qixian', nameKey: 'el-retention', promptKey: 'el-retention-prompt', checked: false }
+];
+
+// 只有法院/检察院诉讼档案才展示上述扩展要素；其余门类与二级类别不显示该行，也不提交这些要素
+Refine.SUB_CATEGORY_EXTRA_ELEMENTS = {
+  '人民法院诉讼档案': Refine.EXTRA_ELEMENTS,
+  '人民检察院诉讼档案': Refine.EXTRA_ELEMENTS
+};
+
 Refine.LocalDirectorySourceUI = function (controller) {
   this._controller = controller;
 };
@@ -40,88 +123,14 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
   this._elmts.archiveSubCategoryLabel.text($.i18n('files-import/batch-archive-sub-category'));
   this._elmts.extractionElementsLabel.text($.i18n('files-import/batch-extraction-elements'));
 
-  // 档案门类（依据《机关档案管理规定》国家档案局令第13号第二十三条）：
-  // value 即提交给 AIMP 的门类名，AIMP 据此选用该门类的提取规则提示词
-  var ARCHIVE_CATEGORIES = [
-    { value: '文书档案', i18n: 'archive-cat-wenshu' },
-    { value: '科技档案', i18n: 'archive-cat-keji' },
-    { value: '科研档案', i18n: 'archive-cat-keyan' },
-    { value: '基建档案', i18n: 'archive-cat-jijian' },
-    { value: '设备档案', i18n: 'archive-cat-shebei' },
-    { value: '人事档案', i18n: 'archive-cat-renshi' },
-    { value: '会计档案', i18n: 'archive-cat-kuaiji' },
-    { value: '专业档案', i18n: 'archive-cat-zhuanye' },
-    { value: '照片档案', i18n: 'archive-cat-zhaopian' },
-    { value: '录音档案', i18n: 'archive-cat-luyin' },
-    { value: '录像档案', i18n: 'archive-cat-luxiang' },
-    { value: '业务数据档案', i18n: 'archive-cat-yewushuju' },
-    { value: '公务电子邮件档案', i18n: 'archive-cat-gongwu-email' },
-    { value: '网页信息档案', i18n: 'archive-cat-wangye' },
-    { value: '社交媒体档案', i18n: 'archive-cat-shejiao' },
-    { value: '实物档案', i18n: 'archive-cat-shiwu' },
-    { value: '其他档案', i18n: 'archive-cat-qita' }
-  ];
-
-  // 专业档案的二级细分类别（依据《国家基本专业档案目录（第一批）》档函〔2011〕261号）：
-  // 仅「专业档案」有二级细分；value 即提交给 AIMP 的二级类别名，AIMP 优先按它匹配提取规则。
-  // 未列入二级细分的门类不提交该参数，AIMP 按门类规则处理。
-  var ARCHIVE_SUB_CATEGORIES = {
-    '专业档案': [
-      { value: '人民法院诉讼档案', i18n: 'sub-cat-court' },
-      { value: '人民检察院诉讼档案', i18n: 'sub-cat-procuratorate' },
-      { value: '公安业务档案', i18n: 'sub-cat-police' },
-      { value: '公证档案', i18n: 'sub-cat-notary' },
-      { value: '纪检监察机关案件档案', i18n: 'sub-cat-discipline' },
-      { value: '信访档案', i18n: 'sub-cat-petition' },
-      { value: '婚姻登记档案', i18n: 'sub-cat-marriage' },
-      { value: '社会保险业务档案', i18n: 'sub-cat-social-insurance' },
-      { value: '病历档案', i18n: 'sub-cat-medical' },
-      { value: '学籍档案', i18n: 'sub-cat-student' },
-      { value: '会计档案', i18n: 'sub-cat-accounting' },
-      { value: '土地管理档案', i18n: 'sub-cat-land' },
-      { value: '城建档案', i18n: 'sub-cat-urban' },
-      { value: '房屋产权登记档案', i18n: 'sub-cat-property' },
-      { value: '审计档案', i18n: 'sub-cat-audit' },
-      { value: '税收征管档案', i18n: 'sub-cat-tax' },
-      { value: '海关业务档案', i18n: 'sub-cat-customs' },
-      { value: '商标档案', i18n: 'sub-cat-trademark' },
-      { value: '专利档案', i18n: 'sub-cat-patent' },
-      { value: '地名档案', i18n: 'sub-cat-toponym' },
-      { value: '气象档案', i18n: 'sub-cat-meteorology' },
-      { value: '测绘档案', i18n: 'sub-cat-surveying' },
-      { value: '艺术档案', i18n: 'sub-cat-art' },
-      { value: '非物质文化遗产档案', i18n: 'sub-cat-heritage' },
-      { value: '其他专业档案', i18n: 'sub-cat-other' }
-    ]
-  };
-
-  // 固定四要素默认勾选；密级与开放状态在 DA/T 18—2022《档案著录规则》中分别为
-  // 「有则必著」「必著」，故一并默认勾选；取消勾选则不向 AIMP 请求该要素
-  var FIXED_ELEMENTS = [
-    { key: 'title', i18n: 'el-title', checked: true },
-    { key: 'responsible_party', i18n: 'el-responsible', checked: true },
-    { key: 'document_number', i18n: 'el-docno', checked: true },
-    { key: 'date', i18n: 'el-date', checked: true }
-  ];
-  // 密级、开放状态：勾选后按「自定义提取类型」的方式追加到 custom_elements
-  var OPTIONAL_ELEMENTS = [
-    { key: 'miji', nameKey: 'el-security', promptKey: 'el-security-prompt', checked: true },
-    { key: 'kaifang_zhuangtai', nameKey: 'el-open-status', promptKey: 'el-open-status-prompt', checked: true }
-  ];
-  // 专门档案的扩展要素池（诉讼类档案用）：默认不勾选，勾选后同样按自定义要素方式追加
-  var EXTRA_ELEMENTS = [
-    { key: 'anyou', nameKey: 'el-case-cause', promptKey: 'el-case-cause-prompt', checked: false },
-    { key: 'dangshiren', nameKey: 'el-party', promptKey: 'el-party-prompt', checked: false },
-    { key: 'shenji', nameKey: 'el-trial-level', promptKey: 'el-trial-level-prompt', checked: false },
-    { key: 'jiean_fangshi', nameKey: 'el-closing-method', promptKey: 'el-closing-method-prompt', checked: false },
-    { key: 'baoguan_qixian', nameKey: 'el-retention', promptKey: 'el-retention-prompt', checked: false }
-  ];
-
-  // 只有法院/检察院诉讼档案才展示上述扩展要素；其余门类与二级类别不显示该行，也不提交这些要素
-  var SUB_CATEGORY_EXTRA_ELEMENTS = {
-    '人民法院诉讼档案': EXTRA_ELEMENTS,
-    '人民检察院诉讼档案': EXTRA_ELEMENTS
-  };
+  // 门类 / 要素定义统一定义在模块作用域（Refine.ARCHIVE_CATEGORIES 等，见本文件顶部），
+  // 「数据抽取」控制台的参数弹窗复用同一套，避免两处各写一份而漂移。
+  var ARCHIVE_CATEGORIES = Refine.ARCHIVE_CATEGORIES;
+  var ARCHIVE_SUB_CATEGORIES = Refine.ARCHIVE_SUB_CATEGORIES;
+  var FIXED_ELEMENTS = Refine.FIXED_ELEMENTS;
+  var OPTIONAL_ELEMENTS = Refine.OPTIONAL_ELEMENTS;
+  var EXTRA_ELEMENTS = Refine.EXTRA_ELEMENTS;
+  var SUB_CATEGORY_EXTRA_ELEMENTS = Refine.SUB_CATEGORY_EXTRA_ELEMENTS;
 
   ARCHIVE_CATEGORIES.forEach(function (cat) {
     self._elmts.archiveCategorySelect.append(

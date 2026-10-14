@@ -114,6 +114,7 @@
     "files-import/batch-open-project": "Open project »",
     "files-import/batch-restart": "Extract again",
     "files-import/batch-clear-cache": "Clear cache (ignore previous results)",
+    "files-import/batch-clear-cache-resume": "Clear cache (ignore previous results and already recognised pages)",
     "files-import/batch-status-failed": "Extraction failed",
     "files-import/aimp-unavailable": "AI service module is unavailable. Please check or restart the module.",
     "files-import/batch-banner-running": "Batch title extraction in progress: $1 / $2 $3, $4 / $5 pages, $6 rows written, $7; $8 The data table refreshes automatically; please avoid editing data during extraction.",

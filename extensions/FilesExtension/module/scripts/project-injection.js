@@ -522,13 +522,15 @@ var BatchTitleExtractionMonitor = (function () {
       var startedAt = d.startedAt || 0;
       var elapsedMin = startedAt > 0
           ? Math.max(0, Math.round((Date.now() - startedAt) / 60000)) : 0;
-      // 完成度（与进度条同口径）：已完成件数 + 当前件内完成度
+      // 「总耗时预计」按页口径外推：法院案卷的实际成本与页数几乎成正比，而各卷页数
+      // 相差很大（长卷 2-300 页、短卷几页），按件/卷数算完成度会让预估值跳变失真。
+      // 故一律用 已处理页数 / 总页数；总页数缺失时才退回件/卷口径。
       var fraction = 0;
-      if ((d.totalFiles || 0) > 0) {
+      if ((d.totalPages || 0) > 0) {
+        fraction = (d.processedPages || 0) / d.totalPages;
+      } else if ((d.totalFiles || 0) > 0) {
         fraction = ((d.processedFiles || 0) - 1
             + (typeof d.unitFraction === 'number' ? d.unitFraction : 0)) / d.totalFiles;
-      } else if ((d.totalPages || 0) > 0) {
-        fraction = (d.processedPages || 0) / d.totalPages;
       }
       fraction = Math.max(0, Math.min(1, fraction));
       // 完成度过低时按比例外推会得出离谱的预估值，此时只显示已耗时

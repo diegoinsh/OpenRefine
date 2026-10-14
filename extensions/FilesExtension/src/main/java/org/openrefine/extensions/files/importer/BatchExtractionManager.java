@@ -63,6 +63,7 @@ public class BatchExtractionManager {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     public static final String STATUS_RUNNING = "running";
+    public static final String STATUS_PAUSED = "paused";
     public static final String STATUS_COMPLETED = "completed";
     public static final String STATUS_CANCELLED = "cancelled";
     public static final String STATUS_FAILED = "failed";
@@ -122,6 +123,11 @@ public class BatchExtractionManager {
         public volatile int totalFiles;
         public volatile int processedFiles;
         public volatile boolean cancelRequested;
+        /**
+         * 暂停标志：置位后任务在批/页边界原地等待（不中断线程），恢复后从断点继续。
+         * 与数据质量任务一致，采用标志位轮询而非线程中断。
+         */
+        public volatile boolean paused;
         public volatile String status = STATUS_RUNNING;
         public volatile String message = "";
         public volatile int processedPages;
@@ -208,6 +214,15 @@ public class BatchExtractionManager {
                 this.fileName = fileName;
                 this.values = values;
             }
+        }
+
+        /**
+         * 把当前进度落盘：processedPages 每次「页处理完毕」（命中缓存或新识别成功）即递增，
+         * 与缓存里已跑完的页数一致。中断（尤其强杀）后内存任务丢失，控制台列表的中断态
+         * 就取这里落下的值，从而显示「缓存中已经跑完的页数」，而不是回落到 0。
+         */
+        synchronized void persistProgress() {
+            ExtractionTaskRegistry.updateProgress(projectId, processedPages, totalPages);
         }
 
         /** 记一页的识别结果；超出容量时丢弃最旧的一页，保证长卷不撑内存 */
@@ -975,6 +990,45 @@ public class BatchExtractionManager {
         return true;
     }
 
+    /** 暂停：仅运行中的任务可暂停；做中的页会跑完，之后在边界原地等待 */
+    public boolean pause(long projectId) {
+        Task task = tasks.get(projectId);
+        if (task == null || !STATUS_RUNNING.equals(task.status)) {
+            return false;
+        }
+        task.paused = true;
+        task.status = STATUS_PAUSED;
+        task.message = "已暂停";
+        return true;
+    }
+
+    /** 恢复：仅已暂停的任务可恢复；清标志后线程从断点继续 */
+    public boolean resume(long projectId) {
+        Task task = tasks.get(projectId);
+        if (task == null || !STATUS_PAUSED.equals(task.status)) {
+            return false;
+        }
+        task.paused = false;
+        task.status = STATUS_RUNNING;
+        task.message = null;
+        return true;
+    }
+
+    /**
+     * 暂停轮询：暂停期间在批/页边界原地等待，恢复后返回继续。
+     * 用户在暂停期间点「停止」也能立刻退出（cancelRequested 置位即返回）。
+     */
+    private static void waitWhilePaused(Task task) {
+        while (task.paused && !task.cancelRequested) {
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
     private void run(Task task, String aimpUrl) {
         long t0 = System.nanoTime();
         try {
@@ -1040,8 +1094,10 @@ public class BatchExtractionManager {
         String keyList = String.join(",", keys);
         String customJson = CustomElementsCodec.toJson(task.customElements);
         // 页级并发度：诉讼档案按页并发（页间无上下文），其余门类逐页串行；
-        // 前端据此决定预览的揭示节奏——串行到达即显示，并发按平均每页耗时逐条揭示
-        task.pageConcurrency = isLitigationArchive(task) ? PAGE_CONCURRENCY : 1;
+        // 前端据此决定预览的揭示节奏——串行到达即显示，并发按平均每页耗时逐条揭示。
+        // 并发度取「高级设置」里的 extraction.pageConcurrency，未配置时用内置默认值。
+        int configuredConcurrency = ExtractionConfigStore.getInt("extraction.pageConcurrency", PAGE_CONCURRENCY);
+        task.pageConcurrency = isLitigationArchive(task) ? Math.max(1, configuredConcurrency) : 1;
         Project project = ProjectManager.singleton.getProject(task.projectId);
         if (project == null) {
             fail(task, "Project not found: " + task.projectId);
@@ -1055,6 +1111,7 @@ public class BatchExtractionManager {
         try {
             int consecutiveFailures = 0;
             for (UnitScanner.Volume unit : task.units) {
+                waitWhilePaused(task);
                 if (task.cancelRequested) break;
                 task.currentUnit = unit.name;
                 task.volumeIndex++;
@@ -1072,6 +1129,7 @@ public class BatchExtractionManager {
                     // 而非 PDF 文件内部页号，否则同卷多件的页区间会全部重叠、比对时切错页
                     int pageOffset = 0;
                     for (int k = 0; k < unit.pages.size(); k++) {
+                        waitWhilePaused(task);
                         if (task.cancelRequested) break;
                         String pdf = unit.pages.get(k);
                         String label = fileLabel(new File(pdf).getName(), k + 1, unit.pages.size());
@@ -1082,86 +1140,114 @@ public class BatchExtractionManager {
                         int totalBefore = task.totalPages;
                         task.message = "正在提交： " + label;
 
-                        AimpLlmClient.ExtractPageResult r = client.submitAsync(pdf, keyList, customJson);
-                        if (!r.success || r.taskId == null || r.taskId.isEmpty()) {
-                            consecutiveFailures++;
-                            task.failedPages++;
-                            task.processedPages = pagesBefore + 1;
+                        // 件级缓存：PDF 路径里一「件」= 一整份 PDF（含多页），整份提交 + 轮询是这条
+                        // 路径最贵的一步。命中即整份跳过 AIMP，于是「暂停恢复 / 停止后重启 / 崩溃重启 /
+                        // 就地重跑」都能续跑，已识别过的 PDF 件不重做。键＝文件路径+大小+mtime+提取参数；
+                        // PDF 分支本就不传页间上下文，故上下文为空。用户勾「禁用缓存」时读写都跳过。
+                        String cacheKey = task.disableCache ? null
+                                : ExtractionPageCache.keyFor(pdf, keyList, customJson,
+                                        task.archiveCategory, task.archiveSubCategory, null);
+                        AimpLlmClient.ExtractPageResult r =
+                                cacheKey == null ? null : ExtractionPageCache.load(cacheKey);
+                        boolean fromCache = r != null;
+                        if (fromCache) {
+                            // 命中：没有轮询可依据，用缓存里的 pageCount 复原「已处理页数」与
+                            // totalPages 修正（等价于轮询探明 realPages 后做的那次修正）
+                            task.message = "复用已识别结果： " + label;
+                            int cachedPages = Math.max(1, r.pageCount);
+                            if (cachedPages > 1) task.totalPages = totalBefore + cachedPages - 1;
+                            task.processedPages = pagesBefore + cachedPages;
+                            task.persistProgress();
                             task.unitFraction = (k + 1) / (double) Math.max(1, unit.pages.size());
-                            TitleSplitter.Piece p = new TitleSplitter.Piece();
-                            // 提交失败也按 1 页占位，保证后续件的卷内页号不重叠
-                            p.startPage = pageOffset + 1;
-                            p.endPage = pageOffset + 1;
-                            pageOffset += 1;
-                            appendUnitRow(task, project, unit, pieceNo, new File(pdf).getName(), p, null,
-                                    r.error != null ? r.error : "提交提取任务失败", null);
-                            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                                fail(task, "AIMP 连续失败 " + consecutiveFailures + " 次，任务中止");
-                                return;
-                            }
-                            continue;
                         }
 
-                        // 异步轮询：同步等待会在大页数文档上触发读取超时，这里按页观察进度
-                        int realPages = 0;
-                        boolean corrected = false;
-                        boolean timedOut = false;
-                        long deadline = System.currentTimeMillis() + ASYNC_TASK_DEADLINE_MS;
-                        while (true) {
-                            if (task.cancelRequested) break;
-                            if (System.currentTimeMillis() > deadline) {
-                                timedOut = true;
-                                break;
-                            }
-                            AimpLlmClient.TaskStatusResult st = client.getTaskStatus(r.taskId);
-                            if (!st.success) {
-                                if (st.error != null && st.error.startsWith("HTTP 404")) {
-                                    // 任务在 AIMP 侧已不存在（如服务重启），继续轮询无意义
-                                    AimpLlmClient.ExtractPageResult lost = new AimpLlmClient.ExtractPageResult();
-                                    lost.error = "AIMP 任务已丢失（服务可能已重启）";
-                                    r = lost;
-                                    break;
+                        if (!fromCache) {
+                            r = client.submitAsync(pdf, keyList, customJson);
+                            if (!r.success || r.taskId == null || r.taskId.isEmpty()) {
+                                consecutiveFailures++;
+                                task.failedPages++;
+                                task.processedPages = pagesBefore + 1;
+                                task.unitFraction = (k + 1) / (double) Math.max(1, unit.pages.size());
+                                TitleSplitter.Piece p = new TitleSplitter.Piece();
+                                // 提交失败也按 1 页占位，保证后续件的卷内页号不重叠
+                                p.startPage = pageOffset + 1;
+                                p.endPage = pageOffset + 1;
+                                pageOffset += 1;
+                                appendUnitRow(task, project, unit, pieceNo, new File(pdf).getName(), p, null,
+                                        r.error != null ? r.error : "提交提取任务失败", null);
+                                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                                    fail(task, "AIMP 连续失败 " + consecutiveFailures + " 次，任务中止");
+                                    return;
                                 }
-                                // 网络抖动等瞬时错误：保持轮询，不中断整批任务
-                                sleepQuietly(ASYNC_POLL_INTERVAL_MS);
                                 continue;
                             }
-                            if (st.totalPages > 0) realPages = st.totalPages;
-                            if (!corrected && realPages > 1) {
-                                task.totalPages = totalBefore + realPages - 1;
-                                corrected = true;
-                            }
-                            task.processedPages = pagesBefore + st.processedPages;
-                            double pdfRatio = realPages > 0
-                                    ? Math.min(st.processedPages, realPages) / (double) realPages : 0d;
-                            task.unitFraction = (k + pdfRatio) / Math.max(1, unit.pages.size());
-                            task.message = realPages > 0
-                                    ? "正在处理第 " + Math.min(st.processedPages + 1, realPages) + "/" + realPages + " 页： " + label
-                                    : "正在解析： " + label;
-                            if ("completed".equals(st.status)) {
-                                AimpLlmClient.ExtractPageResult parsed = client.parseTaskResult(st.result);
-                                parsed.pageCount = realPages > 0 ? realPages : 1;
-                                r = parsed;
-                                break;
-                            }
-                            if ("failed".equals(st.status) || "cancelled".equals(st.status)) {
-                                AimpLlmClient.ExtractPageResult failed = new AimpLlmClient.ExtractPageResult();
-                                failed.error = st.error != null && !st.error.isEmpty()
-                                        ? st.error : "AIMP 任务" + st.status;
-                                r = failed;
-                                break;
-                            }
-                            sleepQuietly(ASYNC_POLL_INTERVAL_MS);
-                        }
-                        if (task.cancelRequested) break;
 
-                        int donePages = realPages > 1 ? realPages : Math.max(1, r.pageCount);
-                        if (!corrected && donePages > 1) task.totalPages = totalBefore + donePages - 1;
-                        task.processedPages = pagesBefore + donePages;
-                        task.unitFraction = (k + 1) / (double) Math.max(1, unit.pages.size());
-                        if (timedOut) {
-                            r.success = false;
-                            r.error = "等待提取结果超时（" + (ASYNC_TASK_DEADLINE_MS / 60000) + " 分钟）";
+                            // 异步轮询：同步等待会在大页数文档上触发读取超时，这里按页观察进度
+                            int realPages = 0;
+                            boolean corrected = false;
+                            boolean timedOut = false;
+                            long deadline = System.currentTimeMillis() + ASYNC_TASK_DEADLINE_MS;
+                            while (true) {
+                                if (task.cancelRequested) break;
+                                if (System.currentTimeMillis() > deadline) {
+                                    timedOut = true;
+                                    break;
+                                }
+                                AimpLlmClient.TaskStatusResult st = client.getTaskStatus(r.taskId);
+                                if (!st.success) {
+                                    if (st.error != null && st.error.startsWith("HTTP 404")) {
+                                        // 任务在 AIMP 侧已不存在（如服务重启），继续轮询无意义
+                                        AimpLlmClient.ExtractPageResult lost = new AimpLlmClient.ExtractPageResult();
+                                        lost.error = "AIMP 任务已丢失（服务可能已重启）";
+                                        r = lost;
+                                        break;
+                                    }
+                                    // 网络抖动等瞬时错误：保持轮询，不中断整批任务
+                                    sleepQuietly(ASYNC_POLL_INTERVAL_MS);
+                                    continue;
+                                }
+                                if (st.totalPages > 0) realPages = st.totalPages;
+                                if (!corrected && realPages > 1) {
+                                    task.totalPages = totalBefore + realPages - 1;
+                                    corrected = true;
+                                }
+                                task.processedPages = pagesBefore + st.processedPages;
+                                double pdfRatio = realPages > 0
+                                        ? Math.min(st.processedPages, realPages) / (double) realPages : 0d;
+                                task.unitFraction = (k + pdfRatio) / Math.max(1, unit.pages.size());
+                                task.message = realPages > 0
+                                        ? "正在处理第 " + Math.min(st.processedPages + 1, realPages) + "/" + realPages + " 页： " + label
+                                        : "正在解析： " + label;
+                                if ("completed".equals(st.status)) {
+                                    AimpLlmClient.ExtractPageResult parsed = client.parseTaskResult(st.result);
+                                    parsed.pageCount = realPages > 0 ? realPages : 1;
+                                    r = parsed;
+                                    break;
+                                }
+                                if ("failed".equals(st.status) || "cancelled".equals(st.status)) {
+                                    AimpLlmClient.ExtractPageResult failed = new AimpLlmClient.ExtractPageResult();
+                                    failed.error = st.error != null && !st.error.isEmpty()
+                                            ? st.error : "AIMP 任务" + st.status;
+                                    r = failed;
+                                    break;
+                                }
+                                sleepQuietly(ASYNC_POLL_INTERVAL_MS);
+                            }
+                            if (task.cancelRequested) break;
+
+                            int donePages = realPages > 1 ? realPages : Math.max(1, r.pageCount);
+                            if (!corrected && donePages > 1) task.totalPages = totalBefore + donePages - 1;
+                            task.processedPages = pagesBefore + donePages;
+                            task.persistProgress();
+                            task.unitFraction = (k + 1) / (double) Math.max(1, unit.pages.size());
+                            if (timedOut) {
+                                r.success = false;
+                                r.error = "等待提取结果超时（" + (ASYNC_TASK_DEADLINE_MS / 60000) + " 分钟）";
+                            }
+                            // 只缓存成功结果（ExtractionPageCache.save 内部已过滤 !success）
+                            if (cacheKey != null) {
+                                ExtractionPageCache.save(cacheKey, r);
+                            }
                         }
 
                         if (r.success) {
@@ -1231,14 +1317,32 @@ public class BatchExtractionManager {
                             // processedPages 已在并发过程中按批累加，此处不重复计数
                         }
                     } else {
-                        // 其余门类页间存在上下文依赖，保持逐页串行的原有行为
+                        // 其余门类页间存在上下文依赖，保持逐页串行。上下文由前序页的识别结果派生、
+                        // 且已纳入缓存键，故重启后从第 1 页起逐页命中缓存、上下文自洽重建——进度仍
+                        // 从 1 起走，但已识别过的页不再调用 AIMP，等效断点续跑。
                         long tExtract0 = System.nanoTime();
                         for (int i = 0; i < unit.pages.size(); i++) {
+                            waitWhilePaused(task);
                             String page = unit.pages.get(i);
                             if (task.cancelRequested) break;
-                            task.message = "正在处理第 " + (i + 1) + "/" + unit.pages.size() + " 页： " + new File(page).getName();
-                            AimpLlmClient.ExtractPageResult r = client.extractPage(page, keyList, customJson,
-                                    i + 1, unit.pages.size(), buildPageContext(task, pageValues, pageConfidences));
+                            String pageContext = buildPageContext(task, pageValues, pageConfidences);
+                            String cacheKey = task.disableCache ? null
+                                    : ExtractionPageCache.keyFor(page, keyList, customJson,
+                                            task.archiveCategory, task.archiveSubCategory, pageContext);
+                            AimpLlmClient.ExtractPageResult r =
+                                    cacheKey == null ? null : ExtractionPageCache.load(cacheKey);
+                            if (r != null) {
+                                task.message = "复用已识别结果：第 " + (i + 1) + "/" + unit.pages.size()
+                                        + " 页： " + new File(page).getName();
+                            } else {
+                                task.message = "正在处理第 " + (i + 1) + "/" + unit.pages.size()
+                                        + " 页： " + new File(page).getName();
+                                r = client.extractPage(page, keyList, customJson,
+                                        i + 1, unit.pages.size(), pageContext);
+                                if (cacheKey != null) {
+                                    ExtractionPageCache.save(cacheKey, r);
+                                }
+                            }
                             if (r.success) {
                                 consecutiveFailures = 0;
                             } else {
@@ -1259,6 +1363,7 @@ public class BatchExtractionManager {
                             pageSkipped.add(r.success && r.skipped);
                             if (r.success) task.recordPageType(unit.path, i + 1, r.pageType, r.skipped);
                             task.processedPages++;
+                            task.persistProgress();
                             task.unitFraction = (i + 1) / (double) Math.max(1, unit.pages.size());
                         }
                         task.tExtractMs += (System.nanoTime() - tExtract0) / 1_000_000;
@@ -1426,6 +1531,8 @@ public class BatchExtractionManager {
                 task.status = STATUS_COMPLETED;
                 task.message = "提取完成";
             }
+            // 终态写回登记表，控制台重启后仍能看到最终状态
+            ExtractionTaskRegistry.updateStatus(task.projectId, task.status, task.message);
             long tSave0 = System.nanoTime();
             flushPageMap(task);
             saveProject(task);
@@ -1555,16 +1662,35 @@ public class BatchExtractionManager {
         }
     }
 
-    /** 单页提取任务：页间无依赖，不传已提取信息（previousExtractions 传 null）。 */
-    private Callable<PageOutcome> pageExtractTask(AimpLlmClient client, UnitScanner.Volume unit,
+    /**
+     * 单页提取任务：页间无依赖，不传已提取信息（previousExtractions 传 null）。
+     *
+     * 断点续跑：本路径（诉讼档案按页并发、无页间上下文）的页级结果会落到本地页级缓存，
+     * 命中即直接复用、不再调 AIMP —— 于是暂停恢复 / 停止后重启 / 崩溃重启 / 就地重跑
+     * 都能从中断的页继续，已识别过的页不重做。用户勾了「禁用缓存」时强制重新识别。
+     */
+    private Callable<PageOutcome> pageExtractTask(AimpLlmClient client, Task task, UnitScanner.Volume unit,
                                                   String keyList, String customJson, int index) {
         final String pagePath = unit.pages.get(index);
         final int pageNo = index + 1;
         final int total = unit.pages.size();
+        final String cacheKey = task.disableCache ? null
+                : ExtractionPageCache.keyFor(pagePath, keyList, customJson,
+                        task.archiveCategory, task.archiveSubCategory, null);
         return () -> {
             try {
-                return new PageOutcome(index, client.extractPage(pagePath, keyList, customJson,
-                        pageNo, total, null));
+                if (cacheKey != null) {
+                    AimpLlmClient.ExtractPageResult cached = ExtractionPageCache.load(cacheKey);
+                    if (cached != null) {
+                        return new PageOutcome(index, cached);
+                    }
+                }
+                AimpLlmClient.ExtractPageResult result = client.extractPage(pagePath, keyList, customJson,
+                        pageNo, total, null);
+                if (cacheKey != null) {
+                    ExtractionPageCache.save(cacheKey, result);
+                }
+                return new PageOutcome(index, result);
             } catch (Exception e) {
                 logger.warn("第 {} 页提取异常", pageNo, e);
                 return new PageOutcome(index, null);
@@ -1586,11 +1712,13 @@ public class BatchExtractionManager {
         if (total <= 0) {
             return true;
         }
-        // 滑动窗口：始终维持 PAGE_CONCURRENCY 个请求在途，完成一页立刻补下一页，不再等整批返回。
-        // 旧实现"每 PAGE_CONCURRENCY 页一批、批满才发下一批"：批里只要有跳过页（毫秒级返回）
+        // 本卷实际并发度：诉讼档案取配置值，其余门类为 1（串行，页间有上下文）
+        int window = Math.max(1, task.pageConcurrency);
+        // 滑动窗口：始终维持 window 个请求在途，完成一页立刻补下一页，不再等整批返回。
+        // 旧实现"每 window 页一批、批满才发下一批"：批里只要有跳过页（毫秒级返回）
         // 或长尾页，窗口就空转——跳过页占用批位却不产出，长尾页让同批其余槽位闲置。
         // 6 卷实测跳过率 15.8%（61/386），批屏障约浪费一成五的吞吐。
-        ExecutorService pool = Executors.newFixedThreadPool(PAGE_CONCURRENCY, r -> {
+        ExecutorService pool = Executors.newFixedThreadPool(window, r -> {
             Thread t = new Thread(r, "aimp-page-extract");
             t.setDaemon(true);
             return t;
@@ -1601,14 +1729,16 @@ public class BatchExtractionManager {
             int inFlight = 0;           // 在途请求数
             int done = 0;               // 已回收页数
             int consecutiveFailures = 0;
-            // 计时口径不变：每回收 PAGE_CONCURRENCY 页记一次「该窗口墙钟 ÷ 其中真正推理的页数」
+            // 计时口径不变：每回收 window 页记一次「该窗口墙钟 ÷ 其中真正推理的页数」
             long markTime = System.currentTimeMillis();
             int inferredInWindow = 0;
             int completedInWindow = 0;
             task.message = "已完成 0 / " + total + " 页";
             while (next < total || inFlight > 0) {
-                while (next < total && inFlight < PAGE_CONCURRENCY) {
-                    completion.submit(pageExtractTask(client, unit, keyList, customJson, next));
+                // 暂停时不再提交新页，等在途页跑完后原地等待
+                waitWhilePaused(task);
+                while (next < total && inFlight < window) {
+                    completion.submit(pageExtractTask(client, task, unit, keyList, customJson, next));
                     next++;
                     inFlight++;
                 }
@@ -1641,9 +1771,10 @@ public class BatchExtractionManager {
                 }
                 completedInWindow++;
                 task.processedPages++;
+                task.persistProgress();
                 task.unitFraction = done / (double) Math.max(1, total);
                 task.message = "已完成 " + done + " / " + total + " 页";
-                if (completedInWindow >= PAGE_CONCURRENCY) {
+                if (completedInWindow >= window) {
                     task.recordPageTiming(System.currentTimeMillis() - markTime, inferredInWindow);
                     markTime = System.currentTimeMillis();
                     inferredInWindow = 0;
@@ -2433,6 +2564,7 @@ public class BatchExtractionManager {
     private void fail(Task task, String message) {
         task.status = STATUS_FAILED;
         task.message = message;
+        ExtractionTaskRegistry.updateStatus(task.projectId, STATUS_FAILED, message);
         flushPageMap(task);
         saveProject(task);
         logger.warn("Batch extraction task failed: projectId={}, message={}", task.projectId, message);

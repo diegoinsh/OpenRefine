@@ -34,6 +34,13 @@ function init() {
     new Packages.org.openrefine.extensions.files.importer.BatchExtractionCommand()
   );
 
+  // Register extraction console system-level config command (get/save)
+  RS.registerCommand(
+    module,
+    "extraction-config",
+    new Packages.org.openrefine.extensions.files.importer.ExtractionConfigCommand()
+  );
+
   // Script files to inject into /index page
   ClientSideResourceManager.addPaths(
     "index/scripts",
@@ -41,7 +48,8 @@ function init() {
     [
       "scripts/vendor/tiny-pinyin.js",
       "scripts/index/files-importing-controller.js",
-      "scripts/index/import-from-local-dir.js"
+      "scripts/index/import-from-local-dir.js",
+      "scripts/index/extraction-console.js"
     ]
   );
 
@@ -51,7 +59,8 @@ function init() {
     "index/styles",
     module,
     [
-      "styles/files-importing-controller.css"
+      "styles/files-importing-controller.css",
+      "styles/index/extraction-console.css"
     ]
   );
 

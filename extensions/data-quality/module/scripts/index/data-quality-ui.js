@@ -210,9 +210,7 @@ Refine.DataQualityUI.prototype._loadProjects = function() {
       self._projects = data.projects || {};
       // 构建标签列表
       self._buildTagsList();
-      // 渲染项目表格
-      self._renderProjectList();
-      // 加载任务状态
+      // 加载任务状态后再渲染：列表只显示「有本域（质量检查）任务」的项目
       self._loadAllTasksStatus();
     }
   );
@@ -345,6 +343,9 @@ Refine.DataQualityUI.prototype._loadAllTasksStatus = function() {
         });
       }
 
+      // 任务状态就绪后再渲染列表：列表只显示「有质量检查任务」的项目
+      self._renderProjectList();
+
       // 更新所有项目行
       for (var projectId in self._projects) {
         self._updateProjectRow(projectId);
@@ -353,6 +354,7 @@ Refine.DataQualityUI.prototype._loadAllTasksStatus = function() {
   ).fail(function() {
     // 失败时清空任务状态
     self._tasks = {};
+    self._renderProjectList();
     for (var projectId in self._projects) {
       self._updateProjectRow(projectId);
     }
@@ -372,6 +374,11 @@ Refine.DataQualityUI.prototype._renderProjectList = function() {
 
   // 按上次修改时间逆序排序（最近修改的在前）
   var projectIds = Object.keys(this._projects);
+  // 任务分域：本列表只显示「有质量检查任务」的项目；没有任何检查任务的项目不出现在这里
+  // （想看到全部项目请用「打开项目」）
+  projectIds = projectIds.filter(function(pid) {
+    return !!(self._tasks && self._tasks[pid]);
+  });
   projectIds.sort(function(a, b) {
     var ma = self._projects[a].modified ? new Date(self._projects[a].modified).getTime() : 0;
     var mb = self._projects[b].modified ? new Date(self._projects[b].modified).getTime() : 0;
