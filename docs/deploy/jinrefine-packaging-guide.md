@@ -174,11 +174,14 @@ ISCC "G:\workshop\RUYI\packaging\jinrefine\installer\jinrefine.iss"
 
 ### 6.3 Ollama 模型
 
-仅保留两个核心模型：
+仅保留一个核心模型：
 
 | 模型 | 用途 |
 |------|------|
 | qwen3:4b | 主推理模型（合规审查、数据抽取） |
-| dengcao/qwen3-embedding-0.6b:f16 | 文本嵌入模型（语义检索） |
 
-已移除的模型：bge-m3、qwen3:1.7b、qwen3:30b-a3b 等。
+已移除的模型：bge-m3、qwen3:1.7b、qwen3:30b-a3b 等；
+`dengcao/qwen3-embedding-0.6b:f16` 亦于 **1.1.0 移除** —— 其唯一调用方 `vector_processor`
+（`VECTOR_PROCESSING` 阶段）从未被任何链路由触发，属死代码；移除后安装包减少约 **1.14 GB**
+（3.56 GB → 2.42 GB）。`config\ollama_pin.json` 的模型锚点已同步（见 `release-notes/v1.1.0.md`
+的"随包模型"一节）。
