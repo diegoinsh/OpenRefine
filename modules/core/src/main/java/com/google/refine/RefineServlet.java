@@ -67,6 +67,7 @@ import com.google.refine.commands.Command;
 import com.google.refine.commands.CommandGuard;
 import com.google.refine.importing.ImportingManager;
 import com.google.refine.io.FileProjectManager;
+import com.google.refine.licensing.LicenseGuard;
 
 public class RefineServlet extends Butterfly {
 
@@ -145,6 +146,11 @@ public class RefineServlet extends Butterfly {
         s_dataDir = new File(data);
         FileProjectManager.initialize(s_dataDir);
         ImportingManager.initialize(this);
+
+        // 模块级授权守卫（纵深防御）：在 POST 命令分发前按「命令 → 加密狗模块」校验，
+        // 堵住绕过能力平台直连 OR 白用未授权模块。默认关闭（ruyi.license.enforce=off），
+        // 由 JVM 系统属性开关；关闭时零影响、可回退。
+        LicenseGuard.register(this);
 
         long AUTOSAVE_PERIOD = Long.parseLong(getInitParameter("refine.autosave"));
 

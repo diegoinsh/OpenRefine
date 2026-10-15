@@ -50,6 +50,16 @@
           </execution>
         </executions>
       </plugin>
+      <!-- localizer 只处理 core 的 OpenRefineMessage 资源。其余 properties（如 licensing
+           的 LicenseMessages）由各自的 ResourceBundle 直接读取：localizer 会按**文件名**
+           生成 Java 类，文件名/键名必须能转成合法 Java 标识符，不适用这类资源。 -->
+      <plugin>
+        <groupId>org.jvnet.localizer</groupId>
+        <artifactId>localizer-maven-plugin</artifactId>
+        <configuration>
+          <fileMask>OpenRefineMessage*.properties</fileMask>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
 
