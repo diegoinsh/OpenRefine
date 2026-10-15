@@ -29,6 +29,40 @@ public final class ExtractionTaskRegistry {
     private ExtractionTaskRegistry() {
     }
 
+    /** 读取某个项目的任务概要；不存在或表损坏时返回 null */
+    public static Map<String, Object> get(long projectId) {
+        synchronized (LOCK) {
+            Object existing = read().get(String.valueOf(projectId));
+            if (!(existing instanceof Map)) {
+                return null;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> rec = (Map<String, Object>) existing;
+            return new LinkedHashMap<>(rec);
+        }
+    }
+
+    /**
+     * 记下「已完整跑完并落盘」的卷名（整卷卷内行 + 卷级行都已写入项目）。
+     *
+     * <p>进程被强杀（断电/杀进程）后内存任务丢失，重启再「启动」时无从判断哪些卷已经算完；
+     * 这里逐卷落盘，续跑时据此跳过这些卷、直接沿用项目里已有的结果，不再重算。
+     */
+    public static void updateCompletedUnits(long projectId, List<String> completedUnits) {
+        synchronized (LOCK) {
+            Map<String, Object> data = read();
+            Object existing = data.get(String.valueOf(projectId));
+            if (!(existing instanceof Map)) {
+                return;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> rec = new LinkedHashMap<>((Map<String, Object>) existing);
+            rec.put("completedUnits", new ArrayList<>(completedUnits));
+            data.put(String.valueOf(projectId), rec);
+            write(data);
+        }
+    }
+
     /** 新增或整体覆盖某个项目的任务概要 */
     public static void upsert(long projectId, Map<String, Object> fields) {
         synchronized (LOCK) {

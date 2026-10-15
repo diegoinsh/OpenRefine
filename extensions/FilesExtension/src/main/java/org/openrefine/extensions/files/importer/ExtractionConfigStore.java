@@ -30,6 +30,10 @@ public final class ExtractionConfigStore {
         config.put("aimp.server", "http://127.0.0.1:7998");
         config.put("aimp.timeout", 30);
         config.put("extraction.pageConcurrency", 4);
+        // 文书档案页级并发：默认打开＝按 extraction.pageConcurrency 路并发、不再传页间上下文
+        // （实测同 18 页 33s vs 逐页串行 70s，约 2.1×）。关闭则退回逐页串行 + 传前序页要素，
+        // 保上下文但慢约一倍——要素只出现在非件首页的多页件是已知残余风险，待样本回归。
+        config.put("extraction.documentPagesIndependent", true);
         config.put("extraction.defaultCategory", "");
         config.put("extraction.defaultSubCategory", "");
         config.put("extraction.disableCache", false);
@@ -77,6 +81,33 @@ public final class ExtractionConfigStore {
         } catch (Exception e) {
             return fallback;
         }
+    }
+
+    /** 取布尔配置项；缺失或非法时返回 fallback */
+    public static boolean getBoolean(String key, boolean fallback) {
+        return parseBoolean(load().get(key), fallback);
+    }
+
+    /**
+     * 布尔解析：JSON 里既可能是原生布尔（前端复选框写入），也可能是字符串（手改配置文件）。
+     * 识别 true/1/yes/on 与 false/0/no/off（忽略大小写与首尾空白），其余一律返回 fallback。
+     * 单独抽成包内可见的纯函数，便于不走文件读写的单元测试。
+     */
+    static boolean parseBoolean(Object value, boolean fallback) {
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value == null) {
+            return fallback;
+        }
+        String s = String.valueOf(value).trim().toLowerCase();
+        if ("true".equals(s) || "1".equals(s) || "yes".equals(s) || "on".equals(s)) {
+            return true;
+        }
+        if ("false".equals(s) || "0".equals(s) || "no".equals(s) || "off".equals(s)) {
+            return false;
+        }
+        return fallback;
     }
 
     public static void save(Map<String, Object> config) throws java.io.IOException {

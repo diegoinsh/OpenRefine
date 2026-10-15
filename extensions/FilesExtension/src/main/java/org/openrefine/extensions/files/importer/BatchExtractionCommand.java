@@ -102,6 +102,22 @@ public class BatchExtractionCommand extends Command {
                 return;
             }
 
+            // 续跑判定：本次「启动」的参数与登记表里上次完全一致时，才敢沿用项目里已落盘的行
+            // （参数一变，列构成随之改变，旧行与新列对不上）。用户勾「禁用缓存」即视为从零重跑。
+            Map<String, Object> prevRecord = null;
+            String targetParam = request.getParameter("project");
+            if (targetParam != null && !targetParam.trim().isEmpty()) {
+                try {
+                    prevRecord = ExtractionTaskRegistry.get(Long.parseLong(targetParam.trim()));
+                } catch (NumberFormatException ignored) {
+                    // 非法 id 交给 createOrReuseProject 统一报错
+                }
+            }
+            boolean resume = !disableCache && matchesResumeSignature(prevRecord, rootPath, templateParam,
+                    archiveCategory, archiveSubCategory, fixedElementsJson, customElementsJson);
+            List<String> completedUnits = resume ? stringList(prevRecord.get("completedUnits"))
+                    : new ArrayList<>();
+
             // 勾选的固定要素键（title/responsible_party/document_number/date）；
             // 为空表示沿用模板的全部要素，未勾选的要素不向 AIMP 请求
             List<String> selectedKeys = new ArrayList<>();
@@ -165,7 +181,8 @@ public class BatchExtractionCommand extends Command {
                 }
             }
 
-            Project project = createOrReuseProject(request, response, template, projectName, customElements, includeFileNameColumn);
+            Project project = createOrReuseProject(request, response, template, projectName,
+                    customElements, includeFileNameColumn, resume);
             if (project == null) {
                 return;   // 复用校验失败（如既有任务在跑），错误响应已写出
             }
@@ -173,7 +190,8 @@ public class BatchExtractionCommand extends Command {
             for (UnitScanner.Volume v : preview) totalPages += v.pages.size();
 
             BatchExtractionManager.get().start(project.id, rootPath, template, customElements,
-                    archiveCategory, archiveSubCategory, selectedKeys, aimpUrl(aimpUrl), disableCache);
+                    archiveCategory, archiveSubCategory, selectedKeys, aimpUrl(aimpUrl), disableCache,
+                    resume, completedUnits);
 
             // 登记到控制台可见的任务表（内存任务表重启即丢，控制台要能列历史任务）
             Map<String, Object> record = new LinkedHashMap<>();
@@ -188,6 +206,12 @@ public class BatchExtractionCommand extends Command {
             record.put("totalPages", totalPages);
             record.put("status", BatchExtractionManager.STATUS_RUNNING);
             record.put("startedAt", System.currentTimeMillis());
+            // 抽取参数随任务一并落盘：重启后控制台按这份记录回填表单，勾选的要素（含案由、
+            // 当事人、审级这类非必选项）才不会丢；completedUnits 是续跑的断点依据
+            record.put("disableCache", disableCache);
+            record.put("fixedElements", trimToEmpty(fixedElementsJson));
+            record.put("customElements", trimToEmpty(customElementsJson));
+            record.put("completedUnits", completedUnits);
             ExtractionTaskRegistry.upsert(project.id, record);
 
             result.put("code", "ok");
@@ -205,12 +229,14 @@ public class BatchExtractionCommand extends Command {
     /**
      * 新建项目，或对既有项目「就地重跑」。
      *
-     * 就地重跑（控制台「启动」）：沿用同一 projectId，按当前参数重建列结构并清空旧行，
-     * 使结果回到同一行、同一项目目录；已识别的页若命中本地页级缓存会在下次运行时被复用。
+     * <p>就地重跑（控制台「启动」）：沿用同一 projectId 与项目目录。{@code resume} 为 true 时
+     * **不清空项目**——上次中断前已跑完的卷，其卷内/卷级行原样留在表里，本次只补跑剩下的卷；
+     * 否则（参数变了、或用户勾了「禁用缓存」）重建列结构并清空旧行，从头跑一遍。
      */
     private Project createOrReuseProject(HttpServletRequest request, HttpServletResponse response,
                                          ExtractionTemplate template, String projectName,
-                                         List<CustomElementType> customElements, boolean includeFileNameColumn)
+                                         List<CustomElementType> customElements,
+                                         boolean includeFileNameColumn, boolean resume)
             throws Exception {
         ColumnPlan plan = planColumns(template, customElements, includeFileNameColumn);
         String target = request.getParameter("project");
@@ -235,6 +261,10 @@ public class BatchExtractionCommand extends Command {
         if (project == null) {
             respondError(response, "未找到项目: " + pid);
             return null;
+        }
+        if (resume) {
+            // 续跑：参数没变，列结构本就与 plan 一致，已有行（含卷内/卷级）原样保留
+            return project;
         }
         resetProject(project, plan);
         return project;
@@ -358,6 +388,9 @@ public class BatchExtractionCommand extends Command {
                 ObjectNode node = previews.addObject();
                 node.put("page", preview.page);
                 node.put("fileName", preview.fileName);
+                // 本页是否复用自页级缓存：续跑时前面若干页是「历史」，前端一次性铺开、
+                // 不按新页的平均识别耗时逐条揭示（否则重启后历史页会一条条回放）
+                node.put("cached", preview.cached);
                 // 要素按列顺序输出（每项带列名），前端拼成「列名：取值」
                 appendPreviewFields(node.putArray("fields"), task, preview.values);
             }
@@ -593,6 +626,61 @@ public class BatchExtractionCommand extends Command {
 
     private static String trimToEmpty(String s) {
         return s == null ? "" : s.trim();
+    }
+
+    /**
+     * 续跑判定：本次「启动」的参数与登记表里上次是否完全一致。
+     *
+     * <p>只有一致才敢沿用项目里已落盘的行——目录、模板、门类子类、勾选要素（固定要素 + 自定义
+     * 著录项）任一变，列的构成就会变，旧行与新列对不上；此时按全新任务处理（清空重跑）。
+     * 上次没留下这些参数（改造前的旧登记项）时同样判为不一致，宁可从零重跑。
+     */
+    private boolean matchesResumeSignature(Map<String, Object> record, String rootPath, String template,
+                                           String archiveCategory, String archiveSubCategory,
+                                           String fixedElements, String customElements) {
+        if (record == null) return false;
+        String prev = resumeSignature(str(record.get("rootPath")), str(record.get("template")),
+                str(record.get("archiveCategory")), str(record.get("archiveSubCategory")),
+                str(record.get("fixedElements")), str(record.get("customElements")));
+        String current = resumeSignature(rootPath, normalizeTemplate(template), archiveCategory,
+                archiveSubCategory, fixedElements, customElements);
+        return !prev.isEmpty() && prev.equals(current);
+    }
+
+    private static String resumeSignature(String rootPath, String template, String archiveCategory,
+                                          String archiveSubCategory, String fixedElements,
+                                          String customElements) {
+        return trimToEmpty(rootPath) + "\n" + trimToEmpty(template) + "\n" + trimToEmpty(archiveCategory)
+                + "\n" + trimToEmpty(archiveSubCategory) + "\n" + normalizeJson(fixedElements)
+                + "\n" + normalizeJson(customElements);
+    }
+
+    /** JSON 规范化（容忍空白与键序差异）；非法 JSON 原样比较 */
+    private static String normalizeJson(String json) {
+        if (json == null || json.trim().isEmpty()) return "";
+        try {
+            return mapper.readTree(json).toString();
+        } catch (Exception e) {
+            return json.trim();
+        }
+    }
+
+    private static String normalizeTemplate(String template) {
+        return "batch-title-case".equals(template) ? "batch-title-case" : "batch-title-volume";
+    }
+
+    private static String str(Object o) {
+        return o == null ? "" : String.valueOf(o);
+    }
+
+    private static List<String> stringList(Object o) {
+        List<String> out = new ArrayList<>();
+        if (o instanceof List) {
+            for (Object item : (List<?>) o) {
+                if (item != null) out.add(String.valueOf(item));
+            }
+        }
+        return out;
     }
 
     private ExtractionTemplate parseTemplate(String name) {

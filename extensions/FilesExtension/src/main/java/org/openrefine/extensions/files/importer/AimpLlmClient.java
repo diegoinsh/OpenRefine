@@ -305,6 +305,12 @@ public class AimpLlmClient {
                     JsonNode textLength = pageStatus.path("text_length");
                     if (textLength.isNumber()) result.textLength = textLength.asInt();
                 }
+                // 版面标题块证据（l0.pt 同一次推理）：分件层判件首用，不额外增加推理开销
+                JsonNode layoutTitles = payload.path("layout_titles");
+                if (layoutTitles.isObject()) {
+                    JsonNode trc = layoutTitles.path("title_region_count");
+                    if (trc.isNumber()) result.titleRegionCount = trc.asInt(0);
+                }
                 result.success = true;
             } else {
                 result.error = "HTTP " + c.getResponseCode();
@@ -705,6 +711,12 @@ public class AimpLlmClient {
          * null，此时服务端不做预筛，保持与简化版一致的候选池。
          */
         public Integer textLength;
+        /**
+         * 版面分析模型（l0.pt，与印章检测共用同一次推理）在本页检出的「标题」类块数量。
+         * 分件层判定「件首」的强证据：题名非空且置信度达标、同时本页存在版面标题块，
+         * 才认作新件起点。印章处理未启用、模型不可用或本页未检出标题块时为 0。
+         */
+        public int titleRegionCount;
         /** 异步提交时 AIMP 返回的任务号 */
         public String taskId;
         public Map<String, String> values = new HashMap<>();

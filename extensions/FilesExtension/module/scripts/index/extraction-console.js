@@ -35,6 +35,7 @@ Refine.ExtractionConsoleUI.DEFAULT_CONFIG = {
   'aimp.server': 'http://127.0.0.1:7998',
   'aimp.timeout': 30,
   'extraction.pageConcurrency': 4,
+  'extraction.documentPagesIndependent': true,
   'extraction.defaultCategory': '',
   'extraction.defaultSubCategory': '',
   'extraction.disableCache': false,
@@ -49,7 +50,8 @@ Refine.ExtractionConsoleUI.FIELDS = [
     { key: 'aimp.timeout', label: '请求超时（秒）', type: 'number', min: 1, max: 300 }
   ]},
   { group: '抽取执行', items: [
-    { key: 'extraction.pageConcurrency', label: '诉讼档案页级并发度', type: 'number', min: 1, max: 16 }
+    { key: 'extraction.pageConcurrency', label: '诉讼档案页级并发度', type: 'number', min: 1, max: 16 },
+    { key: 'extraction.documentPagesIndependent', label: '文书档案页级并发（实验）', type: 'checkbox' }
   ]},
   { group: '抽取默认值', items: [
     { key: 'extraction.defaultCategory', label: '默认门类', type: 'text' },
@@ -603,6 +605,19 @@ Refine.ExtractionConsoleUI.prototype._renderTaskForm = function(elmts, task, pro
   var self = this;
   var config = this._config || {};
 
+  // 上次勾选的固定要素：重启后要按它回填勾选态，否则会退化成默认值（4 项全勾），
+  // 与实际跑过的参数不一致
+  var savedFixed = null;
+  if (task.fixedElements) {
+    try {
+      var parsedFixed = JSON.parse(task.fixedElements);
+      if ($.isArray(parsedFixed) && parsedFixed.length > 0) savedFixed = parsedFixed;
+    } catch (e) { savedFixed = null; }
+  }
+  function fixedChecked(key, fallback) {
+    return savedFixed ? savedFixed.indexOf(key) >= 0 : fallback;
+  }
+
   // 根目录：只读，来自任务记录
   elmts.rootPathInput.val(task.rootPath || '');
   elmts.batchProjectName.val(task.projectName || project.name || '');
@@ -730,7 +745,7 @@ Refine.ExtractionConsoleUI.prototype._renderTaskForm = function(elmts, task, pro
   // 固定要素 + 可选要素（可选要素勾选后同步追加自定义要素行）
   Refine.FIXED_ELEMENTS.forEach(function(el) {
     elmts.extractionElementsOptions.append(
-        buildElementOption(el.key, $.i18n('files-import/' + el.i18n), el.checked, null));
+        buildElementOption(el.key, $.i18n('files-import/' + el.i18n), fixedChecked(el.key, el.checked), null));
   });
   Refine.OPTIONAL_ELEMENTS.forEach(function(el) {
     elmts.extractionElementsOptions.append(
@@ -747,7 +762,11 @@ Refine.ExtractionConsoleUI.prototype._renderTaskForm = function(elmts, task, pro
   if (task.customElements) {
     try { savedCustom = JSON.parse(task.customElements) || []; } catch (e) { savedCustom = []; }
   }
-  savedCustom.forEach(function(item) { addCustomRow(item); });
+  savedCustom.forEach(function(item) {
+    // 可选要素（密级/开放状态）默认勾选已同步生成同键行，这里跳过以免出现重复条目
+    if (item && item.key && findCustomRowByKey(item.key).length > 0) return;
+    addCustomRow(item);
+  });
   if (elmts.customElementsBody.children().length === 0) addCustomRow();
   elmts.customElementsSection.toggle(savedCustom.length > 0);
 

@@ -40,7 +40,7 @@ public class ExtractionChangeGuardTest {
 
     private void injectRunningTask() {
         Task task = new Task(PID, "n/a", null, Collections.emptyList(), null, null,
-                Collections.emptyList(), Collections.emptyList(), false);
+                Collections.emptyList(), Collections.emptyList(), false, false, null);
         Assert.assertEquals(task.status, BatchExtractionManager.STATUS_RUNNING);
         injected = task;
         try {

@@ -16,21 +16,33 @@ public class PagePreviewTest {
     private static BatchExtractionManager.Task newTask() {
         return new BatchExtractionManager.Task(
                 1L, "C:/tmp/root", ExtractionTemplate.BATCH_TITLE_VOLUME,
-                Collections.emptyList(), null, null, null, Collections.emptyList(), false);
+                Collections.emptyList(), null, null, null, Collections.emptyList(), false, false, null);
     }
 
     @Test
-    public void keepsOnlyTheMostRecentPagePreviews() {
+    public void keepsAllPagePreviewsOfTheCurrentVolume() {
         BatchExtractionManager.Task task = newTask();
         for (int page = 1; page <= 50; page++) {
             task.recordPagePreview(page, "p" + page + ".jpg",
                     Collections.singletonMap("title", "题名" + page));
         }
-        // 容量上限 40：最旧的 10 页被丢弃，保留的仍是最近 40 页且按页号有序
-        Assert.assertEquals(40, task.recentPages.size());
-        Assert.assertEquals(Integer.valueOf(11), task.recentPages.firstKey());
+        // 本卷预览整卷保留（容量上限只作极端输入的兜底）：重新进入项目页/续跑时，
+        // 已抽过的页要能全部铺出来，不能再像以前那样只留最近 40 页
+        Assert.assertEquals(50, task.recentPages.size());
+        Assert.assertEquals(Integer.valueOf(1), task.recentPages.firstKey());
         Assert.assertEquals(Integer.valueOf(50), task.recentPages.lastKey());
         Assert.assertEquals("题名50", task.recentPages.get(50).values.get("title"));
+    }
+
+    /** 命中页级缓存的页要带 cached 标记，前端据此一次性铺开、不逐条回放 */
+    @Test
+    public void marksCacheReusedPagesAsHistorical() {
+        BatchExtractionManager.Task task = newTask();
+        task.recordPagePreview(1, "a.jpg", Collections.singletonMap("title", "民事判决书"), true);
+        task.recordPagePreview(2, "b.jpg", Collections.singletonMap("title", "送达回证"));
+
+        Assert.assertTrue(task.recentPages.get(1).cached, "复用缓存的页应标记为历史");
+        Assert.assertFalse(task.recentPages.get(2).cached, "新识别的页不应标记为历史");
     }
 
     @Test

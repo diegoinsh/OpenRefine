@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -12,6 +13,9 @@ import java.util.regex.Pattern;
 public class TitleSplitter {
 
     public static final double DEFAULT_SIMILARITY_THRESHOLD = 0.9;
+
+    /** 题名要素在 AIMP 逐页结果里的 key（与 {@code pageValues}/{@code confidences} 一致） */
+    public static final String TITLE_KEY = "title";
 
     public static class Piece {
         public int startPage;
@@ -121,6 +125,40 @@ public class TitleSplitter {
      */
     public static List<Piece> split(List<String> pageTitles, double threshold,
                                     boolean splitWhenCurrentUntitled) {
+        return split(pageTitles, threshold, splitWhenCurrentUntitled, null, null,
+                DEFAULT_TITLE_CONFIDENCE_THRESHOLD);
+    }
+
+    /** 「件首」门限：题名置信度须达到该值，且本页须有版面标题块，才认作新件起点 */
+    public static final double DEFAULT_TITLE_CONFIDENCE_THRESHOLD = 0.9;
+
+    /**
+     * 双重证据分件：在「题名与当前件不同（相似度 &lt; threshold）」这一条之外，再加两条必要条件
+     * ——<b>题名置信度达标</b>（{@code pageConfidences[i]["title"] ≥ titleConfidenceThreshold}）
+     * 且 <b>本页存在版面标题块</b>（{@code titleRegionCounts[i] ≥ 1}，来自版面分析模型 l0.pt
+     * 的 label=10，与印章检测共用同一次推理）。
+     *
+     * <p>为什么要加这两条：模型在正文续页上会「不回 null」而编造题名，或把正文句、签字栏标签
+     * 当作题名回吐。这类取值在页面原文逐字存在、形态也合法，规则层拦不住；但它们的题名置信度
+     * 偏低（实测幻觉题名 c≈0.85 &lt; 真题名 c≈0.95），且页面并无版面标题块。反过来，真实件首
+     * 一律检出标题块、且题名置信度高。故以「高置信度题名 + 版面标题块」作为件首的强证据。
+     *
+     * <p>证据不满足时<b>不是</b>另起一件，而是<b>归入当前件</b>（视作续页）——这正是不想发生的
+     * 「幻觉题名切出新件」的纠正方向。
+     *
+     * @param pageConfidences 逐页的要素置信度（与 pageTitles 同序）；为 null 或某页缺 "title"
+     *                       置信度时该页按「证据不足」处理（归入当前件）。
+     * @param titleRegionCounts 逐页的版面标题块数量（与 pageTitles 同序）；为 null 或某页缺失时
+     *                        该页按「无标题块」处理。
+     * @param titleConfidenceThreshold 题名置信度门限（通常取 {@link #DEFAULT_TITLE_CONFIDENCE_THRESHOLD}）。
+     *                        两证据中任一传入 null 时，本重载退化为 {@link #split(List, double, boolean)}。
+     */
+    public static List<Piece> split(List<String> pageTitles, double threshold,
+                                    boolean splitWhenCurrentUntitled,
+                                    List<Map<String, Double>> pageConfidences,
+                                    List<Integer> titleRegionCounts,
+                                    double titleConfidenceThreshold) {
+        boolean gated = pageConfidences != null || titleRegionCounts != null;
         List<Piece> pieces = new ArrayList<>();
         if (pageTitles == null || pageTitles.isEmpty()) return pieces;
         Piece current = null;
@@ -140,7 +178,11 @@ public class TitleSplitter {
                     // 当前件尚未取得题名，而本页有题名 → 按调用方策略决定是否另起一件
                     newPiece = splitWhenCurrentUntitled;
                 } else {
-                    newPiece = similarity(norm, currentNorm) < threshold;
+                    // 题名与当前件不同：是否另起一件，由「高置信度题名 + 版面标题块」双重证据裁定
+                    boolean titleDiffers = similarity(norm, currentNorm) < threshold;
+                    newPiece = titleDiffers
+                            && (!gated || hasTitleEvidence(i, pageConfidences, titleRegionCounts,
+                                    titleConfidenceThreshold));
                 }
             }
             if (newPiece) {
@@ -157,6 +199,28 @@ public class TitleSplitter {
             }
         }
         return pieces;
+    }
+
+    /**
+     * 第 i 页是否具备「件首」双重证据：题名置信度达门限 且 版面标题块数 ≥ 1。
+     * 任一证据缺失（列表越界、该页无置信度、该页版面块未回传）一律判为不满足——宁可归并，
+     * 也不因证据缺失而误切新件。
+     */
+    private static boolean hasTitleEvidence(int i, List<Map<String, Double>> pageConfidences,
+                                            List<Integer> titleRegionCounts,
+                                            double titleConfidenceThreshold) {
+        double conf = -1.0;
+        if (pageConfidences != null && i < pageConfidences.size()) {
+            Map<String, Double> m = pageConfidences.get(i);
+            if (m != null) {
+                Double c = m.get(TITLE_KEY);
+                if (c != null) conf = c;
+            }
+        }
+        if (conf < titleConfidenceThreshold) return false;
+        if (titleRegionCounts == null || i >= titleRegionCounts.size()) return false;
+        Integer regions = titleRegionCounts.get(i);
+        return regions != null && regions >= 1;
     }
 
     public static int levenshtein(String a, String b) {

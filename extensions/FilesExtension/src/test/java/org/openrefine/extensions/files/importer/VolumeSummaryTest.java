@@ -58,7 +58,7 @@ public class VolumeSummaryTest {
         BatchExtractionManager.Task task = new BatchExtractionManager.Task(
                 1L, "n/a", ExtractionTemplate.BATCH_TITLE_VOLUME,
                 Collections.emptyList(), null, null, Collections.emptyList(),
-                Collections.emptyList(), false);
+                Collections.emptyList(), false, false, null);
 
         SheetData summarySheet = new SheetData(BatchExtractionCommand.SUMMARY_SHEET_ID,
                 BatchExtractionCommand.SUMMARY_SHEET_NAME, "");
@@ -99,7 +99,7 @@ public class VolumeSummaryTest {
         BatchExtractionManager.Task task = new BatchExtractionManager.Task(
                 3L, "n/a", ExtractionTemplate.BATCH_TITLE_VOLUME,
                 elements, null, null, Collections.emptyList(),
-                Collections.emptyList(), false);
+                Collections.emptyList(), false, false, null);
 
         List<String> columns = ExtractionTemplate.volumeSummaryColumns();
         columns.addAll(columns.size() - 1, Arrays.asList("案由", "当事人", "密级", "保管期限"));
@@ -268,12 +268,88 @@ public class VolumeSummaryTest {
         BatchExtractionManager.Task task = new BatchExtractionManager.Task(
                 2L, "n/a", ExtractionTemplate.BATCH_TITLE_CASE,
                 Collections.emptyList(), null, null, Collections.emptyList(),
-                Collections.emptyList(), false);
+                Collections.emptyList(), false, false, null);
 
         BatchExtractionManager.get().rebuildVolumeSummary(task);
 
         Assert.assertNull(task.summarySheet);
         Assert.assertTrue(task.volumeSummaries.isEmpty());
+    }
+
+    /**
+     * 续跑时项目里存着上次运行留下的历史卷级行，而本次任务的累加器只装了本次要跑的卷；
+     * 只覆盖/追加本任务跑到的卷，历史行必须原样保留。
+     */
+    @Test
+    public void keepsHistoricSummaryRowsAndAppendsNewVolumesWhenResuming() throws Exception {
+        List<String> columns = ExtractionTemplate.volumeSummaryColumns();
+        SheetData summarySheet = new SheetData(BatchExtractionCommand.SUMMARY_SHEET_ID,
+                BatchExtractionCommand.SUMMARY_SHEET_NAME, "");
+        for (int i = 0; i < columns.size(); i++) {
+            summarySheet.columnModel.addColumn(i, new Column(i, columns.get(i)), false);
+        }
+        summarySheet.columnModel.update();
+
+        BatchExtractionManager.Task firstRun = new BatchExtractionManager.Task(
+                7L, "n/a", ExtractionTemplate.BATCH_TITLE_VOLUME,
+                Collections.emptyList(), null, null, Collections.emptyList(),
+                Collections.emptyList(), false, false, null);
+        firstRun.summarySheet = summarySheet;
+        BatchExtractionManager.VolumeSummary v1 =
+                new BatchExtractionManager.VolumeSummary("卷1", "D:\\cases\\卷1");
+        v1.add("张三", "20240105", 3, "关于XX工作的通知", null);
+        firstRun.volumeSummaries.put("卷1", v1);
+        BatchExtractionManager.get().rebuildVolumeSummary(firstRun);
+        Assert.assertEquals(summarySheet.rows.size(), 1);
+
+        // 续跑：登记表记得「卷1」已完成，本次任务只装了要补跑的「卷2」，并复用同一张卷级表
+        BatchExtractionManager.Task resumed = new BatchExtractionManager.Task(
+                7L, "n/a", ExtractionTemplate.BATCH_TITLE_VOLUME,
+                Collections.emptyList(), null, null, Collections.emptyList(),
+                Collections.emptyList(), false, true, Collections.singletonList("卷1"));
+        resumed.summarySheet = summarySheet;
+        BatchExtractionManager.VolumeSummary v2 =
+                new BatchExtractionManager.VolumeSummary("卷2", "D:\\cases\\卷2");
+        v2.add("李四", "20240205", 2, "关于YY工作的通知", null);
+        resumed.volumeSummaries.put("卷2", v2);
+        BatchExtractionManager.get().rebuildVolumeSummary(resumed);
+
+        Assert.assertEquals(summarySheet.rows.size(), 2, "追加新卷后不应抹掉历史卷级行");
+        Assert.assertEquals(cellText(summarySheet.rows.get(0), summarySheet, "案卷号"), "卷1");
+        Assert.assertEquals(cellText(summarySheet.rows.get(0), summarySheet, "题名"), "关于XX工作的通知");
+        Assert.assertEquals(cellText(summarySheet.rows.get(1), summarySheet, "案卷号"), "卷2");
+    }
+
+    /** 长卷中途会多次落盘：同卷同案卷号必须就地覆盖，不因重复落盘而追加出多行 */
+    @Test
+    public void rewritesExistingSummaryRowInPlaceForSameVolume() throws Exception {
+        List<String> columns = ExtractionTemplate.volumeSummaryColumns();
+        SheetData summarySheet = new SheetData(BatchExtractionCommand.SUMMARY_SHEET_ID,
+                BatchExtractionCommand.SUMMARY_SHEET_NAME, "");
+        for (int i = 0; i < columns.size(); i++) {
+            summarySheet.columnModel.addColumn(i, new Column(i, columns.get(i)), false);
+        }
+        summarySheet.columnModel.update();
+
+        BatchExtractionManager.Task task = new BatchExtractionManager.Task(
+                8L, "n/a", ExtractionTemplate.BATCH_TITLE_VOLUME,
+                Collections.emptyList(), null, null, Collections.emptyList(),
+                Collections.emptyList(), false, false, null);
+        task.summarySheet = summarySheet;
+        BatchExtractionManager.VolumeSummary summary =
+                new BatchExtractionManager.VolumeSummary("卷1", "D:\\cases\\卷1");
+        summary.add("张三", "20240105", 3, "关于XX工作的通知", null);
+        task.volumeSummaries.put("卷1", summary);
+
+        BatchExtractionManager.get().rebuildVolumeSummary(task);
+        Assert.assertEquals(summarySheet.rows.size(), 1);
+        Assert.assertEquals(cellText(summarySheet.rows.get(0), summarySheet, "总页数"), "3");
+
+        // 再落一次盘：值随累加器更新（3+2=5 页），行数仍是 1
+        summary.add("李四", "20240301", 2, "关于YY工作的通知", null);
+        BatchExtractionManager.get().rebuildVolumeSummary(task);
+        Assert.assertEquals(summarySheet.rows.size(), 1, "同卷重复落盘不得追加出第二行");
+        Assert.assertEquals(cellText(summarySheet.rows.get(0), summarySheet, "总页数"), "5");
     }
 
     @Test
@@ -397,7 +473,7 @@ public class VolumeSummaryTest {
         BatchExtractionManager.Task task = new BatchExtractionManager.Task(
                 5L, "n/a", ExtractionTemplate.BATCH_TITLE_VOLUME,
                 Collections.emptyList(), null, null, Collections.emptyList(),
-                Collections.emptyList(), false);
+                Collections.emptyList(), false, false, null);
         task.summarySheet = summarySheet;
 
         BatchExtractionManager.VolumeSummary summary =
@@ -485,7 +561,8 @@ public class VolumeSummaryTest {
         BatchExtractionManager.Task task = new BatchExtractionManager.Task(
                 4L, "C:/tmp/root", ExtractionTemplate.BATCH_TITLE_VOLUME,
                 Collections.<CustomElementType>emptyList(), null, null,
-                Collections.<String>emptyList(), Collections.<UnitScanner.Volume>emptyList(), false);
+                Collections.<String>emptyList(), Collections.<UnitScanner.Volume>emptyList(), false,
+                false, null);
 
         task.recordPageType("D:/arch/卷1", 1, "header_page", false);
         task.recordPageType("D:/arch/卷1", 2, "content_page", true);
@@ -526,7 +603,7 @@ public class VolumeSummaryTest {
         BatchExtractionManager.Task task = new BatchExtractionManager.Task(
                 4L, "n/a", ExtractionTemplate.BATCH_TITLE_VOLUME,
                 elements, null, null, Collections.emptyList(),
-                Collections.emptyList(), false);
+                Collections.emptyList(), false, false, null);
 
         List<String> columns = ExtractionTemplate.volumeSummaryColumns();
         columns.addAll(columns.size() - 1, Arrays.asList("案由", "当事人"));
@@ -575,7 +652,7 @@ public class VolumeSummaryTest {
         BatchExtractionManager.Task task = new BatchExtractionManager.Task(
                 5L, "n/a", ExtractionTemplate.BATCH_TITLE_VOLUME,
                 Collections.emptyList(), null, null, Collections.emptyList(),
-                Collections.emptyList(), false);
+                Collections.emptyList(), false, false, null);
 
         List<String> columns = ExtractionTemplate.volumeSummaryColumns();
         SheetData summarySheet = new SheetData(BatchExtractionCommand.SUMMARY_SHEET_ID,
@@ -681,7 +758,7 @@ public class VolumeSummaryTest {
         BatchExtractionManager.Task task = new BatchExtractionManager.Task(
                 6L, "n/a", ExtractionTemplate.BATCH_TITLE_VOLUME,
                 Collections.emptyList(), null, null, Collections.emptyList(),
-                Collections.emptyList(), false);
+                Collections.emptyList(), false, false, null);
 
         List<String> columns = ExtractionTemplate.volumeSummaryColumns();
         SheetData summarySheet = new SheetData(BatchExtractionCommand.SUMMARY_SHEET_ID,

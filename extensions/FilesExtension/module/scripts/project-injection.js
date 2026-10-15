@@ -95,10 +95,14 @@ var BatchTitleExtractionMonitor = (function () {
     }
   }
 
-  /** 已展示条目的上限（与后端页级预览容量一致），超出后从最旧一端丢弃 */
-  var PAGE_PREVIEW_MAX = 40;
+  /**
+   * 已展示条目的上限（与后端页级预览容量一致）：本卷已抽页全部保留，换卷时清空。
+   * 此前与后端同为 40，导致重新进入项目页只剩最近 40 条、看不到本卷抽过的页；
+   * 容器本身有竖向滚动，保留整卷不会撑破界面。
+   */
+  var PAGE_PREVIEW_MAX = 2000;
   /** 待揭示队列的上限：只作兜底，揭示节奏与抽取节奏大体匹配，正常不会触发 */
-  var PAGE_PENDING_LIMIT = 40;
+  var PAGE_PENDING_LIMIT = 2000;
   /** 后端还没测出平均耗时时的兜底揭示间隔 */
   var PAGE_REVEAL_FALLBACK_MS = 3000;
   /** 揭示间隔的上下限：太快等于一次性蹦出，太慢会一直追不上抽取进度 */
@@ -245,10 +249,18 @@ var BatchTitleExtractionMonitor = (function () {
       previewKnown = {};
       $banner.find('.batch-extraction-banner-preview').remove();
     }
+    var insertedHistorical = false;
     if (pages && pages.length > 0) {
       pages.forEach(function (p) {
-        if (!previewKnown[p.page]) {
-          previewKnown[p.page] = true;
+        if (previewKnown[p.page]) return;
+        previewKnown[p.page] = true;
+        if (p.cached) {
+          // 复用上次识别结果的历史页（续跑时前面若干页）：直接铺进已展示列表，不进揭示队列。
+          // 它们毫秒级成批到达，若还按新页节奏（0.8-8s/条）揭示，几十上百页历史会一条条回放，
+          // 界面永远追不上真实进度——这正是「重启后重进界面像在回放」的根因。
+          insertShown(p);
+          insertedHistorical = true;
+        } else {
           previewPending.push(p);
         }
       });
@@ -258,6 +270,13 @@ var BatchTitleExtractionMonitor = (function () {
       while (previewPending.length > PAGE_PENDING_LIMIT) {
         previewPending.shift();
       }
+      while (previewShown.length > PAGE_PREVIEW_MAX) {
+        previewShown.shift();
+      }
+    }
+    if (insertedHistorical) {
+      // 历史页已整批铺好：立刻渲染，等队列节奏只会把它们也拖成「逐条揭示」
+      renderPagePreview($banner);
     }
     // 首次（含换卷后第一次）：列表还空着，此刻到达的都是「进项目之前就抽完」的历史。
     // 一次性铺开、**不逐条重放**——重放会让预览永远落后于实际进度；但**也不能丢**：
