@@ -68,19 +68,19 @@ if (-not $ProjectName) {
 }
 
 $subLabel = if ($ArchiveSubCategory) { $ArchiveSubCategory } else { '（无二级）' }
-Write-Host "=== 批量提取系统测试 ==="
-Write-Host "  base        : $Base"
-Write-Host "  rootPath    : $RootPath"
-Write-Host "  projectName : $ProjectName"
-Write-Host "  category    : $ArchiveCategory / $subLabel"
-Write-Host "  elements    : $FixedElements"
-Write-Host "  disableCache: $DisableCache"
+Write-Output "=== 批量提取系统测试 ==="
+Write-Output "  base        : $Base"
+Write-Output "  rootPath    : $RootPath"
+Write-Output "  projectName : $ProjectName"
+Write-Output "  category    : $ArchiveCategory / $subLabel"
+Write-Output "  elements    : $FixedElements"
+Write-Output "  disableCache: $DisableCache"
 
 # 1) CSRF + 运行期配置（并发开关/并发度）
 $r = Invoke-WebRequest -Uri "$Base/command/core/get-csrf-token" -SessionVariable s7 -UseBasicParsing
 $tok = ($r.Content | ConvertFrom-Json).token
 $cfg = (Invoke-WebRequest -Uri "$Base/command/files/extraction-config" -UseBasicParsing -TimeoutSec 30).Content | ConvertFrom-Json
-Write-Host ("config documentPagesIndependent={0} pageConcurrency={1}" -f `
+Write-Output ("config documentPagesIndependent={0} pageConcurrency={1}" -f `
     $cfg.config.'extraction.documentPagesIndependent', $cfg.config.'extraction.pageConcurrency')
 
 # 2) 启动批量提取
@@ -99,8 +99,8 @@ $body = @{
 $t0 = Get-Date
 $rs = Invoke-WebRequest -Uri "$Base/command/files/batch-extraction" -Method POST -Body $body -WebSession $s7 -UseBasicParsing -TimeoutSec 120
 $j = $rs.Content | ConvertFrom-Json
-Write-Host ("start: code={0} projectId={1} units={2} pages={3}" -f $j.code, $j.projectId, $j.unitCount, $j.totalPages)
-if ($j.code -ne 'ok') { Write-Host "MESSAGE: $($j.message)"; exit 1 }
+Write-Output ("start: code={0} projectId={1} units={2} pages={3}" -f $j.code, $j.projectId, $j.unitCount, $j.totalPages)
+if ($j.code -ne 'ok') { Write-Output "MESSAGE: $($j.message)"; exit 1 }
 
 # 3) 轮询进度直到结束
 $proj = $j.projectId
@@ -112,16 +112,16 @@ while ((Get-Date) -lt $deadline) {
             -Body @{ subCommand = 'progress'; project = $proj; csrf_token = $tok } `
             -WebSession $s7 -UseBasicParsing -TimeoutSec 60).Content | ConvertFrom-Json
     $final = $p
-    Write-Host ("[{0}s] status={1} pages={2}/{3} conc={4} avgMs={5} files={6}/{7} msg={8}" -f `
+    Write-Output ("[{0}s] status={1} pages={2}/{3} conc={4} avgMs={5} files={6}/{7} msg={8}" -f `
         [int]((Get-Date) - $t0).TotalSeconds, $p.status, $p.processedPages, $p.totalPages, `
         $p.pageConcurrency, $p.avgPageMillis, $p.processedFiles, $p.totalFiles, $p.message)
     if ($p.status -ne 'running' -and $p.status -ne 'paused') { break }
 }
 
 $elapsed = [int]((Get-Date) - $t0).TotalSeconds
-Write-Host "elapsed: ${elapsed}s  projectId=$proj"
+Write-Output "elapsed: ${elapsed}s  projectId=$proj"
 if ($final -and $final.status -notin @('completed', 'done')) {
-    Write-Host "WARN: 未正常结束，status=$($final.status)（超时 $TimeoutMinutes 分钟或失败）"
+    Write-Output "WARN: 未正常结束，status=$($final.status)（超时 $TimeoutMinutes 分钟或失败）"
     exit 2
 }
-Write-Host "PROJECT_ID=$proj"
+Write-Output "PROJECT_ID=$proj"
