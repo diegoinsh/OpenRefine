@@ -1768,7 +1768,7 @@ public class BatchExtractionManager {
                 pageValues.set(idx, r.values);
                 pageConfidences.set(idx, r.confidences);
                 if (idx < pageSkipped.size()) pageSkipped.set(idx, false);
-                recordPagePreview(task, unit, idx, r);
+                recordPagePreview(task, unit, idx, r, false);
                 task.recordPageType(unit.path, page, r.pageType, r.skipped);
                 recovered++;
             }
