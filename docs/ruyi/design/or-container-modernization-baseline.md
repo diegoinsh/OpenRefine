@@ -252,6 +252,16 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 4. 与 commons-fileupload / velocity / Rhino(GraalJS) / `dog_read.exe` native 调用的共存性。
 5. 上游 OR 4.0 设计文档中的容器/Butterfly/Jetty 走向（决定 Phase 2/3 顺序）。
 
+### P0 执行记录（2026-10-16）
+
+- **工作区**：独立 worktree `g:\workshop\RUYI\build\or-solon-poc` @ `feat/or-solon-migration`（基线文档已提交，commit `dee0a9713`）；主工作区未切换、未污染。
+- **依赖可获取性 ✔**：Maven Central 上 `org.noear:solon` / `solon-web-servlet`(javax) / `solon-web-servlet-jakarta` / `solon-server-jetty`(+jakarta) / `solon-server-tomcat` / `solon-server-undertow` **均存在，最新 4.1.1**；本机 `settings.xml` mirror = aliyun public，可解析。
+- **在house 先例 ✔**：能力平台已以 `solon-parent 4.1.1` + `solon-web`（**非 servlet**，走 smart-http）运行——证明 Solon 主体在本环境可用；但**servlet 适配器在本工程尚无先例**，属 POC 新增面。
+- **OR webapp 契约（已取证）**：`main/webapp/WEB-INF/web.xml` 声明 servlet `refine`(=`com.google.refine.RefineServlet`) 映射 `/*`；运行期由 `Refine.configure()` 注入 init-params `refine.data` / `butterfly.modules.path`(`{dataDir}/extensions`) / `refine.autosave`；`RefineServlet.init()` 依赖 `getInitParameter("refine.version"/"refine.revision"/"refine.autosave")` 与 `javax.servlet.context.tempdir`；`butterfly.properties` + `modules.properties` 在 `WEB-INF`；Gzip 经 `jetty-web.xml` 的 `GzipHandler`。→ **POC 挂载面 = 1 个 servlet + 5 个 init-param + tempdir 上下文属性 + webapp 资源根**。
+- **构建约束 ⚠**：本机 Maven `localRepository` = `C:\Users\kubao\tools\maven\apache-maven-3.8.1\maven-repository`，**在沙箱可写范围之外**；需新下载 Solon（如 `solon-server-jetty` 尚未缓存）时，maven 命令须**禁用沙箱**执行。工程历史上亦需 `-o` 离线，故 POC 构建需联网（禁用沙箱）。
+- **OR 侧现为 `javax.servlet` 4.0.1**、`java.minversion=11`（本机运行 JDK 21）、Jetty 10.0.19、Butterfly 1.2.6（**外部 jar**，非源码）。→ 先保 **javax** 使 121 命令类零改动。
+- **待实测项**：Solon `boot` 的 servlet 注册 API（`app.servlet(...)` 语义）能否承载 `RefineServlet`（含 `getPathInfo()`、`ServletContext` 属性、webapp docroot、multipart/64MB、gzip）。
+
 ---
 
 ## 11. 参考来源
