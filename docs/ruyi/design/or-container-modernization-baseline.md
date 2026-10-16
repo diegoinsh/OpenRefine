@@ -265,6 +265,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 - **开关**：`refine.module.loader = butterfly | solon`（秒级回退）。
 - **门禁**：回归全绿 + 性能偏差 ≤ ±10% + 插件热插拔/隔离验证。
 - **执行记录（2026-10-16，POC 完成）**：自研 `StandaloneModuleLoader`（开关值 `solon`）已落 `com.jiongche.refine.loader`，接管 `files` / `data-quality` 的「模块发现归属 + ClassLoader + 模块对象创建」，两模块各获**独立 `URLClassLoader`**（非共享 `ButterflyClassLoader`）；`butterfly` 缺省路径逐字节不变、开关秒级回退。等价性 / 隔离性门禁全绿，详见 §10「P3 执行记录（装载器选型 POC，2026-10-16）」。
+  - **收敛（2026-10-16）**：core 正式重打包进 webapp（`core-3.11.0.01.jar` 含 `com.jiongche.refine.{loader,spi}`），**彻底去掉 dev-shim（core classes 前置）**；`StandaloneModuleLoader` 日志收敛 + `unload()` 补可观测日志（不重复销毁）；接管面由 2 模块扩到 **4 模块**（`files` / `data-quality` / `records-db` / `records-assets`）。详见 §10「P3 收敛执行记录（去 dev-shim + 隔离/卸载 + 四模块扩面，2026-10-16）」。
 
 **双侧分支**：OR 侧与能力平台侧各起独立分支；**平台 SDK 解耦（Phase 1 的耦合点抽取）与 Solon 迁移并行推进**。
 
@@ -280,7 +281,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 | `export-rows`（流式） | 流式 flush、响应缓冲 | **待专项实测**（本轮未覆盖流式语义） |
 | `task-control` / `get-check-progress`（轮询） | 长轮询、线程池占用 | **✔ 近似对齐**（`maxThreads/acceptCount=300`；Tomcat 不支持自定义池） |
 | 静态资源 / `-bundle.js` | gzip、资源根、拼接时机 | 语义等价（建议构建期预打包） |
-| 扩展装载 | ClassLoader 隔离、动态装载 | **✔ 已落地自研装载器（P3）**：`StandaloneModuleLoader` 为接管模块提供 per-module `URLClassLoader`（`files` / `data-quality` 已各自隔离，URL 集为模块内 `MOD-INF/lib`，不含 core）；开关 `refine.module.loader = butterfly \| solon` 秒级回退；前端契约（`/command`、`/wirings.js`、`-bundle.js`、`.vt`、i18n）零改动 |
+| 扩展装载 | ClassLoader 隔离、动态装载 | **✔ 已落地自研装载器（P3，收敛后）**：`StandaloneModuleLoader` 为接管模块提供 per-module `URLClassLoader`；**接管面 = 4 个自有模块**（`files` / `data-quality` / `records-db` / `records-assets`），各模块 CL 互异且 ≠ 应用 CL，URL 集为模块内 `MOD-INF/classes` + `MOD-INF/lib`（不含 core）；**core 已正式重打包进 webapp，不再依赖 dev-shim**；开关 `refine.module.loader = butterfly \| solon` 秒级回退；前端契约（`/command`、`/wirings.js`、`-bundle.js`、`.vt`、i18n）零改动 |
 
 ---
 
@@ -504,6 +505,86 @@ RefineServlet pre-initialized in 3276ms
 
 - `handle(req,resp)` 请求路径接缝：**保留骨架**（恒 `false`，资源仍由 `super.service()` 经 `_mounter` 分发，保证字节一致）。
 - 本 POC **只测 Solon 侧**；Jetty 侧 A/B 留待需要时补。
+
+---
+
+### P3 收敛执行记录（去 dev-shim + 隔离/卸载 + 四模块扩面，2026-10-16）
+
+> **工作区**：同一 worktree `g:\workshop\RUYI\build\or-solon-poc` @ `feat/or-solon-migration`。
+> **承接**：把上一节 POC 形态收敛为可交付形态——core 正式重打包、**去 dev-shim**、接管面扩到 4 模块、补齐隔离 / 卸载证据。**不改缺省开关**（仍 `butterfly`）。
+
+#### 1. core 正式重打包（去 dev-shim）✔
+
+- 命令：`mvn -o -pl modules/core package -Dmaven.test.skip=true -DskipTests` → `modules/core/target/openrefine-core.jar`，直拷为 `main/webapp/WEB-INF/lib/core-3.11.0.01.jar`（**保持同名**，classpath/既有引用零涟漪）。
+- 断言：`jar tf` 含 `com/jiongche/refine/loader/{RefineModuleLoader,ButterflyModuleLoader,StandaloneModuleLoader,ModuleLoaderRegistry}.class` 与 `com/jiongche/refine/spi/{RefineModuleSpi,RefineModuleContext,ButterflyModuleContext,SpiBootstrap}.class`；产物 SHA256 源/目标一致（`DDB339C2…`，610382B）。
+- **此后所有实例（含 A 组基线）一律不前置 core classes**：classpath 首项 `server\classes` 不含任何 core/jiongche 类 → dev-shim 彻底移除。
+- 意义：上一节「第 7 点 D 组反证」（旧 jar 的 `SpiBootstrap` 不支持 `null` 描述符路径）随之消解——新 jar 原生支持描述符 `null` 路径。
+
+#### 2. 代码收敛（`StandaloneModuleLoader`）✔
+
+- **日志**：`roots` 与每模块 `urls=[…]` 降为 `debug`；保留 `module=<name> cl=<CL>` 与 `claimed=[…]` 两条 `info`（前者作为隔离证据的默认可见面）。
+- **`unload()`**：关闭 per-module `URLClassLoader` 并新增 `info`：`unloaded N modules (classloaders closed)`；**不重复调用 `module.destroy()`**——取证（反编译 `Butterfly.destroy`）显示 `Butterfly.destroy()` 已遍历 `_modulesByName` 逐个调 `ButterflyModule.destroy()`，而 `unload()` 在其之前执行，重复调用会造成**双重销毁**。
+- **未动**：`handle()` 恒 `false`、缺省 `butterfly`、`RefineSolon` 的容器侧反射桥接。
+
+#### 3. 实例编排（全部无 shim）
+
+| 组 | 端口 | 装载器 | 数据目录 |
+|---|---|---|---|
+| A | 3433 | 缺省 `butterfly` | `%TEMP%\refine-p3c-a` |
+| B | 3443 | `-Drefine.module.loader=solon` | `%TEMP%\refine-p3c-b` |
+| C | 3453 | `-Drefine.module.loader=butterfly`（复跑） | `%TEMP%\refine-p3c-c` |
+| W4 | 3473 | `solon` + %TEMP% 临时 harness | `%TEMP%\refine-p3c-w4` |
+
+B 组启动关键行：
+
+```
+Module loader: solon
+StandaloneModuleLoader: module=records-db      cl=java.net.URLClassLoader@60921b21
+StandaloneModuleLoader: module=files          cl=java.net.URLClassLoader@67ec8477
+StandaloneModuleLoader: module=data-quality   cl=java.net.URLClassLoader@25d958c6
+StandaloneModuleLoader: module=records-assets cl=java.net.URLClassLoader@4482469c
+SPI registered: module=records-db|files|data-quality|records-assets
+StandaloneModuleLoader: claimed=[records-db, files, data-quality, records-assets]
+```
+
+#### 4. 等价性门禁（A / B / C 逐项）✔
+
+| 项 | 结果 | 判定 |
+|---|---|---|
+| 字节一致（SHA256） | `get-version` 427B `7A1A166F…`、`wirings.js` 283B `8FED5B45…`、`index-bundle.js` 1797916B `BBC5EB0F…`、`project-bundle.js` 2238918B `227085B8…`、`get-languages` 1459B `B456153E…` —— **A≡B≡C 逐字节一致** | ✔ |
+| `get-importing-configuration` | 顶层键序每冷启动抖动（本 POC 已判为 Rhino/JDK 层非确定性，见上一节第 3 点）；**深度规范化后 A≡B≡C**（canonical 3773B 相等） | ✔（内容等价） |
+| 模块清单 `module_names` | `core,data-quality,database,files,jython,pc-axis,records-assets,records-db` 三组一致 | ✔ |
+| 4 模块命令可达 | `records-db/export-bound-assets`=200、`records-assets/list`=200、`records-assets/preview`=200、`records-assets/file`(缺参)=400、`files/extraction-config`=200、`data-quality/get-config`=200 —— 三组一致 | ✔ |
+| multipart 上传 | `POST create-project-from-upload`（带 csrf_token）→ **HTTP 302 + rowCount=3** —— 三组一致 | ✔ |
+| bundle 去重 | `index-bundle.js` / `project-bundle.js` **三组逐字节一致**（⇒ 4 模块客户端资源各注册一次、零重复） | ✔ |
+| 未变项 | init 失败集 `{jython, pc-axis}`（`JavaPackage … is not a function`）三组一致（`records-*` 因 P1 已编译+SPI 化，不再出现在失败集） | ✔ 非回归 |
+| 性能（可选） | `get-version` P50 三轮 B vs A = **+3.1% / −0.7% / +2.0%**（≤ ±10%） | ✔ |
+
+#### 5. 隔离证据（W3）✔
+
+- B 组 4 个接管模块各得**互不相同**的 `URLClassLoader` 实例（`@60921b21` / `@67ec8477` / `@25d958c6` / `@4482469c`）；均为 `URLClassLoader`（**≠ 应用系统类加载器 `AppClassLoader`**），parent = core CL（parent-first，保 `SpiBootstrap` 在 Rhino 下可解析）。
+
+#### 6. 卸载路径证据（W4）✔
+
+- POC 引导 `RefineSolon` 手工 `new RefineServlet()` 且**无停机钩子**，`Stop-Process` 为硬杀**不触发** `destroy()` → 用 `%TEMP%\p3w4\W4Harness`（临时，不入库）显式调用 `RefineServlet.destroy()`：
+
+```
+[W4] calling RefineServlet.destroy() ...
+StandaloneModuleLoader: unloaded 4 modules (classloaders closed)
+[W4] destroy() returned normally
+Server:main: tomcat: Has Stopped (Apache Tomcat/9.0.118/4.1.1)
+```
+
+- 无异常栈、无 CL 泄漏告警；`destroy()` 依序 → `_loader.unload()`（关 4 个 CL）→ `super.destroy()`（Butterfly 逐个 `module.destroy()`）→ 正常返回。
+
+#### 7. 缺省回退 ✔
+
+- C 组日志 `Module loader: butterfly`；与 A 组**全部门禁项一致**（字节 / 命令可达 / 上传 / 失败集）；`-D` 开关秒级回退，无残留副作用。
+
+#### 8. 收敛后状态
+
+- dev-shim 与 POC 期 verbose 日志已消除；`solon` 路径在**真实产物**（重打包 core jar）下独立运行；接管面 **4 模块**。**缺省仍 `butterfly`**，秒级回退保留。
+- 未做（明确边界）：运行期热插拔 / 重载接缝；`RefineSolon` 容器侧桥接的收敛（留待 Phase 3 自建装配）；上游扩展（`jython` / `pc-axis` / `database`）init 报错。
 
 ---
 

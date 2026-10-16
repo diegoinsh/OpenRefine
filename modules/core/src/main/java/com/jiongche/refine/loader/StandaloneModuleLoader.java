@@ -167,7 +167,8 @@ public final class StandaloneModuleLoader implements RefineModuleLoader {
         }
 
         _entries.put(moduleName, new Entry(moduleName, module, cl));
-        logger.info("StandaloneModuleLoader: module={} cl={} urls={}", moduleName, cl, Arrays.toString(cl.getURLs()));
+        logger.info("StandaloneModuleLoader: module={} cl={}", moduleName, cl);
+        logger.debug("StandaloneModuleLoader: module={} urls={}", moduleName, Arrays.toString(cl.getURLs()));
         return module;
     }
 
@@ -179,14 +180,19 @@ public final class StandaloneModuleLoader implements RefineModuleLoader {
 
     @Override
     public void unload(RefineServlet servlet) {
+        int closed = 0;
         for (Entry entry : _entries.values()) {
             try {
                 entry.classLoader.close();
+                closed++;
             } catch (IOException e) {
                 logger.warn("StandaloneModuleLoader: error closing classloader for {}", entry.name, e);
             }
         }
         _entries.clear();
+        // 模块对象自身的销毁由 Butterfly.destroy() 统一完成（它遍历 _modulesByName 逐个调 module.destroy()），
+        // 此处只关闭本装载器持有的 per-module URLClassLoader，避免与 Butterfly 重复销毁同一模块。
+        logger.info("StandaloneModuleLoader: unloaded {} modules (classloaders closed)", closed);
     }
 
     // ---- helpers ----
@@ -256,6 +262,6 @@ public final class StandaloneModuleLoader implements RefineModuleLoader {
                 }
             }
         }
-        logger.info("StandaloneModuleLoader: roots={}", roots);
+        logger.debug("StandaloneModuleLoader: roots={}", roots);
     }
 }
