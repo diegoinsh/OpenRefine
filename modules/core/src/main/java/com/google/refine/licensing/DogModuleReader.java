@@ -47,6 +47,9 @@ import java.util.concurrent.TimeUnit;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jiongche.refine.spi.platform.DogReadPort;
+import com.ruyi.sdk.dog.BridgeLocator;
+import com.ruyi.sdk.dog.DogLicense;
+import com.ruyi.sdk.dog.ProcessDogBridge;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -76,6 +79,9 @@ public class DogModuleReader implements DogReadPort {
 
     /** 候选路径从锚点向上探测的层数（覆盖到 platform 与 OR 根同级的那一层）。 */
     private static final int MAX_WALK_UP = 5;
+
+    /** SDK 开关属性名：{@code on} 时读狗走平台 SDK 单份实现；缺省 {@code off} 走本类原实现。 */
+    private static final String SDK_PROPERTY = "ruyi.platform.sdk";
 
     private final String configuredBridge;
     private final int licenseId;
@@ -111,6 +117,9 @@ public class DogModuleReader implements DogReadPort {
     }
 
     private Set<String> readUncached() {
+        if (sdkEnabled()) {
+            return readUncachedViaSdk();
+        }
         Path exe = resolveBridge();
         if (exe == null) {
             logger.warn("未找到读狗桥 {}，视为读不到加密狗", BRIDGE_NAME);
@@ -139,6 +148,24 @@ public class DogModuleReader implements DogReadPort {
             if (proc != null && proc.isAlive()) {
                 proc.destroyForcibly();
             }
+        }
+    }
+
+    /**
+     * {@code ruyi.platform.sdk=on} 时经平台 SDK 读狗——与能力平台 {@code PythonDogBridge}
+     * 用**同一份**实现（SDK {@code ProcessDogBridge}），消除两侧各写一遍的漂移。
+     *
+     * <p>语义与原实现一致：{@code --mode modules}（只取 {@code modules}）、5s 硬超时、桥定位
+     * 同为「显式配置优先 → 三布局上溯探测」；读不到（无桥 / 无狗 / 失败）一律返回 {@code null}。
+     */
+    private Set<String> readUncachedViaSdk() {
+        try {
+            ProcessDogBridge bridge = new ProcessDogBridge(configuredBridge, BridgeLocator.BridgeKind.EXE, null);
+            DogLicense lic = bridge.read(licenseId, "modules", null);
+            return lic.ok() ? new LinkedHashSet<>(lic.modules()) : null;
+        } catch (Throwable t) {
+            logger.warn("经 SDK 读狗失败: {}", t.toString());
+            return null;
         }
     }
 
@@ -231,6 +258,11 @@ public class DogModuleReader implements DogReadPort {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** SDK 开关是否打开（系统属性 {@code ruyi.platform.sdk}，缺省 {@code off}）。 */
+    private static boolean sdkEnabled() {
+        return "on".equalsIgnoreCase(System.getProperty(SDK_PROPERTY, "off").trim());
     }
 
     private static boolean isWindows() {

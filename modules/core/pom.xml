@@ -100,6 +100,17 @@
       <artifactId>solon-hotplug</artifactId>
       <version>4.1.1</version>
     </dependency>
+    <!-- 平台 SDK（能力平台 `sdk/` 模块，构件 `com.ruyi:ruyi-platform-sdk`）：OR 侧
+         `ruyi.platform.sdk=on` 时读狗委托 SDK 单份实现，缺省 `off` 走本模块原实现
+         （见 licensing/DogModuleReader）。scope=compile 使该 jar 随 server 的
+         copy-dependencies 落进运行期 lib（与上一条 solon-hotplug 同机制）。
+         接入前须先在能力平台执行 `mvn -f sdk/pom.xml install`；如需恢复
+         「OR 不依赖平台 SDK」，删此依赖即可（代码有开关保护）。 -->
+    <dependency>
+      <groupId>com.ruyi</groupId>
+      <artifactId>ruyi-platform-sdk</artifactId>
+      <version>0.1.0</version>
+    </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
