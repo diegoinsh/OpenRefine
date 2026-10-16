@@ -43,11 +43,11 @@
 | 生产代码中 `import edu.mit.simile.butterfly.*` | 仅约 **10 处** |
 | Butterfly 接口**实际被 OR 用到的方法** | **4 个**：`getName()` / `getMountPoint()` / `getResource()` / `sendTextFromTemplate()` |
 | `extends ButterflyModuleImpl` 的扩展模块 | **3 个**（database 已禁用；records-db、records-assets） |
-| Jetty 使用点 | 全部集中于 `server/src/com/google/refine/Refine.java` 的 `RefineServer`（connector / WebAppContext / StatisticsHandler / Scanner autoreload / 线程池），+ `main/webapp/WEB-INF/jetty-web.xml`（GzipHandler）、`web.xml`（`SessionPath`，jetty 专属）、`server/pom.xml` |
+| Jetty 使用点 | 原集中于 `server/src/com/google/refine/Refine.java` 的 `RefineServer`（connector / WebAppContext / StatisticsHandler / Scanner autoreload / 线程池），+ `main/webapp/WEB-INF/jetty-web.xml`（GzipHandler）、`web.xml`（`SessionPath`，jetty 专属）、`server/pom.xml`；**R2 已彻底移除**（Jetty 依赖全清、`RefineServer` 删除、容器语义迁入 `RefineSolon`），见 §10「R2 执行记录」 |
 | 线程池 | OR 自设：`maxThreads=30 / maxQueue=300 / idle=60s`（`ThreadPoolExecutorAdapter`） |
 | WebSocket | **0 处** |
 | `HttpSession` | **0 处**（会话面极薄） |
-| 大文件上传 | `refine.max_form_content_size` = **64MB**；commons-fileupload |
+| 大文件上传 | 原 `refine.max_form_content_size` = **64MB**（Jetty 专属）；**R2 解耦为新键 `refine.container.max_post_size` = 64MB**（容器无关，映射 Tomcat `maxPostSize`/`maxSwallowSize`）；commons-fileupload |
 | 前端 JS | **1082 个**；仅 **34 个**文件出现 `command/`，**91 处**调用，且为**相对路径** `command/core/xxx` |
 | 命令/资源注册入口 | **7 个 `controller.js`**（`core` 795 行、**159 处** `register*`） |
 | i18n / 模板 | **150** 个翻译 json + localizer `OpenRefineMessage`；**6** 个 `.vt`（velocity） |
@@ -266,6 +266,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 - **门禁**：回归全绿 + 性能偏差 ≤ ±10% + 插件热插拔/隔离验证。
 - **执行记录（2026-10-16，POC 完成）**：自研 `StandaloneModuleLoader`（开关值 `solon`）已落 `com.jiongche.refine.loader`，接管 `files` / `data-quality` 的「模块发现归属 + ClassLoader + 模块对象创建」，两模块各获**独立 `URLClassLoader`**（非共享 `ButterflyClassLoader`）；`butterfly` 缺省路径逐字节不变、开关秒级回退。等价性 / 隔离性门禁全绿，详见 §10「P3 执行记录（装载器选型 POC，2026-10-16）」。
   - **收敛（2026-10-16）**：core 正式重打包进 webapp（`core-3.11.0.01.jar` 含 `com.jiongche.refine.{loader,spi}`），**彻底去掉 dev-shim（core classes 前置）**；`StandaloneModuleLoader` 日志收敛 + `unload()` 补可观测日志（不重复销毁）；接管面由 2 模块扩到 **4 模块**（`files` / `data-quality` / `records-db` / `records-assets`）。详见 §10「P3 收敛执行记录（去 dev-shim + 隔离/卸载 + 四模块扩面，2026-10-16）」。
+  - **R2 交付形态（2026-10-16）**：**彻底移除 Jetty**，交付两条真实入口（`jinrefine.exe` 与 `refine.bat`）原生走 Solon——不再保留 Jetty 启动分支。核心解法为 **D1「依赖落位」**（`server/pom.xml` 把 `main` 依赖由 pom+provided 改为普通 jar + `compile`），使 `copy-dependencies(includeScope=runtime)` 自动把 `core`/`grel`/`main` 及其运行时依赖拷入 `server/target/lib`，从而 exe / bat / launch4j / `refine`（Unix）**零改动**即可见（等价于 POC 验证过的扁平 classpath 模型）。上传上限由 Jetty 专属键解耦为容器无关新键 `refine.container.max_post_size`（缺省 64MB）。**缺省装载器仍 `butterfly`**。详见 §10「R2 执行记录（彻底移除 Jetty · 交付形态原生 Solon，2026-10-16）」。
 
 **双侧分支**：OR 侧与能力平台侧各起独立分支；**平台 SDK 解耦（Phase 1 的耦合点抽取）与 Solon 迁移并行推进**。
 
@@ -585,6 +586,83 @@ Server:main: tomcat: Has Stopped (Apache Tomcat/9.0.118/4.1.1)
 
 - dev-shim 与 POC 期 verbose 日志已消除；`solon` 路径在**真实产物**（重打包 core jar）下独立运行；接管面 **4 模块**。**缺省仍 `butterfly`**，秒级回退保留。
 - 未做（明确边界）：运行期热插拔 / 重载接缝；`RefineSolon` 容器侧桥接的收敛（留待 Phase 3 自建装配）；上游扩展（`jython` / `pc-axis` / `database`）init 报错。
+
+---
+
+### R2 执行记录（彻底移除 Jetty · 交付形态原生 Solon，2026-10-16）
+
+> **工作区**：同一 worktree `g:\workshop\RUYI\build\or-solon-poc` @ `feat/or-solon-migration`。
+> **承接**：把 P3 收敛后的 **POC 形态**推进为**可交付形态**——两条真实入口（`jinrefine.exe`、`refine.bat`）**原生**走 Solon，**彻底移除 Jetty**（不再保留 Jetty 启动分支）。**不改缺省开关**（仍 `butterfly`）。计划：`or-solon-r2-delivery-form-plan.md`。
+
+#### 1. 彻底移除 Jetty（D3）✔
+
+- **依赖**：`server/pom.xml` 删 `jetty-server`/`jetty-servlet`/`jetty-webapp`/`jetty-util` 四个依赖；`modules/core/pom.xml`、`main/pom.xml` 各删 `jetty-servlets`；根 `pom.xml` 删死属性 `<jetty.version>10.0.19</jetty.version>`（全仓已无 `${jetty.version}` 引用）；`main/pom.xml` 删 `<excludeArtifactIds>jetty-server,jetty-http,jetty-io,jetty-util</excludeArtifactIds>`。
+- **代码**：`Refine.java` 整体重写——删 6 个 jetty import、`RefineServer` 整类、`ShutdownSignalHandler`、`fixWindowsUnicodePath`、`init(String[])`；`getDataDir()` 上提为包级 `static`；`main()` 仅设 `VERBOSE`/`apple.*` 三属性后委派 `RefineSolon.main(args)`；保留 `RefineClient`。删 `ValidateHostHandler.java`（逻辑并入 `RefineSolon`）、`ThreadPoolExecutorAdapter.java`（仅 `RefineServer` 使用）。
+- **配置/资源**：删 `main/webapp/WEB-INF/jetty-web.xml`、`WEB-INF/lib/jetty-servlets-10.0.19.jar`；`web.xml` 删 `org.eclipse.jetty.servlet.SessionPath` context-param；`server/src/log4j2.properties` 删 `logger.org_eclipse_jetty` 两行。
+- **产物**：清理 `main/webapp/WEB-INF/lib/core-3.11.0.01.jar.bak-noSpi`。
+
+#### 2. 依赖落位（D1：classloader 解法，不改 launch4j / 脚本 / CL 逻辑）✔
+
+- `server/pom.xml` 对 `main` 的依赖由 `<type>pom</type>` + `provided` 改为**普通 jar + 缺省 `compile`** ⇒ `copy-dependencies(includeScope=runtime)` 自动把 `core`/`grel`/`main` 及其全部运行时依赖拷入 `server/target/lib` ⇒ exe / bat / launch4j / `refine`（Unix）**零改动**即可见。
+- 与 POC 验证过的「扁平 classpath 模型」（`poc-cp-full.txt`）等价；**未**自建 webapp `URLClassLoader`（父 CL 加载 `RefineServlet` → 下探不到子 CL 的 core 类，会 `NoClassDefFoundError`）。
+
+#### 3. 容器语义迁入 `RefineSolon`（D4/D5/D6/D7）✔
+
+- **绑定/Host 对齐（D4/F7）**：绑定地址改用 `refine.interface`（`0.0.0.0` 时不设 `server.host`）；`expectedHost = refine.host`（缺省 = `iface`，`0.0.0.0`→`*` 关闭校验）。逐字搬入 `LOOPBACK_PATTERN` + `isValidHost()`（原 `ValidateHostHandler`），在 `RefineSolonHandler.handle` 入口处校验，非法 Host → **404**。
+- **headless / 开浏览器（D5/F9）**：`Solon.start` 与 `alignContainerSemantics()` 之后补：`refine.headless=true` → `java.awt.headless=true`；否则 `new RefineClient().init(hostForBrowser, port, contextPath)`（失败仅 warn）。
+- **上传上限解耦（D6/F10）**：`maxFormContentSize` → `maxPostSize`，配置键 `refine.max_form_content_size` → **`refine.container.max_post_size`**（缺省 `64 * 1048576`）；连接器 `setProperty("maxPostSize"/"maxSwallowSize", …)`。
+- **反射桥保留（D7）**：`TomcatServerBase._server` 反射桥继续用于连接器语义对齐。
+- **数据目录（F6）**：`RefineServletConfig.getInitParameter` 与 `RefineServletContext.tempDir()` 的 `RefineServer.getDataDir()` → `Refine.getDataDir()`。
+
+#### 4. 入口与脚本（D2/D6）✔
+
+- 主类仍 `com.google.refine.Refine`（launch4j `<mainClass>`、`jinrefine.l4j.ini`、`refine.bat` 均零改动）。
+- `refine.bat` / `refine`（Unix）/ `refine.ini`：新增 `REFINE_CONTAINER_MAX_POST_SIZE`（缺省 `67108864`）并注入 `-Drefine.container.max_post_size=…`。
+
+#### 5. 构建与产物（V1/V2）✔
+
+- `mvn clean package -Dmaven.test.skip=true -P windows -pl !benchmark` → **BUILD SUCCESS**（exit 0）。
+- `server/target/lib` = **107 jar**，**零 `jetty*`**；含 `core-3.11.0.01.jar`、`grel-3.11.0.01.jar`、`main-3.11.0.01.jar`、`solon-4.1.1.jar`、`solon-server-tomcat-4.1.1.jar`、`tomcat-embed-core-9.0.118.jar`、`butterfly-1.2.6.jar`（server 自身 jar 位于 `server/target/openrefine-3.11.0.01-server.jar`，装配时放入 `server/target/lib`）。`main/webapp/WEB-INF/lib` 亦零 jetty。
+- 交付产物 zip `jinrefine-win-with-java-3.11.0.01.zip`（275.7MB）零 jetty。
+- `dependency:tree -pl server -am -Dincludes=*jetty*` → **0 命中**（注：不带 `-am` 时会从 `~/.m2` 陈旧产物误报 jetty）。
+
+#### 6. 端到端（V3：两条真实入口）✔
+
+解压产物到 `%TEMP%\r2-delivery\jinrefine-3.11.0.01`，两入口均首页 **200**：
+
+- **exe 入口**（内置 JRE，classpath 仅 `server/target/lib`，**未借助 `poc-cp-full.txt`**）：日志 `Module loader: butterfly`、4 模块 SPI 注册、`maxPostSize=64MB`、gzip 对齐、headless。
+- **bat 入口**（`JAVA_HOME=…\server\target\jre`、`REFINE_WEBAPP=webapp`、`REFINE_PORT=3553`）：日志 `Starting JinRefine on Solon, port=3553, interface=127.0.0.1, expectedHost=127.0.0.1`。
+
+**门禁哈希三组逐字节一致**（exe·butterfly ≡ bat·butterfly ≡ exe·solon）：
+
+| 端点 | 字节 | SHA256（前 8） | 与 P3 基线 |
+|---|---|---|---|
+| `get-version` | 423 | `E505711F…` | 见 §8（+4 字节，非回归） |
+| `wirings.js` | 283 | `8FED5B45…` | 一致 |
+| `index-bundle.js` | 1803766 | `1B7E96A0…` | 见 §8（度量环境不同） |
+| `project-bundle.js` | 2238918 | `227085B8…` | 一致 |
+| `get-languages` | 1459 | `B456153E…` | 一致 |
+
+- **Host 校验**：`Host: evil.example.com` → **404**；缺省 → 200。
+- **multipart**：`create-project-from-upload` → **302**，`Location /project?project=2704327788918`。
+- **module_names** 8 项：`core,data-quality,database,files,jython,pc-axis,records-assets,records-db`。
+- **solon 装载器**：`Module loader: solon`，4 模块各得独立 `java.net.URLClassLoader`（`records-db@21fdfefc`/`files@7965a51c`/`data-quality@421a4ee1`/`records-assets@1237e0be`），`claimed=[records-db, files, data-quality, records-assets]`；`index-bundle.js` 零重复注册（60 资源 60 唯一）。
+
+#### 7. 关停（V4）✔
+
+- `R2StopHarness`（临时，不入库）调用 `Solon.stop()`：关停链干净——`Stopping service [Tomcat]` → `Stopping ProtocolHandler ["http-nio-3563"]` → `Server:main: tomcat: Has Stopped` → `App: Stopped`，**无异常栈**。唯一 WARNING 为 Tomcat stop 期 `WebappClassLoaderBase` 非法反射访问（Tomcat 内部清理）。
+- 观察：`RefineServlet.destroy()` **未被容器调用** ⇒ 装载器 `unload` 不在关停时触发（与 P3 W4 结论一致；进程退出即回收，无实害）。
+
+#### 8. 与 P3 数值的两处偏差（均**非回归**）
+
+1. `get-version` **423 vs 427** 字节：仅 `java_vm_version` 由 `11.0.25+9` → `11.0.32.1+1`（新内置 JRE）长度 +4。
+2. `index-bundle.js` **1803766 vs 1797916** 字节：worktree 的 `main/webapp/extensions` **不存在**（POC 从源码 webapp 跑时无扩展脚本），而交付 `webapp/extensions` 由 `extensions/*/target` 构建产物装配 → **度量环境不同**；跨入口/跨装载器**逐字节一致**、**零重复**。
+
+#### 9. 状态与边界
+
+- Jetty **彻底移除**（全仓依赖 / 代码 / 配置 / 产物零 jetty）；交付形态两条真实入口原生 Solon。**缺省装载器仍 `butterfly`**（与容器层正交，秒级回退不变）。
+- 未做（明确边界，见计划 §7）：不自建 Solon 装配、不摘 `TomcatServerBase._server` 反射桥、不剔除交付产物 `webapp/WEB-INF/lib`（列为后续优化）、不动前端 JS / `controller.js`、不迁 jakarta、不换 transport、不处理上游扩展 init 报错。
+- 回退：本轮改动集中一个 commit → `git revert <commit>` 即回 Jetty 形态（入口照旧）。
 
 ---
 

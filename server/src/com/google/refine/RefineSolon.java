@@ -45,6 +45,7 @@ import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletContext;
@@ -66,7 +67,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * POC 引导入口：用 Solon(boot) + Tomcat(transport) 承载既有的 {@link RefineServlet}（Butterfly）。
+ * Solon 引导入口（容器层已定稿，Jetty 已移除）：用 Solon(boot) + Tomcat(transport) 承载既有的
+ * {@link RefineServlet}（Butterfly）。
  *
  * <p>目标：验证「容器层替换」的可行性与成本——121 个命令类、前端 {@code /command/...} 契约、Butterfly 模块装载
  * 全部零改动，只把外层 HTTP 容器从 Jetty 换成 Solon。
@@ -102,8 +104,48 @@ public class RefineSolon {
     /** Solon 装配出的 Tomcat 服务器实例（由 {@code app.onEvent} 在插件启动前捕获）。 */
     private static volatile TomcatServerBase solonTomcatServer;
 
+    /** Host header 校验基准（= {@code refine.host}，缺省 {@code refine.interface}；{@code *} 关闭校验）。 */
+    private static String expectedHost;
+
+    /**
+     * Host header 校验用的 loopback 正则，逐字搬自原 Jetty 侧的 {@code ValidateHostHandler}：匹配
+     * 127.0.0.0/8、IPv4-mapped 的 ::ffff:7f00:00/104、::1 的各种写法与 localhost。
+     */
+    static private final Pattern LOOPBACK_PATTERN = Pattern
+            .compile("^(?:127\\.[0-9\\.]*|\\[[0\\:]*\\:(?:ffff\\:7f[0-9a-f]{2}:[0-9a-f]{1,4}|0{0,3}1)\\]|localhost)(?:\\:[0-9]+)?$",
+                    Pattern.CASE_INSENSITIVE);
+
+    /**
+     * 校验请求的 Host header 是否指向 loopback/localhost 或配置的 host（对齐原 Jetty
+     * {@code ValidateHostHandler.isValidHost}，防 DNS rebinding）。{@code null} 视为不合法。
+     */
+    static boolean isValidHost(String host) {
+        if (host == null) {
+            return false;
+        }
+        // Allow loopback IPv4 and IPv6 addresses, as well as localhost
+        if (LOOPBACK_PATTERN.matcher(host).find()) {
+            return true;
+        }
+
+        // Strip port from hostname - for IPv6 addresses, if
+        // they end with a bracket, then there is no port
+        int index = host.lastIndexOf(':');
+        if (index > 0 && !host.endsWith("]")) {
+            host = host.substring(0, index);
+        }
+
+        // Strip brackets from IPv6 addresses
+        if (host.startsWith("[") && host.endsWith("]")) {
+            host = host.substring(1, host.length() - 2);
+        }
+
+        // Allow only if stripped hostname matches expected hostname
+        return expectedHost != null && expectedHost.equalsIgnoreCase(host);
+    }
+
     public static void main(String[] args) throws Exception {
-        // 与 Refine.main() 对齐的 OR 自有启动属性（非容器相关，但影响行为）
+        // 与（原 Jetty 侧）Refine.main() 对齐的 OR 自有启动属性（非容器相关，但影响行为）
         System.setProperty("refine.display.new.version.notice",
                 Configurations.get("refine.display.new.version.notice", "true"));
         String logLevelArg = Configurations.get("refine.verbosity");
@@ -111,15 +153,21 @@ public class RefineSolon {
             Configurator.setAllLevels(LogManager.getRootLogger().getName(), Level.toLevel(logLevelArg));
         }
 
-        // 端口/主机沿用 OR 的配置键（refine.port / refine.interface），映射到 Solon 的 server.port / server.host
+        // 端口/接口沿用 OR 的配置键（refine.port / refine.interface），映射到 Solon 的 server.port / server.host。
+        // 注意语义对齐（Jetty 侧的 RefineServer）：**绑定地址**取 refine.interface，**refine.host** 只作 Host header
+        // 校验基准（"*" 关闭校验）——不再像 POC 那样把 refine.host 当绑定地址。
         String port = Configurations.get("refine.port", "3333");
         System.setProperty("server.port", port);
-        String host = Configurations.get("refine.host", Configurations.get("refine.interface", "127.0.0.1"));
-        if (!"0.0.0.0".equals(host)) {
-            System.setProperty("server.host", host);
+        String iface = Configurations.get("refine.interface", "127.0.0.1");
+        if (!"0.0.0.0".equals(iface)) {
+            System.setProperty("server.host", iface);
+        }
+        expectedHost = Configurations.get("refine.host", iface);
+        if ("0.0.0.0".equals(expectedHost)) {
+            expectedHost = "*"; // 与原 Refine.main() 一致：显式 0.0.0.0 视为 "*"（关闭校验）
         }
 
-        logger.info("Starting JinRefine on Solon (POC), port={}", port);
+        logger.info("Starting JinRefine on Solon, port={}, interface={}, expectedHost={}", port, iface, expectedHost);
 
         Solon.start(RefineSolon.class, args, app -> {
             // 纯承载模式：关掉 Solon 自己的扫描/静态资源/会话，避免与 Butterfly 的资源装载重叠
@@ -135,6 +183,32 @@ public class RefineSolon {
         });
 
         alignContainerSemantics();
+
+        // headless / 开浏览器：对齐原 Refine.init() 在容器 start 之后的行为（原 Jetty 侧亦如此）
+        boolean headless = Configurations.getBoolean("refine.headless", false);
+        if (headless) {
+            System.setProperty("java.awt.headless", "true");
+            logger.info("Running in headless mode");
+        } else {
+            try {
+                String contextPath = Configurations.get("refine.context_path", "/");
+                String hostForBrowser;
+                if ("*".equals(expectedHost)) {
+                    if ("0.0.0.0".equals(iface)) {
+                        logger.warn("No refine.host specified while binding to interface 0.0.0.0, guessing localhost.");
+                        hostForBrowser = "localhost";
+                    } else {
+                        hostForBrowser = iface;
+                    }
+                } else {
+                    hostForBrowser = expectedHost;
+                }
+                new RefineClient().init(hostForBrowser, Integer.parseInt(port), contextPath);
+            } catch (Exception e) {
+                logger.warn("Sorry, some error prevented us from launching the browser for you.\n\n Point your browser to http://"
+                        + expectedHost + ":" + port + "/ to start using Refine.");
+            }
+        }
     }
 
     /**
@@ -171,12 +245,13 @@ public class RefineSolon {
         }
 
         try {
-            // Solon 未暴露 Tomcat 实例，暂以反射取 TomcatServerBase._server（POC 级桥接，Phase 3 自建装配时移除）
+            // Solon 4.1.1 未暴露 Tomcat 实例，以反射取 TomcatServerBase._server 完成连接器语义对齐
+            // （gzip / maxPostSize / maxSwallowSize / 并发 / 超时）；移除该桥接即失去这些对齐，故保留。
             Field field = TomcatServerBase.class.getDeclaredField("_server");
             field.setAccessible(true);
             Tomcat tomcat = (Tomcat) field.get(server);
 
-            long maxFormContentSize = Configurations.getInteger("refine.max_form_content_size", 64 * 1048576); // 64MB
+            long maxPostSize = Configurations.getInteger("refine.container.max_post_size", 64 * 1048576); // 64MB
             int maxThreads = Configurations.getInteger("refine.queue.max_size", 300);
             int connectionTimeout = Configurations.getInteger("server.connection.max_idle_time", 60000);
 
@@ -186,8 +261,8 @@ public class RefineSolon {
                 connector.setProperty("compressionMinSize", String.valueOf(GZIP_MIN_SIZE));
                 connector.setProperty("compressibleMimeType", GZIP_MIME_TYPES);
                 // ④ 体积上限 / 并发上限 / 空闲超时
-                connector.setProperty("maxPostSize", String.valueOf(maxFormContentSize));
-                connector.setProperty("maxSwallowSize", String.valueOf(maxFormContentSize));
+                connector.setProperty("maxPostSize", String.valueOf(maxPostSize));
+                connector.setProperty("maxSwallowSize", String.valueOf(maxPostSize));
                 connector.setProperty("maxThreads", String.valueOf(maxThreads));
                 connector.setProperty("acceptCount", String.valueOf(maxThreads));
                 connector.setProperty("connectionTimeout", String.valueOf(connectionTimeout));
@@ -195,7 +270,7 @@ public class RefineSolon {
 
             logger.info("Aligned connector semantics: gzip(min={}B, mime={} types), maxPostSize={}MB, "
                     + "maxThreads/acceptCount={}, connectionTimeout={}ms",
-                    GZIP_MIN_SIZE, GZIP_MIME_TYPES.split(",").length, maxFormContentSize / 1048576,
+                    GZIP_MIN_SIZE, GZIP_MIME_TYPES.split(",").length, maxPostSize / 1048576,
                     maxThreads, connectionTimeout);
         } catch (Throwable e) {
             logger.error("Failed to align container connector semantics", e);
@@ -233,6 +308,14 @@ public class RefineSolon {
 
         @Override
         public void handle(Context ctx) throws Throwable {
+            // Host header 校验：对齐原 Jetty 侧的 ValidateHostHandler（防 DNS rebinding）。
+            // refine.host = "*"（或显式 0.0.0.0）时关闭校验。
+            if (expectedHost != null && !"*".equals(expectedHost) && !isValidHost(ctx.header("Host"))) {
+                ctx.status(404);
+                ctx.setHandled(true);
+                return;
+            }
+
             HttpServletRequest request = (HttpServletRequest) ctx.request();
             HttpServletResponse response = (HttpServletResponse) ctx.response();
 
@@ -371,12 +454,12 @@ public class RefineSolon {
 
         @Override
         public String getInitParameter(String name) {
-            // 与 RefineServer.configure() 注入的 init-param 对齐
+            // 与原 Jetty 侧 RefineServer.configure() 注入的 init-param 对齐
             switch (name) {
                 case "refine.data":
-                    return RefineServer.getDataDir();
+                    return Refine.getDataDir();
                 case "butterfly.modules.path":
-                    return RefineServer.getDataDir() + "/extensions";
+                    return Refine.getDataDir() + "/extensions";
                 case "refine.autosave":
                     return Configurations.get("refine.autosave", "5");
                 default:
@@ -482,7 +565,7 @@ public class RefineSolon {
         }
 
         static File tempDir() {
-            File dir = new File(RefineServer.getDataDir(), "temp");
+            File dir = new File(Refine.getDataDir(), "temp");
             if (!dir.exists()) {
                 dir.mkdirs();
             }

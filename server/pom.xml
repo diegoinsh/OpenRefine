@@ -160,12 +160,14 @@
   </build>
 
   <dependencies>
+    <!-- R2：server 运行期需要 core/grel/main 及其全部运行时依赖。Jetty 时代这些类由 webapp
+         类加载器提供（WEB-INF/lib），而 Solon 形态没有 webapp CL，交付入口（jinrefine.exe / refine.bat）
+         的 classpath 又只有 server/target/lib → 故改为普通 jar + compile，使其随 copy-dependencies
+         自动落位到 server/target/lib，两条入口零改动即可见。 -->
     <dependency>
       <groupId>${project.groupId}</groupId>
       <artifactId>main</artifactId>
       <version>${project.version}</version>
-      <type>pom</type>
-      <scope>provided</scope>
     </dependency>
     <!-- POC: Solon 容器（boot + server 装配），transport 用 tomcat（javax servlet 4.0，与 OR 一致） -->
     <dependency>
@@ -182,26 +184,6 @@
       <groupId>javax.servlet</groupId>
       <artifactId>javax.servlet-api</artifactId>
       <version>${servlet-api.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jetty</groupId>
-      <artifactId>jetty-server</artifactId>
-      <version>${jetty.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jetty</groupId>
-      <artifactId>jetty-servlet</artifactId>
-      <version>${jetty.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jetty</groupId>
-      <artifactId>jetty-webapp</artifactId>
-      <version>${jetty.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jetty</groupId>
-      <artifactId>jetty-util</artifactId>
-      <version>${jetty.version}</version>
     </dependency>
     <dependency>
       <groupId>org.openrefine.dependencies</groupId>
