@@ -107,6 +107,12 @@ public final class ExtractionPageCache {
                 }
                 result.candidates.put(e.getKey(), list);
             });
+            // 历史遗留的空条目（崩溃/降级期落盘的「未取到文本」结果）一律按未命中处理，
+            // 使已经被固化的空结果不再继续被复用
+            if (result.textLength != null && result.textLength <= 0) {
+                logger.info("缓存条目未取到文本，按未命中处理：{}", key);
+                return null;
+            }
             return result;
         } catch (Exception e) {
             logger.warn("页级缓存读取失败，按未命中处理: {}", key, e);
@@ -117,6 +123,13 @@ public final class ExtractionPageCache {
     /** 写入缓存（尽力而为，失败不影响抽取） */
     public static void save(String key, AimpLlmClient.ExtractPageResult result) {
         if (key == null || result == null || !result.success) {
+            return;
+        }
+        // 未取到任何文本的结果不写缓存：整页/整份文档都没取到文本，通常是文字层读取失败、
+        // 服务降级等环境异常，不是内容本身的稳定结论。若落盘，崩溃或降级期的一次空结果会被
+        // 后续每次都命中，等于把异常固化——这正是「同一文件两轮结果天差地别」的根源之一
+        if (result.textLength != null && result.textLength <= 0) {
+            logger.info("跳过缓存写入：本次未取到任何文本（可能为文档文字层读取失败等环境异常），键={}", key);
             return;
         }
         File file = cacheFile(key);

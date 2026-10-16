@@ -41,21 +41,51 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# 「非必选要素」两级配置（与 import-from-local-dir.js 的 OPTIONAL_ELEMENTS + EXTRA_ELEMENTS 一致）：
+#   默认勾选 2 项：密级 / 开放状态 —— 各门类界面默认带上，落在卷级 sheet
+#   法院额外 5 项：案由 / 当事人 / 审级 / 结案方式 / 保管期限 —— 仅诉讼档案候选，同样落卷级 sheet
+# 每项的 description 即 AIMP 侧该要素的提示词原文（extraction_processor 直接采用）。
+$OptionalElements = @'
+[
+  {"name":"密级","key":"miji","action":"include","description":"提取文件的密级（提取值：公开、内部、秘密、机密、绝密）。仅当页面上出现“内部”“秘密”“机密”“绝密”“公开”等密级字样（一般在版心左上角或正文标题下方）时才输出；页面无密级字样时必须省略本要素，不要给出“公开”等默认值。"},
+  {"name":"开放状态","key":"kaifang_zhuangtai","action":"include","description":"提取档案的开放标识（取值类型为：开放、控制、延期开放），只认标题页或落款页上“信息公开选项”“开放标识”“开放状态”这类档案开放审核字样。注意：庭审笔录、判决书正文里的“是否公开审理”“公开开庭”“不公开审理”指的是审理方式，不是档案开放标识，不得据此提取；本页没有档案开放审核字样时必须省略本要素，不要臆造或给出默认值。"}
+]
+'@
+
+# 法院侧「非必选要素」全量 7 项（2 默认 + 5 额外），取自 2099269551514「回归-法院JZ07-2024-配齐要素B」
+# （147 件基线）对应的登记表记录，与该项目卷级 sheet 的列清单
+# （密级|开放状态|案由|当事人|审级|结案方式|保管期限）一致 —— 即「配齐 7 要素」口径。
+$CourtCustomElements = @'
+[
+  {"name":"密级","key":"miji","action":"include","description":"提取文件的密级（提取值：公开、内部、秘密、机密、绝密）。仅当页面上出现“内部”“秘密”“机密”“绝密”“公开”等密级字样（一般在版心左上角或正文标题下方）时才输出；页面无密级字样时必须省略本要素，不要给出“公开”等默认值。"},
+  {"name":"开放状态","key":"kaifang_zhuangtai","action":"include","description":"提取档案的开放标识（取值类型为：开放、控制、延期开放），只认标题页或落款页上“信息公开选项”“开放标识”“开放状态”这类档案开放审核字样。注意：庭审笔录、判决书正文里的“是否公开审理”“公开开庭”“不公开审理”指的是审理方式，不是档案开放标识，不得据此提取；本页没有档案开放审核字样时必须省略本要素，不要臆造或给出默认值。"},
+  {"name":"案由","key":"anyou","action":"include","description":"提取案件的事由，即当事人争议的法律关系性质，一般在卷宗封面“案由”栏或裁判文书首部；只能取原文中出现的、以“……纠纷”或“……案”结尾的案件事由表述，原文怎么写就取什么，不得把“纠纷”当作固定值套用，也不得取送达回证、通知书等表格中“送达文件名称”栏的内容或文书名称。"},
+  {"name":"当事人","key":"dangshiren","action":"include","description":"提取案件当事人的姓名或名称，一般在卷宗封面或裁判文书首部；当事人取诉讼主体本身（原告、被告、上诉人、被上诉人、第三人等），委托诉讼代理人（律师）、辩护人、证人、鉴定人、审判人员都不是当事人，不得作为当事人取值；卷内“受托人”“委托诉讼代理人”处署名的人名是代理人，不是当事人；只取姓名或名称本身，不要带“原告”“被告”“上诉人”“被上诉人”“第三人”等诉讼地位称谓，不要附身份证号、电话、住址、性别、出生日期等身份信息，也不要用“与”“和”等连词连接；多个当事人用中文全角逗号“，”隔开。本页只有“原告”“被告”等诉讼地位字样、没有对应的姓名或名称时必须留空，不得用占位文字或符号代替，也不得按表格格式自行补齐成“原告…、被告…”这类套话；当事人栏为空白、涂改或无法辨认时同样留空。"},
+  {"name":"审级","key":"shenji","action":"include","description":"提取案件的审理程序层级（提取值类型为：一审、二审、再审、执行），一般在卷宗封面或裁判文书首部案号处。"},
+  {"name":"结案方式","key":"jiean_fangshi","action":"include","description":"提取案件的结案方式（取值类型：判决、裁定、调解、撤诉、终结），在下列两处依据提取：①本页法院裁判结论（如“判决如下”“裁定如下”；二审“驳回上诉，维持原判”同属判决）；②卷宗封面或结案登记表的“结案方式”栏。答辩状、上诉状等当事人材料中提出的诉求，以及通知书、送达回证等表格中的内容，都不是结案方式；本页没有依据时不要提取。"},
+  {"name":"保管期限","key":"baoguan_qixian","action":"include","description":"提取档案的保管期限，取值以卷宗封面或归档章上标注的字样为准（人民法院诉讼档案：永久、定期60年、定期20年）；本页未出现保管期限字样时不要提取，不要给出默认值或猜测值。"}
+]
+'@
+
 switch ($Preset) {
     'ws' {
         $RootPath = 'D:\00_toubiao\自动著录\WS'
         $ArchiveCategory = '文书档案'
         $ArchiveSubCategory = ''
+        if (-not $PSBoundParameters.ContainsKey('CustomElements')) { $CustomElements = $OptionalElements }
     }
     'court' {
         $RootPath = 'D:\00_toubiao\自动著录\法院诉讼\ZY-FYSS\JZ07\2024'
         $ArchiveCategory = '专业档案'
         $ArchiveSubCategory = '人民法院诉讼档案'
+        # 法院侧必须「配齐 7 要素」：非必选项不配全会导致卷级 7 列缺失/空值
+        if (-not $PSBoundParameters.ContainsKey('CustomElements')) { $CustomElements = $CourtCustomElements }
     }
     'keji' {
         $RootPath = 'D:\00_toubiao\自动著录\KJ'
         $ArchiveCategory = '科技档案'
         $ArchiveSubCategory = ''
+        if (-not $PSBoundParameters.ContainsKey('CustomElements')) { $CustomElements = $OptionalElements }
     }
 }
 
@@ -74,6 +104,9 @@ Write-Output "  rootPath    : $RootPath"
 Write-Output "  projectName : $ProjectName"
 Write-Output "  category    : $ArchiveCategory / $subLabel"
 Write-Output "  elements    : $FixedElements"
+$customKeyList = (ConvertFrom-Json $CustomElements) | ForEach-Object { $_.key }
+$customKeyList = if ($customKeyList) { $customKeyList -join ',' } else { '（无）' }
+Write-Output "  customKeys  : $customKeyList"
 Write-Output "  disableCache: $DisableCache"
 
 # 1) CSRF + 运行期配置（并发开关/并发度）

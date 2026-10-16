@@ -377,6 +377,12 @@ public class AimpLlmClient {
         // 本页并未消耗推理。计入 skipped 供调用方从「平均每页耗时」的摊分里排除
         String mode = result.path("processing_mode").asText("");
         r.skipped = mode.startsWith("single_page_skipped");
+        // 全文档累计文本长度（多页流程回带）：为 0 表示逐页都没取到文本（文字层读取失败等
+        // 环境异常）。调用方据此跳过缓存写入，避免把一次空结果固化成后续每次都命中的缓存
+        JsonNode totalText = result.path("text_length");
+        if (totalText.isNumber()) {
+            r.textLength = totalText.asInt();
+        }
         r.success = true;
         return r;
     }
