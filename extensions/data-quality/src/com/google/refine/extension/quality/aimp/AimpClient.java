@@ -20,6 +20,7 @@ import java.util.Map;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.jiongche.refine.spi.platform.AimpPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,7 +31,7 @@ import org.slf4j.LoggerFactory;
  * - 7998: Uses unified /api/ocr/extract endpoint
  * - 7999: Uses individual endpoints (/blank, /stain, /edge, etc.)
  */
-public class AimpClient {
+public class AimpClient implements AimpPort {
 
     public static final String INTERFACE_MODE_7998 = "7998";
     public static final String INTERFACE_MODE_7999 = "7999";

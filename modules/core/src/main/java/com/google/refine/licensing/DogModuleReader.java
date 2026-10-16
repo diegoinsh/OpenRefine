@@ -46,6 +46,7 @@ import java.util.concurrent.TimeUnit;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jiongche.refine.spi.platform.DogReadPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,7 +65,7 @@ import org.slf4j.LoggerFactory;
  * <p>读一次要起一个进程（几十毫秒），故结果按 {@code cacheSeconds} 缓存；缺省 60 秒——
  * 既能让「拔狗 / 过期」在秒级生效，又不会每个请求都起一个读取进程。
  */
-public class DogModuleReader {
+public class DogModuleReader implements DogReadPort {
 
     private static final Logger logger = LoggerFactory.getLogger(DogModuleReader.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
