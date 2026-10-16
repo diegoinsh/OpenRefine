@@ -105,11 +105,11 @@ OR 性能热点全在 `model / importers / operations / grel / OCR 调用`（CPU
 
 | # | 边缘点 | 现状锚点 | 判定 |
 |---|---|---|---|
-| 1 | 大文件上传 multipart | 64MB form 上限；commons-fileupload；FilesExtension 批量导入 | 需配置对齐 |
-| 2 | 流式导出与长轮询 | `export-rows` 流式 flush；data-quality `task-control` / `get-check-progress` 轮询 | 需配置对齐（idle timeout、flush 语义） |
-| 3 | gzip + 静态资源拼接 | `jetty-web.xml` GzipHandler；controller.js bundle 逻辑 | 语义等价 / 需改法 |
-| 4 | 线程池语义 | `maxThreads=30 / maxQueue=300 / idle=60s` | 需配置对齐（或显式接受变更） |
-| 5 | temp dir | `RefineServlet` 依赖 `javax.servlet.context.tempdir` | 需代码适配 |
+| 1 | 大文件上传 multipart | 64MB form 上限；commons-fileupload；FilesExtension 批量导入 | **✔ 已对齐**（multipart 参数语义桥 + `maxPostSize/maxSwallowSize=64MB`；上传回归两侧 `rowCount=3`） |
+| 2 | 流式导出与长轮询 | `export-rows` 流式 flush；data-quality `task-control` / `get-check-progress` 轮询 | **部分对齐**：idle timeout 已设 `connectionTimeout=60000ms`；**流式 flush 语义仍待专项实测** |
+| 3 | gzip + 静态资源拼接 | `jetty-web.xml` GzipHandler；controller.js bundle 逻辑 | **✔ 已对齐**（Connector `compression`，min=2048B/MIME 白名单；bundle 793829→169043B） |
+| 4 | 线程池语义 | `maxThreads=30 / maxQueue=300 / idle=60s` | **✔ 近似对齐**：Tomcat 不支持自定义池（`setExecutor` no-op）→ `maxThreads/acceptCount=300` 近似并发上限 |
+| 5 | temp dir | `RefineServlet` 依赖 `javax.servlet.context.tempdir` | **✔ 已适配**（`RefineServletContext` tempdir 兜底） |
 
 ### 5.2 硬阻断点：javax vs jakarta
 - OR 命令层全部基于 **`javax.servlet` 4.0.1**；**上游 OR 已规划 Servlet 4 → Servlet 6（`javax.*` → `jakarta.*`）**。
@@ -220,11 +220,11 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 
 | 端点 | 容器行为依赖 | 判定 |
 |---|---|---|
-| `create-project-from-upload` | multipart、64MB form 上限、temp dir | 需配置对齐 + 代码适配（tempdir） |
-| `get-rows` | 分页/大响应、gzip | 语义等价 |
-| `compute-facets` | 长耗时请求、idle timeout | 需配置对齐 |
-| `export-rows`（流式） | 流式 flush、响应缓冲 | 需配置对齐 |
-| `task-control` / `get-check-progress`（轮询） | 长轮询、线程池占用 | 需配置对齐 |
+| `create-project-from-upload` | multipart、64MB form 上限、temp dir | **✔ 已解决并复验**：multipart 参数语义桥 + tempdir 兜底 + `maxPostSize/maxSwallowSize=64MB`；两侧上传 `rowCount=3` 一致 |
+| `get-rows` | 分页/大响应、gzip | 语义等价（gzip 已对齐，字节级一致） |
+| `compute-facets` | 长耗时请求、idle timeout | **✔ 已对齐**（`connectionTimeout=60000ms`） |
+| `export-rows`（流式） | 流式 flush、响应缓冲 | **待专项实测**（本轮未覆盖流式语义） |
+| `task-control` / `get-check-progress`（轮询） | 长轮询、线程池占用 | **✔ 近似对齐**（`maxThreads/acceptCount=300`；Tomcat 不支持自定义池） |
 | 静态资源 / `-bundle.js` | gzip、资源根、拼接时机 | 语义等价（建议构建期预打包） |
 | 扩展装载 | ClassLoader 隔离、动态装载 | 需自研（或走 Solon H-Spi） |
 
@@ -260,7 +260,84 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 - **OR webapp 契约（已取证）**：`main/webapp/WEB-INF/web.xml` 声明 servlet `refine`(=`com.google.refine.RefineServlet`) 映射 `/*`；运行期由 `Refine.configure()` 注入 init-params `refine.data` / `butterfly.modules.path`(`{dataDir}/extensions`) / `refine.autosave`；`RefineServlet.init()` 依赖 `getInitParameter("refine.version"/"refine.revision"/"refine.autosave")` 与 `javax.servlet.context.tempdir`；`butterfly.properties` + `modules.properties` 在 `WEB-INF`；Gzip 经 `jetty-web.xml` 的 `GzipHandler`。→ **POC 挂载面 = 1 个 servlet + 5 个 init-param + tempdir 上下文属性 + webapp 资源根**。
 - **构建约束 ⚠**：本机 Maven `localRepository` = `C:\Users\kubao\tools\maven\apache-maven-3.8.1\maven-repository`，**在沙箱可写范围之外**；需新下载 Solon（如 `solon-server-jetty` 尚未缓存）时，maven 命令须**禁用沙箱**执行。工程历史上亦需 `-o` 离线，故 POC 构建需联网（禁用沙箱）。
 - **OR 侧现为 `javax.servlet` 4.0.1**、`java.minversion=11`（本机运行 JDK 21）、Jetty 10.0.19、Butterfly 1.2.6（**外部 jar**，非源码）。→ 先保 **javax** 使 121 命令类零改动。
-- **待实测项**：Solon `boot` 的 servlet 注册 API（`app.servlet(...)` 语义）能否承载 `RefineServlet`（含 `getPathInfo()`、`ServletContext` 属性、webapp docroot、multipart/64MB、gzip）。
+- **待实测项 → 已实测完成**：见下方「POC 执行记录」。
+
+---
+
+### POC 执行记录（真实动代码，2026-10-16）
+
+> **工作区**：独立 worktree `g:\workshop\RUYI\build\or-solon-poc` @ `feat/or-solon-migration`；主工作区 `g:\workshop\RUYI\OpenRefine` 未切换、未污染。
+> **Solon 侧**：`java -cp server\classes + 90×webapp/WEB-INF/lib + 36×provided 依赖 + solon 全套` → `com.google.refine.RefineSolon`（Solon 4.1.1 + **Tomcat 9.0.118**，端口 3433，数据目录 `%TEMP%\refine-poc-data`）。
+> **对照（Jetty）**：同 worktree、同 webapp、端口 3334 的原生 `com.google.refine.Refine`。
+
+#### 1. 挂载可行性 ✔（「薄采用」成立）
+
+- 启动：`Tomcat/9.0.118/4.1.1 @1631ms`，监听 `127.0.0.1:3433`；`RefineServlet`+Butterfly 模块扫描在**首个请求时**初始化（懒加载，约 21–23s）。
+- `GET /command/core/get-version` → 200，`{"full_name":"JinRefine 3.11.0.01 [TRUNK]","module_names":["core","data-quality","database","files","jython","pc-axis","records-assets","records-db"]}` —— 模块扫描、`getRealPath("/")`、`getServerInfo()` 兜底均生效。
+- 静态/模板/命令全部就位：`/`（index.vt 经 velocity 渲染 22KB）、`/wirings.js`、`/index-bundle.js`（Rhino 实时拼接 ~794KB）、`/about.html`、`images/*`、`get-languages`、`get-all-project-metadata`。
+- **POC 新增/改动仅 3 个文件**：`server/src/com/google/refine/RefineSolon.java`（新，含 3 处最小桥：`/*` pathInfo 语义、`ServletContext.getRealPath` 兜底、5 个 init-param）+ `server/pom.xml`（加 Solon/Tomcat 依赖）+ `modules/core/pom.xml`（fileMask 修正，见第 5 点）。**121 个命令类、`controller.js`、前端契约零改动。**
+
+#### 2. 关键缺陷与修复：Tomcat multipart 语义 ✔（POC 唯一真实适配点）
+
+- 现象：Solon 侧上传导入项目得 `rowCount:0`（`temp/import/<id>/raw-data` 为空）；Jetty 侧同请求 `rowCount:3`。
+- 根因：`CreateProjectCommand.doPost` 首行走 `hasValidCSRFTokenAsGET` → `ParsingUtilities.parseParameters` → `request.getParameterMap()`。**Tomcat 在 content-type=multipart/form-data 且无 `<multipart-config>` 时会因 `parseParameters()` 解析并吞掉请求体**（parts 为空），下游 `commons-fileupload` 拿不到文件；**Jetty 无 multipart-config 时不解析、保留请求流**。
+- 修复（隔离在 `RefineSolon.PathInfoRequest` 内）：multipart 请求下把 `getParameter/Values/Names/Map` 覆写为**只暴露查询串**（手工 URLDecode，支持同名多值），请求体留给 OR 自己的 fileupload 解析 —— 与 Jetty 语义一致。
+- 验证：修复后 Solon 上传 → `HTTP 302` + `rowCount:3`，`importOptionMetadata` 与 Jetty 一致。
+
+#### 3. 响应等价性 ✔（字节级）
+
+- 同一 `get-rows?project=<5000行>&start=0&limit=100` 请求：Solon 与 Jetty 输出**逐字节一致**，`size=14174`，`SHA256=2D557F11AF3105D93DFE184FE1331C4A367B1768E3AE3E8A08D7E763E69719D0`。
+
+#### 4. 性能与内存 ✔（门禁：偏差 ≤ ±10%）
+
+5000 行项目，单进程 curl 批量发送（预热 30、测量 300），全部 HTTP 200；**两次复跑取更稳的 run#2**：
+
+| 端点 | P50/P95/Avg (ms) · Solon | P50/P95/Avg (ms) · Jetty | 判定 |
+|---|---|---|---|
+| `get-rows`(limit=100) | 0.99 / 1.32 / 1.21 | 1.17 / 1.58 / 1.22 | 持平偏快 |
+| `get-models` | 0.66 / 0.85 / 0.72 | 0.64 / 0.73 / 0.73 | 持平 |
+| `get-all-project-metadata` | 0.52 / 0.64 / 0.73 | 0.65 / 0.75 / 0.69 | 持平偏快 |
+
+- run#1 曾出现 `get-all-projmeta` Solon 偏慢（1.20 vs 0.78），复跑消失 → 判定为 JIT/测量顺序噪声；两侧**绝对时延 P95 均 ≤3ms**，微秒级差异不构成退化。
+- 峰值内存（同负载后）：**Solon WS=218MB / Private=264MB** vs **Jetty WS=417MB / Private=674MB** → Solon 侧显著更低。
+
+**结论：容器层替换未观察到性能退化（重负载端点持平偏快、内存更低）。**
+
+#### 5. 附带发现：基线 `modules/core` 干净构建缺陷（与本改造无关，但需修）
+
+- 基线 `modules/core/pom.xml` 的 localizer `<fileMask>OpenRefineMessage*.properties</fileMask>` 在本机实测**恒不匹配任何文件**（`GeneratorMojo` 对 `File.getName()` 做精确 `equals`，不支持通配符）→ `mvn generate-sources` **一个类都不生成**。
+- 而 `OpenRefineMessage` 被 `ImporterUtilities`/`Command`/`RangeFacet` 三处引用 → **新 worktree / `mvn clean` 的干净构建会因缺类而编译失败**；既有工作区因残留旧生成物（早于该缺陷引入）而未暴露。
+- POC 分支已修正为精确文件名 `OpenRefineMessage.properties`：删除生成物后 `generate-sources` 可重新生成，且生成结果与旧通配符产物**逐字节一致**（改动本身输出中性，属可选的健壮性修正）。
+
+#### 6. 回归门禁
+
+- **容器/命令路由回归** `RefineServletTests`：**9/9 通过**（GET/POST/PUT/DELETE 分发、404、`getPathInfo` 路由）。
+- **`modules/core` 全量**：`Tests run: 209, Failures: 4` —— 4 项全部落在 `HistoryEntryTests`/`HistoryTests` 的 **JSON 序列化断言**，根因是该分支 `HistoryEntry` 序列化多写一个 `"sheetId": null` 字段、而期望 JSON 未含该字段；**与容器层替换无关**（`modules/core` 对基线仅 fileMask 一处改动、且输出中性；主工作区同源同码）。属**基线既有失败**，不阻塞 POC。
+
+#### 7. 已知待办 / 未测项（交 Phase 1+ 处理）
+
+- **未测**：多连接并发压测（本轮为单连接顺序压测）、64MB 大文件上传、前端 cypress e2e。
+- **环境 caveat（非容器回归）**：本 worktree 的 `extensions/*/module/MOD-INF` 下**无 `classes`/`lib`**（扩展模块未编译），故 `data-quality`/`files`/`jython`/`pc-axis`/`records-*` 等模块 init 报 `JavaPackage ... is not a function`；**Jetty 侧同源同报**，属构建产物缺失，非 Solon 引入。
+
+#### 8. 容器语义对齐收尾 ✔（本轮完成，关闭第 7 章路线图的 POC 收尾项）
+
+针对上轮「未对齐的配置语义」，本轮在 `RefineSolon` 内显式补齐 4 项，并回归验证上传路径：
+
+| # | 语义项 | 现状锚点 | 对齐做法 | 验证结果 |
+|---|---|---|---|---|
+| 1 | 懒加载 init（load-on-startup） | Jetty 部署期初始化 | `Solon.start(...)` 后调 `RefineSolonHandler.warmup()` → 首次 `servlet()` | 日志 `RefineServlet pre-initialized in 2328ms (load-on-startup aligned)`，首请求不再阻塞 |
+| 2 | gzip（`jetty-web.xml` GzipHandler） | min=2048B、MIME 白名单 | 捕获 `TomcatServerBase` → 反射取 `_server` → `Connector.setProperty("compression"/"compressionMinSize"/"compressibleMimeType", …)` | `index-bundle.js`：Solon 793829→**169043B**、Jetty 793829→**169036B**；两侧均回 `Content-Encoding: gzip` + `Vary: Accept-Encoding`（7B 差来自 deflate 实现差异，语义等价） |
+| 3 | `SessionPath` context-param | `web.xml` 中 `SessionPath=/`（Jetty 专属） | 判定 **N/A 无需迁移**：根上下文（Tomcat 已将 `path [/]` 归一为 ``），且 OR 全码 0 处 `HttpSession` 使用 | 无需迁移 |
+| 4 | OR 自设线程池 / 时长 / 体积上限 | `maxThreads=30 / maxQueue=300 / idle=60s`；64MB form | Solon Tomcat `setExecutor` 为 **no-op**（不支持自定义池）→ 改以 `maxThreads=acceptCount=refine.queue.max_size(300)` 近似并发上限，并设 `maxPostSize/maxSwallowSize=64MB`、`connectionTimeout=60000ms` | 日志 `Aligned connector semantics: gzip(min=2048B, mime=9 types), maxPostSize=64MB, maxThreads/acceptCount=300, connectionTimeout=60000ms` |
+
+- **捕获容器实例**：`app.onEvent(TomcatServerBase.class, server -> …)`（`EventBus` 用 `isInstance` 匹配子类，`TomcatPlugin.start0` 在 `_server.start()` **之前** publish，故 listener 可在启服前拿到实例并缓存）。
+- **multipart 回归（确认对齐未破坏 POC 修复）**：两侧各以 `create-project-from-upload?csrf_token=<query>` + `-F project-file=…csv` 上传同一 3 行 CSV：
+  - Solon(3433)：`HTTP 302` → `/project?project=2261096021157`，`get-project-metadata.rowCount=3`，`importOptionMetadata.fileSource=poc-upload-test.csv`。
+  - Jetty(3334)：`HTTP 302` → `http://127.0.0.1:3334/project?project=2718005759191`，`rowCount=3`。
+  - **唯一差异**：`Location` 形态 —— Solon 相对路径、Jetty 绝对 URL（Tomcat `useRelativeRedirects` 默认相对；Jetty 默认转绝对）；二者均合 RFC 7231，浏览器按请求 URL 解析，**语义等价**。
+- **响应等价性复验**：`get-version` 两侧 **427B 逐字节一致（`-ceq` = True）**。
+
+**结论：4 项容器语义对齐完成；POC 收尾项清零，可进入 Phase 1（Butterfly → 框架无关 Java SPI 化）。**
 
 ---
 

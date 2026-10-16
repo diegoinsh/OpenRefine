@@ -344,7 +344,7 @@ class RefineServer extends Server {
         }
     }
 
-    static private String getDataDir() {
+    static String getDataDir() {
         String data_dir = Configurations.get("refine.data_dir");
         if (data_dir != null) {
             return data_dir;

@@ -19,6 +19,7 @@
     <jee.port>3333</jee.port>
     <refine.data>/tmp/refine</refine.data>
     <skipNexusStagingDeployMojo>true</skipNexusStagingDeployMojo>
+    <solon.version>4.1.1</solon.version>
   </properties>
 
   <scm>
@@ -165,6 +166,17 @@
       <version>${project.version}</version>
       <type>pom</type>
       <scope>provided</scope>
+    </dependency>
+    <!-- POC: Solon 容器（boot + server 装配），transport 用 tomcat（javax servlet 4.0，与 OR 一致） -->
+    <dependency>
+      <groupId>org.noear</groupId>
+      <artifactId>solon</artifactId>
+      <version>${solon.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.noear</groupId>
+      <artifactId>solon-server-tomcat</artifactId>
+      <version>${solon.version}</version>
     </dependency>
     <dependency>
       <groupId>javax.servlet</groupId>

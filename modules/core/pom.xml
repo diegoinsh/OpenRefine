@@ -52,12 +52,15 @@
       </plugin>
       <!-- localizer 只处理 core 的 OpenRefineMessage 资源。其余 properties（如 licensing
            的 LicenseMessages）由各自的 ResourceBundle 直接读取：localizer 会按**文件名**
-           生成 Java 类，文件名/键名必须能转成合法 Java 标识符，不适用这类资源。 -->
+           生成 Java 类，文件名/键名必须能转成合法 Java 标识符，不适用这类资源。
+           注意 fileMask 是**精确文件名**匹配（GeneratorMojo 内部对 File.getName() 做
+           String.equals），不支持通配符；写 `OpenRefineMessage*.properties` 会恒不匹配，
+           导致一个类都不生成、core 编译失败。语言变体由插件内建的 `_` 前缀规则排除。 -->
       <plugin>
         <groupId>org.jvnet.localizer</groupId>
         <artifactId>localizer-maven-plugin</artifactId>
         <configuration>
-          <fileMask>OpenRefineMessage*.properties</fileMask>
+          <fileMask>OpenRefineMessage.properties</fileMask>
         </configuration>
       </plugin>
     </plugins>
