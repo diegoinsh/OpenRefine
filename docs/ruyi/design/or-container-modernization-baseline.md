@@ -200,11 +200,41 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 - **门禁**：core 不再直接依赖具体业务实现；回归全绿。
 - **回退**：SPI 为增量抽象，可逐个面切换。
 
+#### Phase 1 执行记录（2026-10-16，worktree `build/or-solon-poc` @ `feat/or-solon-migration`）
+
+> 落法：把业务扩展的注册逻辑从 Butterfly 的 JS `controller.js`（`RS.register*`）收敛到 OR 自有的、框架无关的 Java SPI，使注册面成为可被任意装载器（Butterfly / 后续 Solon）驱动的稳定边界。**core 自身 `controller.js` 不动**；**既有业务实现类包名不动**（`com.google.refine.extension.quality.*` / `org.openrefine.extensions.files.*`），只把注册逻辑挪进新 SPI 类。
+
+**① core SPI 四件套**（新包 `com.jiongche.refine.spi`，对应公司实体「炅澈技术」）：
+
+| 文件 | 职责 |
+|---|---|
+| `RefineModuleContext` | 框架无关的注册门面，覆盖第 4.4 节十个注册面（commands/guards/classmap、operations、importing、exporters、recon、language、clustering、overlay、client-side resources、resources/i18n） |
+| `RefineModuleSpi` | 业务扩展契约：`getName()` + `register(ctx)`（+ `destroy()` 默认空实现） |
+| `ButterflyModuleContext` | 适配器：包装 `ButterflyModule`，把 ctx 调用转投底层静态注册表 |
+| `SpiBootstrap` | 桥入口：`register(ButterflyModule, spiClassName)`，按「线程上下文 CL → module 类 CL → core CL」回退解析并实例化 SPI 类 |
+
+**② core 4 个注册表加 `String` 重载**（**加法**，保留原 `ButterflyModule` 签名）：`RefineServlet.registerCommand` / `OperationRegistry.registerOperation` / `ImportingManager.registerController` / `ReconConfig.registerReconConfig`，统一 key = `moduleName + "/" + name`；原方法委托新重载。`ClientSideResourceManager.addPaths` 因签名含 `MountPoint` 未加 core 重载，由适配器直接调原 `ButterflyModule` 版。
+
+**③ 两个试点扩展 SPI 化**：`com.jiongche.extensions.files.FilesExtensionSpi`、`com.jiongche.extension.quality.DataQualityExtensionSpi`；各自 `controller.js` 的 `init()` 瘦身为一行 `Packages.com.jiongche.refine.spi.SpiBootstrap.register(module, "<SPI 类名>")`（data-quality 另保留 `process`/`send` 回调，不在 SPI 覆面内）。
+
+**启动回归**（Solon 实例 `127.0.0.1:3433`，把预构建的 `main/webapp/WEB-INF/lib/core-3.11.0.01.jar` 换为含 SPI 的重建产物；两扩展经 `mvn install` 产出带 SPI 类的 MOD-INF/lib jar）：
+
+- **SPI 注册成功**：启动日志 `SPI registered: module=files spi=com.jiongche.extensions.files.FilesExtensionSpi`、`SPI registered: module=data-quality spi=com.jiongche.extension.quality.DataQualityExtensionSpi`；`Data-Quality Extension initialized successfully!`。
+- **命令可达**（命中即非 404）：`files/extraction-config`、`data-quality/get-config`、`get-quality-rules`、`list-tasks`、`get-image-quality-rule` 均 200；`files/batch-extraction`（POST-only）GET=500，证明命令已注册并完成分发。
+- **客户端资源**（经 SPI 的 `addClientSidePaths`）：`/index-bundle.js` 含 `files/scripts/vendor/tiny-pinyin.js`、`files/scripts/index/files-importing-controller.js`、`files/scripts/index/extraction-console.js`、`data-quality/scripts/index/data-quality-ui.js`；`/project-bundle.js` 含 data-quality 的 `quality-alignment.js`、`menu-bar-extension.js`、`file-view-panel.js`、`dialogs/run-check-dialog.js`；导入控制器键 `files/files-importing-controller` 已注册。
+- **`get-version`** 200，`module_names` 含 `data-quality`、`files`。
+- **未变项**：`jython`/`records-db`/`records-assets`/`pc-axis`/`database` 仍报模块初始化 `JavaPackage … is not a function`，属本 worktree 这些扩展**未编译**（MOD-INF 无 classes/lib）——与 P1 无关，Jetty 侧同源同报。
+
+**结论：P1 核心目标达成——两个试点扩展的注册面经框架无关 Java SPI 驱动，core 不再面向具体业务实现，装载器（Butterfly）行为不变。**
+
 ### Phase 2 · 跟随上游现代化
 - **目标**：对齐上游（jakarta / Jetty 升级 / controller.js Java 化），**保住 rebase 能力**。
 - **工作项**：评估并实施与上游 4.0 同向的改动；保持 `upstream` 远端可合并。
 - **门禁**：与上游 diff 可控；回归全绿。
 - **回退**：逐项对齐，可暂缓单项。
+- **前置调研结论（2026-10-16，详见 §10 末「上游 4.0 走向调研结论」）**：上游容器外壳**尚未定稿**——jakarta 迁移被**显式推迟**（保留 EE8 / Servlet 4.0），Jetty 12 PR **未合并**，4.0 **无发布日期**。
+  → 本阶段**降级为「观察 + 预备」**：不抢跑容器变更，仅跟踪 issue #7706 / PR #7707 / #5664 与里程碑 `V.next`；**原列 "jakarta 迁移" 一项取消**（与上游同向，继续保持 `javax`）。
+  → **Phase 3 不再被 Phase 2 阻塞**（上游选"保留并改造 Butterfly"而非替换，我方 Solon 装载器为并行备选），顺序调整见 §10 末。
 
 ### Phase 3 · 装载器选型落地
 - **目标**：在"上游最小化 Butterfly" 与 "Solon E-Spi/H-Spi" 之间**选型并落地**。
@@ -250,7 +280,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 2. 各 adapter 的 javax/jakarta × Java 版本矩阵（与 OR 侧最终选择的 javax/jakarta 对齐）。
 3. Solon 维护活跃度（近 6–12 个月 commit/issue/release 频率）与 tomcat/undertow 适配成熟度。
 4. 与 commons-fileupload / velocity / Rhino(GraalJS) / `dog_read.exe` native 调用的共存性。
-5. 上游 OR 4.0 设计文档中的容器/Butterfly/Jetty 走向（决定 Phase 2/3 顺序）。
+5. ~~上游 OR 4.0 设计文档中的容器/Butterfly/Jetty 走向（决定 Phase 2/3 顺序）。~~ → **已调研（2026-10-16）**，结论与 Phase 2/3 顺序建议见本节末「上游 4.0 走向调研结论」。
 
 ### P0 执行记录（2026-10-16）
 
@@ -341,6 +371,36 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 
 ---
 
+### 上游 4.0 走向调研结论（Phase 2 前置，2026-10-16）
+
+> 取证来源：OpenRefine 官方文档 + GitHub 一手材料（issue/PR 状态经 GitHub API **逐条核验**）+ 官方论坛线程。
+> 置信度分档：**★ = 有 GitHub API 一手核验**；**☆ = 仅文档/论坛材料（未逐条 API 核验）**。
+
+| # | 问题 | 上游现状 | 状态 | 置信度 |
+|---|---|---|---|---|
+| 1 | Butterfly 去留 | **保留并"改造"**（讨论 `Butterfly 2.0` / 纳入 OR 仓库），**不弃用、不换框架** | 方向已定，无时间线 | ☆ |
+| 2 | Servlet / jakarta | **刻意留在 EE8 / Servlet 4.0（`javax.servlet`）**，**不迁 jakarta** | 计划中 | ★ |
+| 3 | Jetty 版本 | `10 → 12.1`，**保留 Servlet 4.0 兼容**（分支 `jetty12-ee8`） | **open，未合并** | ★ |
+| 4 | controller.js / 扩展机制 | 官方"声明式注册"issue **已 `not_planned` 关闭**；OSGi / pf4j **仅讨论、未采纳** | 未实现 | ★(关闭) / ☆(讨论) |
+| 5 | 4.0 时间点 | **未发布、无日期**；milestone `V.next`（描述含 "requires Java 17, updates Servlet/Jetty"） | 计划中，tentative 2026 | ★(milestone) / ☆(日期) |
+
+**关键一手证据（GitHub API 核验）**：
+
+- **PR #6077**《Update to Jetty 11 and other breaking Butterfly API changes》（Jetty 11 + **Jakarta Servlet 5**）：`state=closed`、`closed_at=2026-03-13`、`merged=false`；正文自陈 "…it's a breaking change for all extensions, so I'm not convinced it's needed"。
+- **issue #7706**《Upgrade to Jetty 12》（`open`，milestone `V.next`，assignee `tfmorris`）：**Proposed solution = "EE 8 - Servlet 4.0 API compatible with existing code"**，Alternatives = EE9/EE10（jakarta）。→ **jakarta 迁移被显式推迟**。
+- **PR #7707**《Update to Jetty 12.1 keeping Servlet 4.0 / EE 8》：`open`，即 #6077 的替代方案。
+- **issue #5664**《Use a declarative format for registering extension components》：`closed` / `not_planned`（2025-02-03）→ 上游**不会**在近期把扩展注册改成声明式。
+
+**对 Phase 2 / Phase 3 顺序的建议（本调研直接产出）**：
+
+1. **"保 `javax` 让 121 命令类零改动"与上游同向** ✔ —— 上游明确选 EE8 / Servlet 4.0，我方**不需、也不应抢跑 jakarta**；Phase 2 原列 "jakarta 迁移" 一项**取消**。
+2. **Phase 2 剩余实质 = 跟随 `Jetty 10 → 12`**，但该 PR **未合并、4.0 无日期** → 抢跑只会引入 rebase 摩擦，故 Phase 2 **降级为「观察 + 预备」，不阻塞后续**。
+3. **Phase 3（装载器选型）不必等 Phase 2**：上游选"**保留并改造 Butterfly**"而非替换，我方 Solon 装载器是**并行备选**；且上游长期方向正是"**扩展 API 稳定化**"，与我方 SPI 边界**同向**，存在收敛机会。
+4. **建议主线顺序**：**先 Phase 3（Solon 装载器 POC）+ P1 横向补全**，以「**扩展稳定性优先 + 保住 rebase**」为纲，装载器做成**开关回退**（`refine.module.loader = butterfly | solon`）；**待上游 #7707 合并 / 4.0 定稿后，再决定是否对齐容器外壳**。
+5. **复评触发清单**：issue #7706 / PR #7707（Jetty 12）、issue #5664（扩展注册）、milestone `V.next` 有实质进展即重估顺序。
+
+---
+
 ## 11. 参考来源
 
 **代码取证**：本仓库 `modules/core`、`extensions`、`server`、`main/webapp`（`RefineServlet`、`RefineServer`、`controller.js`、`pom.xml`、`jetty-web.xml`、`web.xml`）。
@@ -355,6 +415,12 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 - [无耳 Solon | 特点与性能对比](http://solon.noear.org/article/features)
 - [无耳 Solon | 版本发布与长期支持计划(LTS)](https://solon.noear.org/article/687)
 - [OpenRefine | Architecture before version 4](https://openrefine.org/docs/technical-reference/architecture-before-4)
+- [OpenRefine | Architecture in version 4](https://openrefine.org/docs/technical-reference/architecture-4)
+- [OpenRefine | Issue #7706 Upgrade to Jetty 12（保留 EE8 / Servlet 4.0）](https://github.com/OpenRefine/OpenRefine/issues/7706)
+- [OpenRefine | PR #7707 Update to Jetty 12.1 keeping Servlet 4.0 / EE 8](https://github.com/OpenRefine/OpenRefine/pull/7707)
+- [OpenRefine | PR #6077 Update to Jetty 11 and other breaking Butterfly API changes（已关闭未合并）](https://github.com/OpenRefine/OpenRefine/pull/6077)
+- [OpenRefine | Issue #5664 Use a declarative format for registering extension components（not_planned）](https://github.com/OpenRefine/OpenRefine/issues/5664)
+- [OpenRefine | Milestone V.next](https://github.com/OpenRefine/OpenRefine/milestone/23)
 - [OpenRefine Forum | Scheduling breaking changes we have on our radar](https://forum.openrefine.org/t/scheduling-breaking-changes-we-have-on-our-radar/1410)
 - [OpenRefine Forum | Extension Operations during Project load](https://forum.openrefine.org/t/extension-operations-during-project-load/2368)
 - [OpenRefine Forum | Improving the UX of extension install, and Butterfly](https://forum.openrefine.org/t/improving-the-ux-of-extension-install-and-butterfly/52/21)

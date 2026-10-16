@@ -171,7 +171,14 @@ public class ImportingManager {
     }
 
     static public void registerController(ButterflyModule module, String name, ImportingController controller) {
-        String key = module.getName() + "/" + name;
+        registerController(module.getName(), name, controller);
+    }
+
+    /**
+     * 框架无关重载：只按模块名命名空间。
+     */
+    static public void registerController(String moduleName, String name, ImportingController controller) {
+        String key = moduleName + "/" + name;
         controllers.put(key, controller);
 
         controller.init(servlet);

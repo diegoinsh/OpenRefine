@@ -236,6 +236,12 @@ public class RefineSolon {
             HttpServletRequest request = (HttpServletRequest) ctx.request();
             HttpServletResponse response = (HttpServletResponse) ctx.response();
 
+            // 字符集对齐：Tomcat 按 servlet 规范默认响应编码为 ISO-8859-1，而 Jetty 默认 UTF-8。
+            // Butterfly 的 Velocity 模板（如 index.vt 的 <h1>数据金炼</h1>）经 response.getWriter()
+            // 落笔时会按该编码写出，若为 ISO-8859-1 则中文变 "????"。此处先固定 UTF-8，
+            // 且不覆盖后续 setContentType（无 charset 时保留已设编码）。
+            response.setCharacterEncoding("UTF-8");
+
             // 短路 Solon 自身的后续处理（路由/状态渲染）
             ctx.setHandled(true);
 

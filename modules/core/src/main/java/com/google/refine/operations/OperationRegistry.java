@@ -49,7 +49,14 @@ public abstract class OperationRegistry {
     static final public Map<Class<? extends AbstractOperation>, String> s_opClassToName = new HashMap<Class<? extends AbstractOperation>, String>();
 
     static public void registerOperation(ButterflyModule module, String name, Class<? extends AbstractOperation> klass) {
-        String key = module.getName() + "/" + name;
+        registerOperation(module.getName(), name, klass);
+    }
+
+    /**
+     * 框架无关重载：只按模块名命名空间。
+     */
+    static public void registerOperation(String moduleName, String name, Class<? extends AbstractOperation> klass) {
+        String key = moduleName + "/" + name;
 
         s_opClassToName.put(klass, key);
 

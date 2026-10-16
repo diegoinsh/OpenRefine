@@ -343,7 +343,23 @@ public class RefineServlet extends Butterfly {
      * @return true if command was loaded and registered successfully
      */
     static public boolean registerCommand(ButterflyModule module, String commandName, Command commandObject) {
-        return s_singleton.registerOneCommand(module, commandName, commandObject);
+        return registerCommand(module.getName(), commandName, commandObject);
+    }
+
+    /**
+     * Register a single command, namespaced by module name (framework-agnostic overload).
+     * 供 SPI/装载器在拿不到 ButterflyModule 时只传模块名调用。
+     *
+     * @param moduleName
+     *            name of the module the command belongs to
+     * @param commandName
+     *            command verb for command
+     * @param commandObject
+     *            object implementing the command
+     * @return true if command was loaded and registered successfully
+     */
+    static public boolean registerCommand(String moduleName, String commandName, Command commandObject) {
+        return s_singleton.registerOneCommand(moduleName + "/" + commandName, commandObject);
     }
 
     // ---- Command guards: extensions may veto mutating POST commands ----

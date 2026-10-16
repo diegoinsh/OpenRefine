@@ -66,7 +66,14 @@ abstract public class ReconConfig {
     static final public Map<Class<? extends ReconConfig>, String> s_opClassToName = new HashMap<Class<? extends ReconConfig>, String>();
 
     static public void registerReconConfig(ButterflyModule module, String name, Class<? extends ReconConfig> klass) {
-        String key = module.getName() + "/" + name;
+        registerReconConfig(module.getName(), name, klass);
+    }
+
+    /**
+     * 框架无关重载：只按模块名命名空间。
+     */
+    static public void registerReconConfig(String moduleName, String name, Class<? extends ReconConfig> klass) {
+        String key = moduleName + "/" + name;
 
         s_opClassToName.put(klass, key);
 
