@@ -11,7 +11,9 @@ package com.jiongche.refine.loader;
  * <li>JVM 系统属性 {@code -Drefine.module.loader}；</li>
  * <li>缺省 {@code "butterfly"}（现状）。</li>
  * </ol>
- * 取值 {@code "solon"} → {@link StandaloneModuleLoader}；其余 → {@link ButterflyModuleLoader}（秒级回退）。
+ * 取值 {@code "solon"} → {@link StandaloneModuleLoader}（P3 自研）；
+ * 取值 {@code "solon-plugin"} → {@link SolonPluginModuleLoader}（Solon 插件形态，H-Spi）；
+ * 其余 → {@link ButterflyModuleLoader}（秒级回退）。
  */
 public final class ModuleLoaderRegistry {
 
@@ -19,6 +21,7 @@ public final class ModuleLoaderRegistry {
     public static final String SYS_PROPERTY = "refine.module.loader";
     public static final String LOADER_BUTTERFLY = "butterfly";
     public static final String LOADER_SOLON = "solon";
+    public static final String LOADER_SOLON_PLUGIN = "solon-plugin";
 
     private ModuleLoaderRegistry() {
     }
@@ -30,6 +33,9 @@ public final class ModuleLoaderRegistry {
         }
         if (LOADER_SOLON.equalsIgnoreCase(value.trim())) {
             return StandaloneModuleLoader.INSTANCE;
+        }
+        if (LOADER_SOLON_PLUGIN.equalsIgnoreCase(value.trim())) {
+            return SolonPluginModuleLoader.INSTANCE;
         }
         return ButterflyModuleLoader.INSTANCE;
     }

@@ -128,43 +128,8 @@ public final class StandaloneModuleLoader implements RefineModuleLoader {
         File path = new File(props.getString("__path__"));
         URLClassLoader cl = buildClassLoader(path);
 
-        ButterflyModuleImpl module = new ButterflyModuleImpl();
-
-        String implClass = props.getString("module-impl");
-        if (implClass != null && !implClass.equals(module.getClass().getName())) {
-            try {
-                module = (ButterflyModuleImpl) cl.loadClass(implClass).getDeclaredConstructor().newInstance();
-            } catch (Exception e) {
-                logger.error("StandaloneModuleLoader: error loading special module manager for {}", moduleName, e);
-            }
-        }
-
-        // 复刻 Butterfly.createModule 的字段装配顺序（不含共享 CL 的 addRepository，
-        // 用独立 cl 取代），随后仍放回 _modulesByName，供 wireModules/configureModules 装配。
-        module.setName(moduleName);
-        module.setPath(path);
-        module.setModules(servlet.moduleMap());
-        module.setMounter(servlet.mounter());
-        module.setClassLoader(cl);
-        module.setTimer(servlet.timer());
-        servlet.registerModule(moduleName, module);
-
-        String extendedName = props.getString("extends");
-        if (extendedName != null) {
-            ButterflyModule extended;
-            if (servlet.moduleProperties(extendedName) == null) {
-                throw new RuntimeException("Cannot wire module '" + moduleName + "' because the extended module '"
-                        + extendedName + "' is not defined.");
-            }
-            extended = servlet.getModule(extendedName);
-            if (extended == null) {
-                extended = servlet.createModuleByName(extendedName);
-            }
-            if (extended != null) {
-                module.setExtended(extended);
-                extended.addExtendedBy(module);
-            }
-        }
+        // 装配段抽出为 ModuleAssembly（与插件形态装载器共用；独立 cl 取代共享 CL 的 addRepository）。
+        ButterflyModuleImpl module = ModuleAssembly.assemble(servlet, moduleName, path, cl, props);
 
         _entries.put(moduleName, new Entry(moduleName, module, cl));
         logger.info("StandaloneModuleLoader: module={} cl={}", moduleName, cl);

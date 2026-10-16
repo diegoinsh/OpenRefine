@@ -267,6 +267,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 - **执行记录（2026-10-16，POC 完成）**：自研 `StandaloneModuleLoader`（开关值 `solon`）已落 `com.jiongche.refine.loader`，接管 `files` / `data-quality` 的「模块发现归属 + ClassLoader + 模块对象创建」，两模块各获**独立 `URLClassLoader`**（非共享 `ButterflyClassLoader`）；`butterfly` 缺省路径逐字节不变、开关秒级回退。等价性 / 隔离性门禁全绿，详见 §10「P3 执行记录（装载器选型 POC，2026-10-16）」。
   - **收敛（2026-10-16）**：core 正式重打包进 webapp（`core-3.11.0.01.jar` 含 `com.jiongche.refine.{loader,spi}`），**彻底去掉 dev-shim（core classes 前置）**；`StandaloneModuleLoader` 日志收敛 + `unload()` 补可观测日志（不重复销毁）；接管面由 2 模块扩到 **4 模块**（`files` / `data-quality` / `records-db` / `records-assets`）。详见 §10「P3 收敛执行记录（去 dev-shim + 隔离/卸载 + 四模块扩面，2026-10-16）」。
   - **R2 交付形态（2026-10-16）**：**彻底移除 Jetty**，交付两条真实入口（`jinrefine.exe` 与 `refine.bat`）原生走 Solon——不再保留 Jetty 启动分支。核心解法为 **D1「依赖落位」**（`server/pom.xml` 把 `main` 依赖由 pom+provided 改为普通 jar + `compile`），使 `copy-dependencies(includeScope=runtime)` 自动把 `core`/`grel`/`main` 及其运行时依赖拷入 `server/target/lib`，从而 exe / bat / launch4j / `refine`（Unix）**零改动**即可见（等价于 POC 验证过的扁平 classpath 模型）。上传上限由 Jetty 专属键解耦为容器无关新键 `refine.container.max_post_size`（缺省 64MB）。**缺省装载器仍 `butterfly`**。详见 §10「R2 执行记录（彻底移除 Jetty · 交付形态原生 Solon，2026-10-16）」。
+  - **Solon 插件装载形态（D1-a，2026-10-16）**：新增第 3 个装载器 `SolonPluginModuleLoader`（开关值 **`solon-plugin`**）——以 Solon **插件契约**（`org.noear.solon.core.Plugin` + 描述符 `META-INF/solon/*.properties`）作为业务插件的「发现 + 生命周期」契约，借 `org.noear:solon-hotplug` 的 `PluginClassLoader` 提供 **per-plugin 类加载器隔离**（parent = core CL）。试点 `files` / `data-quality` 改造为**插件 jar**（双描述符：插件描述符 + `MOD-INF/module.properties`），其 `controller.js` 的 `SpiBootstrap.register` 行在插件模式**让位**（`SolonPluginBridge.isDelegated` ⇒ 单一注册路径）。`butterfly`（缺省）与 `solon`（P3 自研）路径**均不动**。详见 §10「Solon 插件装载形态执行记录（D1-a：H-Spi 隔离 + 插件契约，2026-10-16）」。
 
 **双侧分支**：OR 侧与能力平台侧各起独立分支；**平台 SDK 解耦（Phase 1 的耦合点抽取）与 Solon 迁移并行推进**。
 
@@ -282,7 +283,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 | `export-rows`（流式） | 流式 flush、响应缓冲 | **待专项实测**（本轮未覆盖流式语义） |
 | `task-control` / `get-check-progress`（轮询） | 长轮询、线程池占用 | **✔ 近似对齐**（`maxThreads/acceptCount=300`；Tomcat 不支持自定义池） |
 | 静态资源 / `-bundle.js` | gzip、资源根、拼接时机 | 语义等价（建议构建期预打包） |
-| 扩展装载 | ClassLoader 隔离、动态装载 | **✔ 已落地自研装载器（P3，收敛后）**：`StandaloneModuleLoader` 为接管模块提供 per-module `URLClassLoader`；**接管面 = 4 个自有模块**（`files` / `data-quality` / `records-db` / `records-assets`），各模块 CL 互异且 ≠ 应用 CL，URL 集为模块内 `MOD-INF/classes` + `MOD-INF/lib`（不含 core）；**core 已正式重打包进 webapp，不再依赖 dev-shim**；开关 `refine.module.loader = butterfly \| solon` 秒级回退；前端契约（`/command`、`/wirings.js`、`-bundle.js`、`.vt`、i18n）零改动 |
+| 扩展装载 | ClassLoader 隔离、动态装载 | **✔ 已落地两代装载器**：①`StandaloneModuleLoader`（P3，`solon`）为接管模块提供 per-module `URLClassLoader`；**接管面 = 4 个自有模块**（`files` / `data-quality` / `records-db` / `records-assets`），各模块 CL 互异且 ≠ 应用 CL，URL 集为模块内 `MOD-INF/classes` + `MOD-INF/lib`（不含 core）；**core 已正式重打包进 webapp，不再依赖 dev-shim**；②`SolonPluginModuleLoader`（本阶段，`solon-plugin`）以 Solon 插件契约 + `solon-hotplug` 的 `PluginClassLoader` 提供 per-plugin 隔离，试点 2 模块（`files` / `data-quality`）已插件化，运行期 `unload()` 实证 `PluginClassLoader.close()` 真关；开关 `refine.module.loader = butterfly \| solon \| solon-plugin` 秒级回退；前端契约（`/command`、`/wirings.js`、`-bundle.js`、`.vt`、i18n）零改动 |
 
 ---
 
@@ -663,6 +664,91 @@ Server:main: tomcat: Has Stopped (Apache Tomcat/9.0.118/4.1.1)
 - Jetty **彻底移除**（全仓依赖 / 代码 / 配置 / 产物零 jetty）；交付形态两条真实入口原生 Solon。**缺省装载器仍 `butterfly`**（与容器层正交，秒级回退不变）。
 - 未做（明确边界，见计划 §7）：不自建 Solon 装配、不摘 `TomcatServerBase._server` 反射桥、不剔除交付产物 `webapp/WEB-INF/lib`（列为后续优化）、不动前端 JS / `controller.js`、不迁 jakarta、不换 transport、不处理上游扩展 init 报错。
 - 回退：本轮改动集中一个 commit → `git revert <commit>` 即回 Jetty 形态（入口照旧）。
+
+---
+
+### Solon 插件装载形态执行记录（D1-a：H-Spi 隔离 + 插件契约，2026-10-16）
+
+> **工作区**：同一 worktree `build/or-solon-poc` @ `feat/or-solon-migration`。
+> **承接**：把 §6 目标架构要点②「业务插件以 Solon 插件形态装载」从「容器已是 Solon」推进到「**插件装载 / 生命周期 / 注册驱动**享受 Solon 插件机制」。**不改缺省开关**（仍 `butterfly`）；**P3 的 `solon`（自研）路径不动**。计划：`or-solon-plugin-loading-plan.md`。
+
+#### 1. 结论：D1-a（H-Spi）成立 ✔
+
+探针（V0）核实 `org.noear:solon-hotplug:4.1.1` 可得（8.2KB，仅依赖 `org.noear:solon`），最小用法实证 `PluginClassLoader` 隔离、`PluginPackage` 生命周期、`unloadJar` 真 `close()`。→ **取 D1-a**：Solon **`Plugin` 契约**（发现 + 生命周期）+ **H-Spi `PluginClassLoader`**（per-plugin 隔离）。
+
+#### 2. 架构与新增件
+
+**接缝**（不动既有路径）：新增第 3 个 `RefineModuleLoader` 实现 `SolonPluginModuleLoader`（`id="solon-plugin"`）；`ModuleLoaderRegistry.resolve` 增 `solon-plugin` 分支（三值并存）。`ButterflyModuleLoader`（缺省）与 `StandaloneModuleLoader`（`solon`）**逐字未动**。
+
+**新增 / 改动件**（均在 worktree）：
+
+| 件 | 角色 |
+|---|---|
+| `modules/core/.../loader/SolonPluginModuleLoader.java` | 插件形态装载器：`createModule` 建 `PluginClassLoader`（parent = core CL）→ `addJar(MOD-INF/classes + lib/*.jar)` → `PluginUtil.scanPlugins` → `PluginPackage`（此步不 start）；`afterModuleInitialize` 在 TCCL 窗口内 `start()`；`unload` 走 `preStop/stop + close()` |
+| `modules/core/.../loader/ModuleAssembly.java` | 抽出 `ButterflyModuleImpl` 装配段，供 `StandaloneModuleLoader` 与 `SolonPluginModuleLoader` 共用（去重） |
+| `modules/core/.../spi/SolonPluginBridge.java` | OR 模块 ↔ Solon 插件桥：`bindCurrent/registerCurrentModule`（插件 `start` 内注册 SPI）+ `OWNED/markOwned/isDelegated`（单一注册路径） |
+| `modules/core/.../loader/RefineModuleLoader.java` | 新增 `default void afterModuleInitialize(RefineServlet, String)`（缺省 no-op） |
+| `modules/core/.../RefineServlet.java` | `initializeModule` 在 TCCL 置为模块 CL 的窗口内调 `_loader.afterModuleInitialize(...)` |
+| `extensions/FilesExtension` / `extensions/data-quality` | `*SolonPlugin.java`（`implements org.noear.solon.core.Plugin`，`start` 内仅调 `SolonPluginBridge.registerCurrentModule()`）+ 描述符 `META-INF/solon/{files,data-quality}.properties`（`solon.plugin=<FQCN>`、`solon.plugin.priority`） |
+| `refine.bat` / `refine` / `refine.ini` | `REFINE_MODULE_LOADER` 透传 `-Drefine.module.loader`（S7） |
+
+#### 3. 三处关键设计取舍
+
+1. **目录承载 → 自建 `PluginClassLoader`，不用 `PluginManager`**：OR 扩展是**目录形态**（`MOD-INF/classes|lib`），而 `PluginManager.loadJar(File)` 只接受**单 URL 且 parent 固定 global**，无法表达「多 URL + parent = core CL」。故 loader 自建 `PluginClassLoader(RefineServlet.class.getClassLoader())` 并逐个 `addJar(...)`，再用 `PluginUtil.scanPlugins` + `new PluginPackage(dir, cl, plugins)`。**偏差**：`PluginManager` 的「运行期 add/remove 插件」API 未采用（见 §6.1）。
+2. **`Plugin.start` 时序对齐**：`Solon.start(...)` 早于 `RefineServlet.init()/configure()`，插件 `start` 不在 Solon 启动期驱动；改由 `RefineServlet.initializeModule` 的 **TCCL 置换窗口**内经 `afterModuleInitialize` 驱动 —— 与 OR 模块初始化同序，且 TCCL = 插件 CL，`SpiBootstrap.resolveSpiClass` 首命中插件自身。
+3. **单一注册路径（让位）**：插件接管的模块，`controller.js` 里那行 `SpiBootstrap.register(...)` **让位**——`SolonPluginBridge.isDelegated(module)` 为真时（模块已被插件接管 ∧ 当前不在插件生命周期窗口）`SpiBootstrap.register` 直接返回，不重复注册。**不改 JS、不改 `butterfly`/`solon` 行为**，可开关回退。
+
+#### 4. V3 · 三装载器等价（门禁）✔
+
+A `butterfly` ≡ B `solon` ≡ C `solon-plugin`（同容器 Solon·Tomcat，仅开关不同）：
+
+| 端点 | 字节 | SHA256（前 16） | 结论 |
+|---|---|---|---|
+| `get-version` | 427 | `7A1A166F02746F58` | A≡B≡C |
+| `wirings.js` | 283 | `8FED5B45DCDB9704` | A≡B≡C |
+| `index-bundle.js` | 1803766 | `1B7E96A0F7E6D561` | A≡B≡C |
+| `get-languages` | 1459 | `B456153EC4221F2D` | A≡B≡C |
+| `ext-files`（`files/scripts/index/import-from-local-dir.js`） | 33790 | `799A3EA9A86C3153` | A≡B≡C |
+| `ext-dq`（`data-quality/scripts/index/data-quality-ui.js`） | 34344 | `F26EDB2CC0C80386` | A≡B≡C |
+| `/`（首页） | 22605 | 三组各异 | 已知 Rhino/JDK 冷启动键序非确定性（与装载器无关，P1/P3 同源） |
+
+C 组启动关键行（**让位生效、无双重注册**）：
+
+```
+Module loader: solon-plugin
+SolonPluginModuleLoader: module=files        cl=org.noear.solon.hotplug.PluginClassLoader@1517f633 plugins=1
+SolonPluginModuleLoader: module=data-quality cl=org.noear.solon.hotplug.PluginClassLoader@1c12f3ee plugins=1
+SPI registration delegated to Solon plugin (skip JS-side call): module=files
+SPI registered: module=files spi=…FilesExtensionSpi              ← 仅一次
+SPI registration delegated to Solon plugin (skip JS-side call): module=data-quality
+SPI registered: module=data-quality spi=…DataQualityExtensionSpi ← 仅一次
+SolonPluginModuleLoader: claimed=[files, data-quality]
+```
+
+**混合场景**：C 组仅 `files` / `data-quality` 走插件（`claimed=[files, data-quality]`），`records-db` / `records-assets` 仍由 JS 侧注册 ⇒ 插件形态与既有装载路径**同进程并存**。
+
+#### 5. V4/V5 · 运行期卸载与关停 ✔
+
+`V45Harness`（临时，不入库）以 `-Drefine.module.loader=solon-plugin` 启动后：
+
+1. 反射取装载器 `_entries` → `claimed=[files, data-quality]`，两 entry `started=true`，各自 jar 内描述符可读（`jar-resource-before=true`）；
+2. 显式 `unload()` → 日志 `SolonPluginModuleLoader: unloaded 2 plugins (classloaders closed)`；`entries-after=0`、`OWNED(after)=[]`；**两 entry 描述符 `jar-resource-after-close=false`** ⇒ `PluginClassLoader.close()` **真关**（F7 实证）；
+3. `RefineServlet.destroy()` 正常返回（二次 `unload` 幂等：`unloaded 0 plugins`），关停链 `Server:main: tomcat: Has Stopped` → `App: Stopped`，**无异常栈**。
+
+> 与 P3 W4 一致：`Stop-Process` 为硬杀、不触发 servlet `destroy()`，故优雅关停 / 卸载须经 harness 显式调用取证。
+
+#### 6. 边界与偏差（如实记录）
+
+1. **`PluginManager` 未采用**（§3.1）：目录形态无法映射到其单 URL API；运行期**新增**插件（add）在 OR「目录 + 启动期发现」模型下无对等物，本轮以「运行期卸载（`unload` → `preStop/stop` + 关 CL）」作为热插拔**卸载侧**取证，**加载侧留待后续**（如需，走 OR 既有重启装载，或为 `PluginManager` 造目录适配）。
+2. **卸载不反注册命令**：OR 的命令 / 资源注册表为静态，`module.destroy()` 亦不反注册，故卸载后「命令可达性」不消失 —— 属 **OR 模块体系既有约束**，与装载器无关（P3 同源）。
+3. **前端契约不动**（D4）：`wirings.js` / `-bundle.js` / `.vt` / i18n 仍走 Butterfly；本轮**不**把 Butterfly 从默认路径摘除。
+4. **仅试点 2 模块**：`records-db` / `records-assets` 尚未插件化（保持 JS 注册）；上游扩展（`jython` / `pc-axis` / `database`）init 报错不动。
+
+#### 7. 回退
+
+- **开关级**：`refine.module.loader` 回 `butterfly`（缺省）或 `solon`（P3），秒级回退。
+- **代码级**：本轮改动集中一个 commit → `git revert <commit>` 回 R2 形态（`ed4268d74` / `217b411df`）。
+- **依赖级**：仅新增 `solon-hotplug:4.1.1`（不放 `PluginManager` 亦已隔离自足）。
 
 ---
 

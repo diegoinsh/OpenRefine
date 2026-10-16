@@ -149,6 +149,9 @@ public class RefineServlet extends Butterfly {
         Thread.currentThread().setContextClassLoader(moduleCl);
         try {
             super.initializeModule(name, before, after);
+            // 插件形态装载器：在 TCCL 仍为该模块 CL 的窗口内驱动插件生命周期
+            // （Solon 插件的 Plugin.start 在此完成 SPI 注册，等价 controller.js 的那行）。
+            _loader.afterModuleInitialize(this, name);
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }

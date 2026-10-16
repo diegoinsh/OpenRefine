@@ -52,6 +52,13 @@ public final class SpiBootstrap {
     public static RefineModuleContext register(ButterflyModule module, String spiClassName) {
         RefineModuleContext ctx = new ButterflyModuleContext(module);
         try {
+            // 插件形态：该模块的注册已交由 Solon 插件的 Plugin.start 驱动，
+            // 此处忽略 controller.js 那次调用（保证单一注册路径，避免命令重复注册）。
+            if (SolonPluginBridge.isDelegated(module)) {
+                logger.info("SPI registration delegated to Solon plugin (skip JS-side call): module={}",
+                        module.getName());
+                return ctx;
+            }
             String fqcn = (spiClassName != null && !spiClassName.isBlank())
                     ? spiClassName
                     : readModuleProperty(module.getPath(), SPI_PROPERTY);

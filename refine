@@ -724,6 +724,11 @@ if [ ! -z "$REFINE_EXTRA_OPTS" ] ; then
     add_option "-D$REFINE_EXTRA_OPTS"
 fi
 
+# 模块装载器形态：butterfly（缺省）| solon（自研独立 CL）| solon-plugin（Solon 插件形态·H-Spi）
+if [ ! -z "$REFINE_MODULE_LOADER" ] ; then
+    add_option "-Drefine.module.loader=$REFINE_MODULE_LOADER"
+fi
+
 if [ -z "$JYTHONPATH" ] ; then
     JYTHONPATH="$REFINE_WEBAPP/WEB-INF/lib/jython"
 else

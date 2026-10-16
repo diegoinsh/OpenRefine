@@ -92,6 +92,14 @@
         </exclusion>
       </exclusions>
     </dependency>
+    <!-- Phase 3 插件装载形态（H-Spi）：Solon 插件契约 + per-plugin 隔离
+         （PluginClassLoader / PluginPackage / PluginUtil）。版本与 server 模块的
+         solon 保持一致（4.1.1）；运行时 jar 由 server 的 copy-dependencies 落进 lib。 -->
+    <dependency>
+      <groupId>org.noear</groupId>
+      <artifactId>solon-hotplug</artifactId>
+      <version>4.1.1</version>
+    </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>

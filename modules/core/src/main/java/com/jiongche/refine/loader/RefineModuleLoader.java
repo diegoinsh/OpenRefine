@@ -44,6 +44,14 @@ public interface RefineModuleLoader {
     /** 创建模块对象（仅当 {@link #owns} 为 true 时调用）。 */
     ButterflyModule createModule(RefineServlet servlet, String moduleName);
 
+    /**
+     * 模块初始化完成后（线程上下文 CL 仍为该模块 CL 时）调用：供「插件形态」的装载器
+     * 驱动自身生命周期（如 Solon 插件的 {@code Plugin.start}）。缺省 no-op ——
+     * Butterfly 与自研装载器的 SPI 注册由 {@code controller.js} 驱动。
+     */
+    default void afterModuleInitialize(RefineServlet servlet, String moduleName) {
+    }
+
     /** 请求路径接缝：返回 true 表示已处理（本 POC 恒 false，保留落点）。 */
     boolean handle(HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException;
 
