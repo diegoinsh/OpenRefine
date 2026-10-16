@@ -177,6 +177,27 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 3. **平台 SDK 接口层**把 `AimpClient`、`dog_read.exe`、SSO、`deploy/bridge` 等双向耦合点收敛为接口——**与 Solon 迁移正交、可先行**。
 4. **前端契约保持**：`/command/{module}/{name}`、`/modules/core`、`/extension/{module}` 不变，避免改动 1082 个 JS。
 
+#### 要点③ 执行记录（2026-10-17，与 Solon 迁移正交、直做，**未推送**）
+
+> 落法：两侧重复的**平台耦合知识**（AIMP 传输/端点/字段、读狗桥 CLI/JSON/定位、模块词表、OR 命令契约、部署布局）收敛为**无第三方依赖、两侧可引用**的 SDK 单一实现；OR 侧只**声明端口**并**经开关委托**，缺省仍走原实现（保留 legacy 通路与回退锚点）。**接口声明在 OR 侧**（与平台 `com.ruyi.platform.spi.*` 同名/同签名/同语义），**实现下沉到平台/SDK**，**不搬空 OR**。
+
+**分支**：OR worktree `build/or-solon-poc` @ `feat/platform-sdk-decoupling`（base `dcbf8dbc6`）；能力平台 @ `feat/platform-sdk-decoupling`（本地，无远端）。
+
+**SDK 落点**：`ruyi-capability-platform/sdk/`（`com.ruyi:ruyi-platform-sdk:0.1.0`，零第三方依赖、`maven.compiler.release=11`、刻意无 parent）；契约测试 15 项全绿（含模块词表 ↔ `deploy/bridge/dog_read.py` `MODULES` 逐项一致、`Multipart` 与改造前手写**字节级一致**）。
+
+| 阶段 | 提交 | 内容 |
+|---|---|---|
+| V0/V1 | 平台 `c042219` | SDK 骨架 + `aimp/`（端点/字段/模式/multipart）+ `dog/`（桥接口/JSON/定位/实现）+ `module/`（词表）+ `orcontract/` |
+| Y1 | OR `4535b4477` | OR 侧声明 `AimpPort`/`DogReadPort`，原类 `implements`（**零逻辑改动**） |
+| V2 | 平台 `2d24639` | 平台侧三处改**委托** SDK（`PythonDogBridge`/`HttpAimpClient`/`OrDataQualityClient`），纯重构、无开关 |
+| V3 | OR `686e5b860` | OR 读狗加 `ruyi.platform.sdk` 开关，`on` 时委托 SDK `ProcessDogBridge` |
+
+**开关**：OR 侧系统属性 `ruyi.platform.sdk`（缺省 `off` → 原实现逐字节不变；`on` → SDK），与 `ruyi.license.enforce` 正交并存。平台侧为纯重构（等价替换，不加开关）。
+
+**门禁 ✔**：平台 `clean compile`/`package` BUILD SUCCESS（产物含 `com/ruyi/sdk/*`）＋假桥等价回归与改造前并集语义一致（起始最早/到期最晚/剩余最大）；OR `core` compile SUCCESS（228 源文件，release 11）＋ `off/on` 假桥冒烟返回**一致**（有桥 `[inspection, ocr, aimp-chat]` / 无桥 `null`）；`server` 依赖树含 `ruyi-platform-sdk:jar:0.1.0:compile`（随 `copy-dependencies` 落运行期 lib，与既有 `solon-hotplug` 同机制）。
+
+**本轮未覆盖**：① OR `AimpClient` 的**三处 multipart 形状**（`----WebKitFormBoundary*` / `----AimpBoundary*` / `----AimpOcrBoundary*`）字节布局各异，**不在 SDK `Multipart` 设计范围**（其 javadoc 已显式排除），故 OR 侧保留原手写（端点字面量为纯等价替换、收益低，未强绑）；② AIMP/Python `modules.py` 跨语言词表对齐另议；③ SSO 转发实现留原处（CP4 只抽常量 `OrContract`）。
+
 ---
 
 ## 7. 路线图与各阶段工作内容
@@ -292,6 +313,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 | 侧 | 仓库 | 分支（拟） | 基线原点 | 备注 |
 |---|---|---|---|---|
 | OR | `g:\workshop\RUYI\OpenRefine` | `feat/or-solon-migration` | `feat/batch-title-extraction` HEAD | 远端 `origin`=diegoinsh/OpenRefine，`upstream`=OpenRefine/OpenRefine |
+| OR（要点③ SDK 线） | `g:\workshop\RUYI\build\or-solon-poc` | `feat/platform-sdk-decoupling` | `feat/or-solon-migration` HEAD `dcbf8dbc6` | 与 Solon 迁移正交、可先行；未推送 |
 | 能力平台 | `g:\workshop\RUYI\ruyi-capability-platform` | `feat/platform-sdk-decoupling` | `main` HEAD | 无远端（本地） |
 
 - **不动主干**：POC 在独立分支（建议独立 worktree）执行，不切换、不污染在用的主工作区。
