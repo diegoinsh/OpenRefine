@@ -7,6 +7,9 @@
 
 package com.jiongche.extension.quality;
 
+import com.jiongche.refine.spi.RefineModuleContext;
+import com.jiongche.refine.spi.RefineModuleSpi;
+
 import com.google.refine.extension.quality.commands.CheckAimpConnectionCommand;
 import com.google.refine.extension.quality.commands.ExportQualityReportCommand;
 import com.google.refine.extension.quality.commands.GetCheckProgressCommand;
@@ -31,8 +34,6 @@ import com.google.refine.extension.quality.model.CheckResult;
 import com.google.refine.extension.quality.model.QualityRulesConfig;
 import com.google.refine.extension.quality.operations.SaveQualityResultOperation;
 import com.google.refine.extension.quality.operations.SaveQualityRulesOperation;
-import com.jiongche.refine.spi.RefineModuleContext;
-import com.jiongche.refine.spi.RefineModuleSpi;
 
 /**
  * Data-Quality 扩展的 SPI 实现。

@@ -17,6 +17,6 @@ var version = "0.1";
 function init() {
   Packages.com.jiongche.refine.spi.SpiBootstrap.register(
     module,
-    "com.jiongche.extensions.files.FilesExtensionSpi"
+    null
   );
 }

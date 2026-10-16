@@ -22,7 +22,7 @@ function init() {
 
   Packages.com.jiongche.refine.spi.SpiBootstrap.register(
     module,
-    "com.jiongche.extension.quality.DataQualityExtensionSpi"
+    null
   );
 
   logger.info("Data-Quality Extension initialized successfully!");

@@ -44,6 +44,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.Timer;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -57,8 +59,12 @@ import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.jiongche.refine.loader.ModuleLoaderRegistry;
+import com.jiongche.refine.loader.RefineModuleLoader;
 import edu.mit.simile.butterfly.Butterfly;
 import edu.mit.simile.butterfly.ButterflyModule;
+import edu.mit.simile.butterfly.ButterflyMounter;
+import org.apache.commons.collections.ExtendedProperties;
 import org.apache.hc.core5.http.HttpStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -103,6 +109,86 @@ public class RefineServlet extends Butterfly {
                 // Not the best, but we REALLY want this to keep trying
             }
         }
+    }
+
+    /**
+     * 模块装载器接缝（Phase 3 POC）：缺省 {@code butterfly}（现状，全 no-op），
+     * {@code -Drefine.module.loader=solon} 启用自研装载器。
+     */
+    private RefineModuleLoader _loader;
+
+    @Override
+    public void configure() {
+        if (_loader == null) {
+            _loader = ModuleLoaderRegistry.resolve(getInitParameter(ModuleLoaderRegistry.INIT_PARAM));
+            logger.info("Module loader: {}", _loader.id());
+        }
+        _loader.preConfigure(this);
+        super.configure();
+        _loader.afterConfigure(this);
+    }
+
+    @Override
+    protected ButterflyModule createModule(String name) {
+        if (_loader != null && _loader.owns(name)) {
+            return _loader.createModule(this, name);
+        }
+        return super.createModule(name);
+    }
+
+    @Override
+    protected void initializeModule(String name, Set<String> before, Set<String> after) {
+        ClassLoader moduleCl = (_loader == null) ? null : _loader.classLoaderFor(name);
+        if (moduleCl == null) {
+            super.initializeModule(name, before, after);
+            return;
+        }
+        // 自研装载器接管：模块初始化（含 controller.js 的 Rhino 执行）期间
+        // 把线程上下文 CL 换成该模块的独立 CL，使 SPI 类解析命中模块自身。
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        Thread.currentThread().setContextClassLoader(moduleCl);
+        try {
+            super.initializeModule(name, before, after);
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+    // ---- 装载器接缝所需的 Butterfly 状态访问器（避免反射） ----
+    // 注：装载器位于 com.jiongche.refine.loader 包，非同包亦非子类，故须 public。
+
+    public ExtendedProperties moduleProperties(String name) {
+        return _moduleProperties.get(name);
+    }
+
+    public Map<String, ButterflyModule> moduleMap() {
+        return _modulesByName;
+    }
+
+    public void registerModule(String name, ButterflyModule module) {
+        _modulesByName.put(name, module);
+    }
+
+    public ButterflyMounter mounter() {
+        return _mounter;
+    }
+
+    public Timer timer() {
+        return _timer;
+    }
+
+    public List<String> butterflyPropertyList(String key) {
+        @SuppressWarnings("unchecked")
+        List<String> list = _properties.getList(key);
+        return list;
+    }
+
+    public File absolutizeHome(String rel) {
+        return absolutize(_homeDir, rel.trim());
+    }
+
+    public ButterflyModule createModuleByName(String name) {
+        return createModule(name);
     }
 
     @Override
@@ -176,6 +262,10 @@ public class RefineServlet extends Butterfly {
 
         logger.trace("< destroy");
 
+        if (_loader != null) {
+            _loader.unload(this);
+        }
+
         super.destroy();
     }
 
@@ -231,7 +321,7 @@ public class RefineServlet extends Butterfly {
             } else {
                 response.sendError(HttpStatus.SC_NOT_FOUND);
             }
-        } else {
+        } else if (_loader == null || !_loader.handle(request, response)) {
             super.service(request, response);
         }
     }

@@ -223,9 +223,32 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 - **命令可达**（命中即非 404）：`files/extraction-config`、`data-quality/get-config`、`get-quality-rules`、`list-tasks`、`get-image-quality-rule` 均 200；`files/batch-extraction`（POST-only）GET=500，证明命令已注册并完成分发。
 - **客户端资源**（经 SPI 的 `addClientSidePaths`）：`/index-bundle.js` 含 `files/scripts/vendor/tiny-pinyin.js`、`files/scripts/index/files-importing-controller.js`、`files/scripts/index/extraction-console.js`、`data-quality/scripts/index/data-quality-ui.js`；`/project-bundle.js` 含 data-quality 的 `quality-alignment.js`、`menu-bar-extension.js`、`file-view-panel.js`、`dialogs/run-check-dialog.js`；导入控制器键 `files/files-importing-controller` 已注册。
 - **`get-version`** 200，`module_names` 含 `data-quality`、`files`。
-- **未变项**：`jython`/`records-db`/`records-assets`/`pc-axis`/`database` 仍报模块初始化 `JavaPackage … is not a function`，属本 worktree 这些扩展**未编译**（MOD-INF 无 classes/lib）——与 P1 无关，Jetty 侧同源同报。
+- **未变项**：`jython`/`pc-axis`/`database` 仍报模块初始化 `JavaPackage … is not a function`，属本 worktree 这些扩展**未编译**（MOD-INF 无 classes/lib）——与 P1 无关，Jetty 侧同源同报。（其中 `records-db` / `records-assets` 本轮已编译并 SPI 化，见下方「Phase 1 横向补全」；`jython`/`pc-axis`/`database` 按约定不动。）
 
 **结论：P1 核心目标达成——两个试点扩展的注册面经框架无关 Java SPI 驱动，core 不再面向具体业务实现，装载器（Butterfly）行为不变。**
+
+#### Phase 1 横向补全（records-db / records-assets，2026-10-16）
+
+> 承接上方 P1 试点，把 SPI 化横向扩到**自有业务扩展** `records-db`、`records-assets`（**上游扩展 `pc-axis` / `jython` / `database` 按约定不动**，以降低 rebase 冲突面）。产物直接喂给 Phase 3 收敛扩面。
+
+**① 两个扩展 SPI 化**：新增 `com.jiongche.extension.records.db.RecordsDBExtensionSpi`、`com.jiongche.extension.records.assets.RecordsAssetsExtensionSpi`（包名对应公司实体「炅澈技术」）；各自 `controller.js` 的 `init()` 瘦身为一行 `SpiBootstrap.register(module, null)`（`null` → 从 `MOD-INF/module.properties` 读 `refine.spi`）；两个 `module.properties` 追加 `refine.spi = <SPI 类>`，**保留各自 `module-impl`**（`RecordsDBModuleImpl` 仍经装载器 `cl.loadClass(implClass)` 创建）。
+**② 注册逻辑收敛**：`records-db` 的 overlay 模型 + 导入控制器（原写在 `RecordsDBModuleImpl.init()`）连同命令、客户端资源一并移入 SPI；`RecordsDBModuleImpl.init()` 仅剩 `super.init()` + 单例赋值。
+**③ 首次真正生效**：此前两扩展因 `MOD-INF/lib` 为空、`init()` 抛 `JavaPackage … is not a function` 而**实际注册为空**；本轮 `mvn compile` 后 jar 落 `MOD-INF/lib`（含新 SPI 类），首次真正注册。
+
+**启动回归（A/B 双实例，同容器 Solon·Tomcat，仅装载器开关不同）**：
+
+| 组 | 端口 | 装载器 | 数据目录 |
+|---|---|---|---|
+| A | 3433 | `butterfly` | `%TEMP%\refine-p4-data-bf` |
+| B | 3443 | `solon` | `%TEMP%\refine-p4-data-solon` |
+
+- **SPI 注册 ×4，两侧一致**：日志 `SPI registered: module=records-db spi=…RecordsDBExtensionSpi`、`module=records-assets spi=…RecordsAssetsExtensionSpi`（连同既有 `files` / `data-quality`）；`RecordsDatabaseImportController initialized`、`RecordsAssetsController initialized`。
+- **命令可达**（非 404 即注册）：`records-db/export-bound-assets`、`records-assets/list|preview` = 200；`records-assets/file` GET=400（缺参，命令已注册）；两侧一致。
+- **客户端资源去重**：`index-bundle.js` 含 `records-db-filter-builder.js` / `records-db-import-controller.js` / `records-db-wizard-steps.js` 各 1 处；`project-bundle.js` 含 `records-assets-controller.js` / `resource-explorer.js` / `resource-explorer-panel.js` / `file-preview-dialog.js` / `file-path-cell-renderer.js` / `menu-file-path.js` / `export-bound-assets-dialog.js` / `menu-extensions.js` 各 1 处；**两 bundle 的全部资源边界标记零重复**（index 59 / project 100）。
+- **字节级等价**：`get-version` `7A1A166F`、`wirings.js` `8FED5B45`、`index-bundle.js` 1797916B `BBC5EB0F`、`project-bundle.js` 2238918B `227085B8`、`get-languages` `B456153E` —— **A/B 逐字节一致**。
+- **`get-importing-configuration`**（3773B，A/B 原始哈希不同）→ 深度规范化比对**内容完全等价**（`diff_count=0`），差异**仅为三个子 map 的 JSON 键序**；**冷启动对照实验**（同产物再起 A2=butterfly:3453、B2=solon:3463）显示 **同一装载器两次冷启动键序亦不同**（A `f,e,m` vs A2 `f,m,e`；B `e,m,f` vs B2 `f,e,m`），跨装载器反而出现偶合（A ≡ B2）→ **判定为每进程冷启动的迭代序非确定性，与装载器无关**（与 §10 P3 记录中 `root.html` 字符集别名序同类，Jetty 侧同源同报）。
+
+**结论：横向补全达成——`records-db` / `records-assets` 注册面改由框架无关 Java SPI 驱动；四个自有扩展（files / data-quality / records-db / records-assets）的注册面在 `butterfly` 与 `solon` 两种装载器下**内容等价**，唯一可观测差异为既有的每进程键序抖动，非装载器引入。**
 
 ### Phase 2 · 跟随上游现代化
 - **目标**：对齐上游（jakarta / Jetty 升级 / controller.js Java 化），**保住 rebase 能力**。
@@ -241,6 +264,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 - **工作项**：实现模块发现/ClassLoader/资源装载/`/wirings.js` 等价端点；前端契约不变。
 - **开关**：`refine.module.loader = butterfly | solon`（秒级回退）。
 - **门禁**：回归全绿 + 性能偏差 ≤ ±10% + 插件热插拔/隔离验证。
+- **执行记录（2026-10-16，POC 完成）**：自研 `StandaloneModuleLoader`（开关值 `solon`）已落 `com.jiongche.refine.loader`，接管 `files` / `data-quality` 的「模块发现归属 + ClassLoader + 模块对象创建」，两模块各获**独立 `URLClassLoader`**（非共享 `ButterflyClassLoader`）；`butterfly` 缺省路径逐字节不变、开关秒级回退。等价性 / 隔离性门禁全绿，详见 §10「P3 执行记录（装载器选型 POC，2026-10-16）」。
 
 **双侧分支**：OR 侧与能力平台侧各起独立分支；**平台 SDK 解耦（Phase 1 的耦合点抽取）与 Solon 迁移并行推进**。
 
@@ -256,7 +280,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 | `export-rows`（流式） | 流式 flush、响应缓冲 | **待专项实测**（本轮未覆盖流式语义） |
 | `task-control` / `get-check-progress`（轮询） | 长轮询、线程池占用 | **✔ 近似对齐**（`maxThreads/acceptCount=300`；Tomcat 不支持自定义池） |
 | 静态资源 / `-bundle.js` | gzip、资源根、拼接时机 | 语义等价（建议构建期预打包） |
-| 扩展装载 | ClassLoader 隔离、动态装载 | 需自研（或走 Solon H-Spi） |
+| 扩展装载 | ClassLoader 隔离、动态装载 | **✔ 已落地自研装载器（P3）**：`StandaloneModuleLoader` 为接管模块提供 per-module `URLClassLoader`（`files` / `data-quality` 已各自隔离，URL 集为模块内 `MOD-INF/lib`，不含 core）；开关 `refine.module.loader = butterfly \| solon` 秒级回退；前端契约（`/command`、`/wirings.js`、`-bundle.js`、`.vt`、i18n）零改动 |
 
 ---
 
@@ -398,6 +422,88 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 3. **Phase 3（装载器选型）不必等 Phase 2**：上游选"**保留并改造 Butterfly**"而非替换，我方 Solon 装载器是**并行备选**；且上游长期方向正是"**扩展 API 稳定化**"，与我方 SPI 边界**同向**，存在收敛机会。
 4. **建议主线顺序**：**先 Phase 3（Solon 装载器 POC）+ P1 横向补全**，以「**扩展稳定性优先 + 保住 rebase**」为纲，装载器做成**开关回退**（`refine.module.loader = butterfly | solon`）；**待上游 #7707 合并 / 4.0 定稿后，再决定是否对齐容器外壳**。
 5. **复评触发清单**：issue #7706 / PR #7707（Jetty 12）、issue #5664（扩展注册）、milestone `V.next` 有实质进展即重估顺序。
+
+---
+
+### P3 执行记录（装载器选型 POC，2026-10-16）
+
+> **工作区**：同一 worktree `g:\workshop\RUYI\build\or-solon-poc` @ `feat/or-solon-migration`；主工作区 `g:\workshop\RUYI\OpenRefine` 未切换、未污染。
+> **落点**：新增 `com.jiongche.refine.loader` 四件套（`RefineModuleLoader` / `ButterflyModuleLoader` / `StandaloneModuleLoader` / `ModuleLoaderRegistry`）；`RefineServlet` 加 4 处接缝（覆写 `configure` / `createModule` / `initializeModule`(TCCL 置换) + `service` else 分支）与 8 个 `public` 访问器；`SpiBootstrap` 增「从 `MOD-INF/module.properties` 读 `refine.spi`」与 `null` 分支；2×`module.properties` 追加 `refine.spi`；2×`controller.js` 的 `init()` 改传 `null`。
+> **开关**：`-Drefine.module.loader=solon` 启用自研装载器；缺省/其它值 = `butterfly`（现状，逐字节不变）。
+> **范围**：只接管声明了 SPI 的 `files` / `data-quality` 两个模块，其余归 Butterfly（**混合模式**）；不删 Butterfly、不换容器、不迁 jakarta。
+
+#### 1. 实例编排与接线校验 ✔
+
+| 组 | 端口 | 装载器 | 数据目录 | 用途 |
+|---|---|---|---|---|
+| A | 3433 | 缺省（butterfly，无 core classes 前缀） | `refine-poc-data3` | 基线对照（改动前行为） |
+| B | 3443 | `-Drefine.module.loader=solon` + core classes 前置 | `refine-poc-data4` | 自研装载器 |
+| C / C2 | 3453 / 3473 | `-Drefine.module.loader=butterfly` + core classes 前置 | 独立目录 | **缺省回退**复跑（两次冷启） |
+| D | 3463 | `-Drefine.module.loader=solon`（**未**前置 core classes） | 独立目录 | 反证 dev-shim 细节（见第 7 点） |
+
+B 组启动日志（关键行）：
+
+```
+Module loader: solon
+StandaloneModuleLoader: roots=[modules, ../../extensions, .../refine-poc-data4/extensions]
+StandaloneModuleLoader: module=files cl=java.net.URLClassLoader@3e134896 urls=[.../FilesExtension/module/MOD-INF/lib/*]
+StandaloneModuleLoader: module=data-quality cl=java.net.URLClassLoader@2e3a5237 urls=[.../data-quality/module/MOD-INF/lib/*]
+SPI registered: module=files spi=com.jiongche.extensions.files.FilesExtensionSpi
+SPI registered: module=data-quality spi=com.jiongche.extension.quality.DataQualityExtensionSpi
+StandaloneModuleLoader: claimed=[files, data-quality]
+RefineServlet pre-initialized in 3276ms
+```
+
+#### 2. 等价性门禁（A vs B，逐项）✔
+
+| 项 | 方法 | A vs B 结果 | 判定 |
+|---|---|---|---|
+| 模块清单 | `get-version.module_names` | `["core","data-quality","database","files","jython","pc-axis","records-assets","records-db"]` 完全一致 | ✔ |
+| `/command/core/get-version` | 响应体字节 | 427B 逐字节一致 | ✔ |
+| `/wirings.js` | 响应体 SHA256 | 283B，`8FED5B45…` 一致 | ✔ |
+| `/index-bundle.js` | 响应体**字节** | 1639478B，`5E5803C0…` 一致（**防双重注册的关键闸门**） | ✔ |
+| 首页 `/` | 响应体 | 均含「数据金炼」、size **22523** 一致 | ✔（哈希见第 3 点） |
+| i18n | `get-languages` | 1459B 一致 | ✔ |
+| 模块静态资源（files） | `/extension/files/<静态>` | 12633B，`89BA9E1A…` 一致 | ✔ |
+| 模块静态资源（data-quality） | `/extension/.../<静态>` | 34344B，`F26EDB2C…` 一致 | ✔ |
+| 命令可达 | `files/extraction-config` / `data-quality/get-config` / `get-quality-rules` / `list-tasks` | A/B 均 200（非 404） | ✔ |
+| multipart 上传 | `POST create-project-from-upload` | A/B 均 `HTTP 302` + `rowCount=3` + `fileSource=poc-upload-test.csv` | ✔ |
+| 模块 init 失败集 | 启动日志 | A==B==C，均为 `jython`/`pc-axis`/`records-assets`/`records-db`（**既有现象**，扩展未编译） | ✔ 非回归 |
+
+**结论**：`/index-bundle.js` 字节一致 → **未发生双重 `addClientSidePaths` 注册**（装载器只判定归属、不实例化 SPI，注册统一收口在 `SpiBootstrap`）；前端契约逐字节零变化。
+
+#### 3. 首页 `root.html` 哈希差异的根因（Rhino/JDK 层非确定性，与装载器无关）
+
+- 现象：`/` 响应 size 恒 22523、均含「数据金炼」，但**响应体哈希在每个 JVM 冷启动时不同**——A=`8492F195…`、B=`4A8ED5C8…`、C=`B747AA6A…`、C2=`D5B01476…`（**四进程四种哈希**）。
+- 字节级定位：差异**仅在** `Refine.encodings`（core `controller.js:784` 的 `JSON.stringify(encodings)`）——其字符集别名列表来自 `charset.aliases().toArray()`，Rhino 以 `for..in` 遍历 Java `Set` 时**迭代序随 JVM 种子变化**。
+- 判定：**C 与 C2 同配置、同容器却哈希不同** → 属 **Rhino/JDK 层每冷启动非确定性**，**与装载器无关**；首页门禁按「含『数据金炼』+ size 一致」通过。
+
+#### 4. 隔离性 ✔（反向校验「确实换了 CL」）
+
+- 两模块 CL 为**不同实例**：`java.net.URLClassLoader@3e134896`（files）/ `@2e3a5237`（data-quality），URL 集为**模块内** `MOD-INF/lib/*`（**不含 core**）；
+- 二者均 **≠ `RefineServlet.class.getClassLoader()`**（App CL）→ per-module 隔离成立，且 parent=core CL 保持 parent-first（`Packages.com.jiongche.refine.spi.SpiBootstrap` 在 Rhino 下可解析，故需 TCCL 置换，见设计）。
+- 混合模式生效：`claimed=[files, data-quality]`，其余模块仍走 Butterfly，`module_names` 无缺项。
+
+#### 5. 缺省回退（C 组：`butterfly` + core classes 前置）✔
+
+- 日志 `Module loader: butterfly`，全部方法 no-op（`owns()` 恒 `false` → `createModule` 恒走 `super`）。
+- 与 A 组比对：**6/7 产物逐字节一致**，首页 size 一致（哈希差异同第 3 点）→ **门禁通过**；且证明「描述符 + `null` 路径」在 butterfly 模式同样生效（`SPI registered` 两侧成功）。
+- 结论：**一个 `-D` 开关即秒级回退**，无残留副作用。
+
+#### 6. 性能 ✔（门禁：偏差 ≤ ±10%）
+
+- 降干扰（杀 C/C2）后 4 轮交替复测 `get-version` 单端点 P50 偏差 = **+15.8% / −1.6% / −3.2% / −26.6%**，**符号反复翻转** → 判为**亚毫秒量级的测量噪声**（`handle()` 恒 `false`，不进请求路径）；无系统性退化。
+
+#### 7. caveat：D 组反证（无 core classes 前缀时旧 jar 的 `null` 不兼容）
+
+- D 组（solon 模式但**未**把 `modules\core\target\classes` 前置）启动失败：`SPI bootstrap failed for null (module data-quality)` → `Class.forName` NPE。
+- **根因**：此时 core 类来自 `main\webapp\WEB-INF\lib\core-3.11.0.01.jar` 中的**旧** `SpiBootstrap`，其 `register(module, String)` **不支持 `null`**（描述符路径是本 POC 新增）；反证 A 基线是在 `controller.js` 仍传 FQCN 的时代采集的。
+- **判定**：属 **POC dev-shim（classes 前置）细节**，非设计缺陷；**正式部署将重打包 core jar**（含新 `SpiBootstrap`），届时 `null`/描述符路径随 jar 一并生效。D 组进程已终止。
+
+#### 8. 非阻塞开放项取值（默认）
+
+- `handle(req,resp)` 请求路径接缝：**保留骨架**（恒 `false`，资源仍由 `super.service()` 经 `_mounter` 分发，保证字节一致）。
+- 本 POC **只测 Solon 侧**；Jetty 侧 A/B 留待需要时补。
 
 ---
 

@@ -2,27 +2,39 @@
  * JinRefine SPI · 桥入口
  *
  * 供 controller.js（Rhino）一行调用：把模块的注册逻辑委托给其 SPI 实现类。
+ *
+ * SPI 类名来源（单一事实来源）：模块 MOD-INF/module.properties 的 refine.spi；
+ * 显式传入的非空类名优先；均无时回退 ServiceLoader（META-INF/services）。
  */
 
 package com.jiongche.refine.spi;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
+import java.util.ServiceLoader;
+
+import edu.mit.simile.butterfly.ButterflyModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import edu.mit.simile.butterfly.ButterflyModule;
-
 /**
- * SPI 桥入口。装载器（Butterfly）在模块初始化时调用：
+ * SPI 桥入口。装载器（Butterfly 或 Standalone）在模块初始化时调用：
  *
  * <pre>
- * Packages.com.jiongche.refine.spi.SpiBootstrap.register(module, "com.jiongche.xxx.XxxSpi");
+ * Packages.com.jiongche.refine.spi.SpiBootstrap.register(module, null);
  * </pre>
  *
  * <p>注意：{@link RefineModuleSpi} 实现类位于扩展自身的 MOD-INF/classes（或 lib），
- * 由装载器（Butterfly）的类加载器加载；本类在 core，故必须显式用「能看见扩展类」的类加载器
+ * 由装载器的类加载器加载；本类在 core，故必须显式用「能看见扩展类」的类加载器
  * 反射实例化，否则在父类加载器（parent-first）下会 ClassNotFoundException。</p>
  */
 public final class SpiBootstrap {
+
+    /** module.properties 中声明 SPI 实现类的键（与装载器归属判定共用，保证单一事实来源）。 */
+    public static final String SPI_PROPERTY = "refine.spi";
 
     private static final Logger logger = LoggerFactory.getLogger("refine-spi");
 
@@ -32,34 +44,87 @@ public final class SpiBootstrap {
     /**
      * 以 {@link ButterflyModule} 为门面，实例化并注册其 SPI 实现。
      *
-     * @param module      被装载的 Butterfly 模块
-     * @param spiClassName 业务扩展的 {@link RefineModuleSpi} 实现类全限定名
+     * @param module       被装载的 Butterfly 模块
+     * @param spiClassName 业务扩展的 {@link RefineModuleSpi} 实现类全限定名；
+     *                     传 {@code null}/空则从 {@code refine.spi} 描述符取，再回退 ServiceLoader
      * @return 传给 SPI 的注册门面（供装载器后续复用）
      */
     public static RefineModuleContext register(ButterflyModule module, String spiClassName) {
         RefineModuleContext ctx = new ButterflyModuleContext(module);
         try {
-            Class<?> klass = resolveSpiClass(spiClassName, module);
-            Object instance = klass.getDeclaredConstructor().newInstance();
-            if (!(instance instanceof RefineModuleSpi)) {
-                throw new IllegalStateException(spiClassName + " 未实现 " + RefineModuleSpi.class.getName());
+            String fqcn = (spiClassName != null && !spiClassName.isBlank())
+                    ? spiClassName
+                    : readModuleProperty(module.getPath(), SPI_PROPERTY);
+
+            RefineModuleSpi spi;
+            if (fqcn != null && !fqcn.isBlank()) {
+                Object instance = resolveSpiClass(fqcn, module).getDeclaredConstructor().newInstance();
+                if (!(instance instanceof RefineModuleSpi)) {
+                    throw new IllegalStateException(fqcn + " 未实现 " + RefineModuleSpi.class.getName());
+                }
+                spi = (RefineModuleSpi) instance;
+            } else {
+                spi = firstServiceProvider();
+                if (spi == null) {
+                    logger.warn("No SPI declared for module {} (no refine.spi descriptor, no META-INF/services)",
+                            module.getName());
+                    return ctx;
+                }
             }
-            RefineModuleSpi spi = (RefineModuleSpi) instance;
+
             spi.register(ctx);
-            logger.info("SPI registered: module={} spi={}", module.getName(), spiClassName);
+            logger.info("SPI registered: module={} spi={}", module.getName(), spi.getClass().getName());
             return ctx;
         } catch (Throwable t) {
             logger.error("SPI bootstrap failed: module={} spi={}", module.getName(), spiClassName, t);
-            throw new RuntimeException("SPI bootstrap failed for " + spiClassName + " (module " + module.getName() + ")",
-                    t);
+            throw new RuntimeException("SPI bootstrap failed for module " + module.getName(), t);
         }
+    }
+
+    /**
+     * 从模块的 {@code MOD-INF/module.properties} 读取某键值。
+     *
+     * <p>不能用 {@code module.getProperties()}：Butterfly 的 {@code configureModules()}
+     * 会把模块属性覆盖为 Butterfly 的全局属性（{@code _properties}），
+     * 导致读不到模块自身声明的键。</p>
+     */
+    public static String readModuleProperty(File modulePath, String key) {
+        if (modulePath == null) {
+            return null;
+        }
+        File propsFile = new File(modulePath, "MOD-INF/module.properties");
+        if (!propsFile.isFile()) {
+            return null;
+        }
+        Properties props = new Properties();
+        try (InputStream in = new FileInputStream(propsFile)) {
+            props.load(in);
+        } catch (IOException e) {
+            logger.warn("Cannot read {}", propsFile, e);
+            return null;
+        }
+        String value = props.getProperty(key);
+        return value == null ? null : value.trim();
+    }
+
+    /** ServiceLoader 回退：取首个 {@link RefineModuleSpi} 提供者；空则返回 null（仅告警）。 */
+    private static RefineModuleSpi firstServiceProvider() {
+        try {
+            ServiceLoader<RefineModuleSpi> loader = ServiceLoader.load(RefineModuleSpi.class,
+                    Thread.currentThread().getContextClassLoader());
+            for (RefineModuleSpi provider : loader) {
+                return provider;
+            }
+        } catch (Throwable t) {
+            logger.warn("ServiceLoader lookup for {} failed", RefineModuleSpi.class.getName(), t);
+        }
+        return null;
     }
 
     /**
      * 按优先级尝试若干类加载器定位 SPI 实现类：
      * <ol>
-     * <li>线程上下文类加载器 —— Butterfly 会把它设为共享的 ButterflyClassLoader，
-     * 该加载器 watch 了所有模块的 MOD-INF/classes 与 lib；</li>
+     * <li>线程上下文类加载器 —— 装载器会在模块初始化前置换成该模块的类加载器；</li>
      * <li>装载 module 对象的类加载器；</li>
      * <li>本类（core）自己的类加载器。</li>
      * </ol>
