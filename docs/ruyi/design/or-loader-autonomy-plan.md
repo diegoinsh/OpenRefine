@@ -298,8 +298,8 @@ Release-1 已完成**最小闭环**（`CapabilityGate` / `GuardedAimpClient`，�
 
 | 项 | 现状 | 做法 | 验收 |
 |---|---|---|---|
-| D1 装载器/SPI 自动化测试 | **0 个** | 新增 `ModuleLoaderRegistryTest`（三值解析）、`ModuleDescriptorTest`（`extends`/`before-after`/环检测）、`WiringRegistryTest`、`BundleHandlerTest`（字节级） | `mvn -pl modules/core test` 新增用例全绿 |
-| D2 开关通道完整 | `RefineSolon.RefineServletConfig` 未提供 `refine.module.loader` | 补 init-param；`web.xml` 可选 | 三种通道（init-param / `-D` / 环境变量）行为一致 |
+| D1 装载器/SPI 自动化测试 | 部分完成（2026-10-17）：`ModuleDescriptorReaderTest` 2、`ModuleGraphTest` 3、`ModuleRegistryTest` 1、`ModuleLoaderRegistryTest` 2；golden 由 `scripts/verify_kernel_golden.ps1` 覆盖 | 补 `WiringRegistryTest` / `BundleHandlerTest`（纯函数字节断言） | core 新增用例全绿 |
+| D2 开关通道完整 | 部分完成：`RefineSolon.RefineServletConfig` 已补 `refine.module.loader` init-param；三通道行为一致 | `web.xml` 可选补 | init-param / `-D` / 环境变量一致 |
 | D3 既有失败测试修复 | ✔ 已完成（2026-10-17）：`HistoryEntry.sheetId` 加 `@JsonInclude(NON_NULL)`；`FilesImportingControllerTest` 修 Windows 路径 JSON 转义与 POSIX 权限断言 | — | core 215/215、FilesExtension 87/87 **全绿** |
 | D4 分支合入主工作区 | 主工作区 `OpenRefine` 尚无 `com/jiongche/refine/{loader,spi,data}` 与两个 engine 模块 | 迁移分支 → 主工作区；打包 + 两条入口（`jinrefine.exe` / `refine.bat`）回归 | 主工作区与 worktree 行为一致 |
 
@@ -417,7 +417,7 @@ D4（最后）
    - `TemplateService`：Velocity 2.4.1 直接渲染，复刻 `params/projectID/styleInjection/scriptInjection/encodingJson`。
 4. **A6 扩展插件化**：新增 `RecordsDBSolonPlugin`、`RecordsAssetsSolonPlugin` 与 `META-INF/solon/*.properties`；`claimed=[records-db, files, data-quality, records-assets]`。
 5. **缺省切换**：`ModuleLoaderRegistry` 缺省改为 `solon-plugin`；`refine.ini` 注释同步；`-Drefine.module.loader=butterfly` 回退实测 200。
-6. **测试**：`modules/core` **221/221**；FilesExtension **87/87**；files-engine **33/33**；data-quality-engine **3/3**；新增 `ModuleDescriptorReaderTest` 2、`ModuleGraphTest` 3、`ModuleRegistryTest` 1。
+6. **测试**：`modules/core` **223/223**；FilesExtension **87/87**；files-engine **33/33**；data-quality-engine **3/3**；新增 `ModuleDescriptorReaderTest` 2、`ModuleGraphTest` 3、`ModuleRegistryTest` 1、`ModuleLoaderRegistryTest` 2。
 7. **Golden 基线**：`docs/ruyi/design/golden-release1/`（9 项 + `SHA256SUMS.txt`）；`scripts/verify_kernel_golden.ps1` 实测 **9/9 PASS**。`index-bundle.js`、`project-bundle.js`、`/`、`/about.html`、静态资源均 **SHA256 一致**；`wirings.js` **JSON 深度一致**（仅键序不同）。
 
 **明确未完成（下一阶段）**：

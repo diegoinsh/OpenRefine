@@ -476,11 +476,11 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 
 **R2-1 自研请求内核（2026-10-17 深夜，✔ 已完成切片）**：
 - **A0 依赖倒置**：新增 `ModuleView` / `ButterflyModuleView`；`ClientSideResourceManager`、`ButterflyModuleContext`、`SpiBootstrap`、`SolonPluginBridge` 改为面向 `ModuleView`，旧 Butterfly 重载保留。
-- **内核骨架**：`ModuleDescriptor` / `ModuleDescriptorReader` / `ModuleGraph` / `ModuleRegistry`；新增 6 项单测。
+- **内核骨架**：`ModuleDescriptor` / `ModuleDescriptorReader` / `ModuleGraph` / `ModuleRegistry`；新增 8 项内核单测。
 - **请求内核**：`ModuleRequestDispatcher` + `WiringsHandler` + `BundleHandler` + `StaticResourceService` + `TemplateService`（Velocity 2.4.1）；`wirings.js` JSON 深度一致，bundle/首页/静态资源 SHA256 一致。
 - **插件化**：records-db / records-assets 补 Solon 插件与描述符；`claimed=[records-db, files, data-quality, records-assets]`。
 - **缺省切换**：`refine.module.loader` 缺省改为 `solon-plugin`；`-Drefine.module.loader=butterfly` 回退实测 200。
-- **门禁**：core **221/221**、FilesExtension **87/87**、files-engine **33/33**、data-quality-engine **3/3**；golden **9/9 PASS**。
+- **门禁**：core **223/223**、FilesExtension **87/87**、files-engine **33/33**、data-quality-engine **3/3**；golden **9/9 PASS**。
 - **未完成**：Butterfly 的模块发现/装配与 `controller.js` Rhino 宿主仍在使用；A7 删除依赖、B1/B2、C1/C2、D1/D2/D4 留待下一阶段。详见 [or-loader-autonomy-plan.md](or-loader-autonomy-plan.md) §14。
 
 *Release-1 候选收口。下一阶段（发布后）再启动 Butterfly 退场、其余扩展插件化与 AI harness。*

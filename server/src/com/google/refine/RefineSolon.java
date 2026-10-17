@@ -462,6 +462,10 @@ public class RefineSolon {
                     return Refine.getDataDir() + "/extensions";
                 case "refine.autosave":
                     return Configurations.get("refine.autosave", "5");
+                case "refine.module.loader":
+                    // 三通道一致：init-param / -D / 环境变量；未配置时返回 null，
+                    // 由 ModuleLoaderRegistry 走缺省值（solon-plugin）。
+                    return Configurations.get("refine.module.loader", null);
                 default:
                     // refine.version / refine.revision 走缺省逻辑（$VERSION / git.properties）
                     return null;
