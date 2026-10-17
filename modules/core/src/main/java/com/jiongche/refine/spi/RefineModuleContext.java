@@ -10,6 +10,8 @@ package com.jiongche.refine.spi;
 import java.io.File;
 import java.net.URL;
 
+import com.jiongche.sdk.data.DataSource;
+
 import com.google.refine.commands.Command;
 import com.google.refine.commands.CommandGuard;
 import com.google.refine.exporters.Exporter;
@@ -99,4 +101,14 @@ public interface RefineModuleContext {
 
     /** 模块根目录。 */
     File getModulePath();
+
+    // ---- 11 data sources ----
+
+    /**
+     * 注册数据源（供 SPI 能力面 / 外部（能力平台 3A）在进程内按名取用与枚举）。
+     *
+     * <p>实现按 {@code name() + "/" + name} 登记到全局数据源目录
+     * （{@code com.jiongche.refine.data.DataSourceRegistry}），同名以最后一次为准。</p>
+     */
+    void registerDataSource(String name, DataSource ds);
 }

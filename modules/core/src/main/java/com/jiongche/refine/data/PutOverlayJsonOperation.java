@@ -23,7 +23,7 @@ import com.google.refine.util.ParsingUtilities;
  */
 public class PutOverlayJsonOperation extends AbstractOperation {
 
-    /** 操作注册名（命名空间 {@code data}，见 {@link OrDataSource} 静态注册）。 */
+    /** 操作注册名（命名空间 {@link OrDataSource#OPERATION_NAMESPACE}，见 {@link OrDataSource#register()}）。 */
     @JsonIgnore
     public static final String OPERATION_NAME = "put-overlay-json";
 

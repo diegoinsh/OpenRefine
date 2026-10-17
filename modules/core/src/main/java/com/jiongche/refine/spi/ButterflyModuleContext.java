@@ -10,6 +10,8 @@ package com.jiongche.refine.spi;
 import java.io.File;
 import java.net.URL;
 
+import com.jiongche.refine.data.DataSourceRegistry;
+import com.jiongche.sdk.data.DataSource;
 import edu.mit.simile.butterfly.ButterflyModule;
 
 import com.google.refine.ClientSideResourceManager;
@@ -148,6 +150,11 @@ public class ButterflyModuleContext implements RefineModuleContext {
     @Override
     public void addClientSidePaths(String bundleName, String... paths) {
         ClientSideResourceManager.addPaths(bundleName, _module, paths);
+    }
+
+    @Override
+    public void registerDataSource(String name, DataSource ds) {
+        DataSourceRegistry.register(name(), name, ds);
     }
 
     @Override

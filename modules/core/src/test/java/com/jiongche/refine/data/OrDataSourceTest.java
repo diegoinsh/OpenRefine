@@ -7,10 +7,13 @@ package com.jiongche.refine.data;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
+import static org.testng.Assert.assertSame;
+import static org.testng.Assert.assertTrue;
 
 import java.io.Serializable;
 import java.util.List;
 
+import com.jiongche.sdk.data.DataSource;
 import com.jiongche.sdk.data.TableDriver;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
@@ -20,6 +23,7 @@ import com.google.refine.ProjectManager;
 import com.google.refine.RefineTest;
 import com.google.refine.model.OverlayModel;
 import com.google.refine.model.Project;
+import com.google.refine.operations.OperationRegistry;
 
 /**
  * {@link OrDataSource} / {@link OrTableDriver} 的 P0 回归：读（schema/行/单元格）、
@@ -51,6 +55,28 @@ public class OrDataSourceTest extends RefineTest {
     }
 
     private Project project;
+
+    /** 注册表测试用桩数据源（只用于验证按名取用/枚举）。 */
+    private static final class StubDataSource implements DataSource {
+        @Override
+        public boolean exists(String projectId) {
+            return false;
+        }
+
+        @Override
+        public TableDriver open(String projectId) {
+            return null;
+        }
+
+        @Override
+        public TableDriver create(String projectId, String name) {
+            return null;
+        }
+
+        @Override
+        public void persist(String projectId) {
+        }
+    }
 
     @BeforeMethod
     public void setUp() {
@@ -103,5 +129,39 @@ public class OrDataSourceTest extends RefineTest {
         } catch (RuntimeException expected) {
             // 预期：非法 overlay 名被拒
         }
+    }
+
+    @Test
+    public void testRegisterPublishesBuiltinSourceAndOps() {
+        OrDataSource.register();
+        assertTrue(DataSourceRegistry.contains(DataSourceRegistry.OR), "应登记内建数据源");
+        assertNotNull(DataSourceRegistry.orDefault(), "orDefault 应可取到内建数据源");
+        assertTrue(DataSourceRegistry.names().contains(OrDataSource.NAME), "names 应含内建名");
+        // 两个变更操作应已按 data 命名空间登记（history JSON 反解依赖）
+        assertSame(OperationRegistry.resolveOperationId(
+                OrDataSource.OPERATION_NAMESPACE + "/" + SetCellValueOperation.OPERATION_NAME),
+                SetCellValueOperation.class, "set-cell-value 应可反解");
+        assertSame(OperationRegistry.resolveOperationId(
+                OrDataSource.OPERATION_NAMESPACE + "/" + PutOverlayJsonOperation.OPERATION_NAME),
+                PutOverlayJsonOperation.class, "put-overlay-json 应可反解");
+    }
+
+    @Test
+    public void testRegisterIsIdempotent() {
+        OrDataSource.register();
+        OrDataSource.register();
+        // 幂等：重复调用不应破坏反解（追加语义下若重复登记，resolve 仍取末位，但列表会长——此处只验证可用性）
+        assertSame(OperationRegistry.resolveOperationId(
+                OrDataSource.OPERATION_NAMESPACE + "/" + SetCellValueOperation.OPERATION_NAME),
+                SetCellValueOperation.class);
+    }
+
+    @Test
+    public void testNamespacedRegisterAndLookup() {
+        DataSource stub = new StubDataSource();
+        DataSourceRegistry.register("data-quality", "or-view", stub);
+        assertSame(DataSourceRegistry.get("data-quality/or-view"), stub, "按命名空间 key 应取到同一实例");
+        assertTrue(DataSourceRegistry.names().contains("data-quality/or-view"));
+        assertNull(DataSourceRegistry.get("no-such-source"));
     }
 }

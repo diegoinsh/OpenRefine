@@ -59,6 +59,7 @@ import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.jiongche.refine.data.OrDataSource;
 import com.jiongche.refine.loader.ModuleLoaderRegistry;
 import com.jiongche.refine.loader.RefineModuleLoader;
 import edu.mit.simile.butterfly.Butterfly;
@@ -235,6 +236,10 @@ public class RefineServlet extends Butterfly {
         s_dataDir = new File(data);
         FileProjectManager.initialize(s_dataDir);
         ImportingManager.initialize(this);
+
+        // 数据源 SPI registry：登记 OR 内建数据源（稳定名 "or"）与其两个变更操作（幂等），
+        // 供 SPI 能力面 / 外部（能力平台 3A）在进程内按名取用与枚举。须在 singleton 就绪后调用。
+        OrDataSource.register();
 
         // 模块级授权守卫（纵深防御）：在 POST 命令分发前按「命令 → 加密狗模块」校验，
         // 堵住绕过能力平台直连 OR 白用未授权模块。默认关闭（ruyi.license.enforce=off），

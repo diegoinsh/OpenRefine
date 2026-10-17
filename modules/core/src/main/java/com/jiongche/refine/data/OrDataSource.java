@@ -5,6 +5,7 @@
 package com.jiongche.refine.data;
 
 import java.time.Instant;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.jiongche.sdk.data.DataSource;
 import com.jiongche.sdk.data.TableDriver;
@@ -17,14 +18,38 @@ import com.google.refine.operations.OperationRegistry;
 /**
  * {@link DataSource} 的 OR 实现：把 OR 的 {@link ProjectManager}（库/编目）以窄接口暴露。
  *
- * <p>构造时静态注册本适配器引入的两个变更操作（命名空间 {@code data}），使 history JSON 里的
- * {@code op=data/set-cell-value} 等能经 {@link OperationRegistry} 反解。
+ * <p>由 {@link #register()} 登记：把本适配器引入的两个变更操作注册进 {@link OperationRegistry}
+ * （命名空间 {@code data}，使 history JSON 里的 {@code op=data/set-cell-value} 等能反解），
+ * 并把本适配器自身登记进 {@link DataSourceRegistry}（稳定名 {@link DataSourceRegistry#OR}，
+ * 供 SPI 能力面 / 外部进程内按名取用）。注册由 {@code RefineServlet.init()} 驱动，幂等。</p>
  */
 public class OrDataSource implements DataSource {
 
-    static {
-        OperationRegistry.registerOperation("data", SetCellValueOperation.OPERATION_NAME, SetCellValueOperation.class);
-        OperationRegistry.registerOperation("data", PutOverlayJsonOperation.OPERATION_NAME, PutOverlayJsonOperation.class);
+    /** 变更操作在 {@link OperationRegistry} 里的命名空间（history JSON 里的 {@code op=data/...}）。 */
+    public static final String OPERATION_NAMESPACE = "data";
+
+    /** 本适配器在 {@link DataSourceRegistry} 里的稳定名。 */
+    public static final String NAME = DataSourceRegistry.OR;
+
+    private static final AtomicBoolean REGISTERED = new AtomicBoolean(false);
+
+    /**
+     * 幂等注册：登记两个变更操作 + 把本适配器登记进数据源目录。
+     *
+     * <p>由 {@code RefineServlet.init()} 驱动（与 {@code LicenseGuard.register} 同序，须在
+     * {@code FileProjectManager.initialize} 之后调用，以保证 {@link ProjectManager#singleton} 已就绪）。
+     * 用 {@link AtomicBoolean} 守卫：{@code OperationRegistry.registerOperation} 是**追加**语义，
+     * 重复登记会产生重复条目，故须恰好一次。</p>
+     */
+    public static void register() {
+        if (!REGISTERED.compareAndSet(false, true)) {
+            return;
+        }
+        OperationRegistry.registerOperation(OPERATION_NAMESPACE, SetCellValueOperation.OPERATION_NAME,
+                SetCellValueOperation.class);
+        OperationRegistry.registerOperation(OPERATION_NAMESPACE, PutOverlayJsonOperation.OPERATION_NAME,
+                PutOverlayJsonOperation.class);
+        DataSourceRegistry.register(NAME, new OrDataSource());
     }
 
     private final ProjectManager projectManager;
