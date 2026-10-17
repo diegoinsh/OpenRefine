@@ -114,6 +114,26 @@ public class Project {
     }
 
     /**
+     * 已注册的 overlay 模型实现类；未注册返回 {@code null}。
+     *
+     * <p>供跨包的「数据源适配器」（{@code com.jiongche.refine.data}）按名解析 overlay 类型，
+     * 避免下沉模块直接依赖本类的 protected 字段。纯读访问，无行为变化。
+     */
+    static public Class<? extends OverlayModel> overlayModelClass(String modelName) {
+        return modelName == null ? null : s_overlayModelClasses.get(modelName);
+    }
+
+    /**
+     * 以指定 id 新建项目（等价于 {@code new Project(id)}）。
+     *
+     * <p>{@code Project(long)} 为 protected，跨包不可见；本工厂把「按 id 建项目」这一既有能力
+     * 暴露给 {@code com.jiongche.refine.data} 的数据源适配器。纯构造转发，无行为变化。
+     */
+    static public Project withId(long id) {
+        return new Project(id);
+    }
+
+    /**
      * Free/dispose of project data from memory.
      */
     public void dispose() {

@@ -186,20 +186,44 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 
 **分支**：OR worktree `build/or-solon-poc` @ `feat/platform-sdk-decoupling`（base `dcbf8dbc6`）；能力平台 @ `feat/platform-sdk-decoupling`（本地，无远端）。
 
-**SDK 落点**：`ruyi-capability-platform/sdk/`（`com.ruyi:ruyi-platform-sdk:0.1.0`，零第三方依赖、`maven.compiler.release=11`、刻意无 parent）；契约测试 15 项全绿（含模块词表 ↔ `deploy/bridge/dog_read.py` `MODULES` 逐项一致、`Multipart` 与改造前手写**字节级一致**）。
+**SDK 落点**：`ruyi-capability-platform/sdk/`（`com.jiongche:ruyi-platform-sdk:0.1.0`，零第三方依赖、`maven.compiler.release=11`、刻意无 parent；**包顶层 `com.jiongche`**，第二轮已归位，见「要点③-续」）；契约测试 15 项全绿（含模块词表 ↔ `deploy/bridge/dog_read.py` `MODULES` 逐项一致、`Multipart` 与改造前手写**字节级一致**）。
 
 | 阶段 | 提交 | 内容 |
 |---|---|---|
 | V0/V1 | 平台 `c042219` | SDK 骨架 + `aimp/`（端点/字段/模式/multipart）+ `dog/`（桥接口/JSON/定位/实现）+ `module/`（词表）+ `orcontract/` |
 | Y1 | OR `4535b4477` | OR 侧声明 `AimpPort`/`DogReadPort`，原类 `implements`（**零逻辑改动**） |
 | V2 | 平台 `2d24639` | 平台侧三处改**委托** SDK（`PythonDogBridge`/`HttpAimpClient`/`OrDataQualityClient`），纯重构、无开关 |
-| V3 | OR `686e5b860` | OR 读狗加 `ruyi.platform.sdk` 开关，`on` 时委托 SDK `ProcessDogBridge` |
+| V3 | OR `686e5b860` | OR 读狗加 `ruyi.platform.sdk` 开关，`on` 时委托 SDK `ProcessDogBridge`（**第二轮已移除**，见下） |
 
-**开关**：OR 侧系统属性 `ruyi.platform.sdk`（缺省 `off` → 原实现逐字节不变；`on` → SDK），与 `ruyi.license.enforce` 正交并存。平台侧为纯重构（等价替换，不加开关）。
+**开关**：OR 侧系统属性 `ruyi.platform.sdk`（缺省 `off` → 原实现逐字节不变；`on` → SDK），与 `ruyi.license.enforce` 正交并存。平台侧为纯重构（等价替换，不加开关）。**注：第二轮（J1）判定「OR 侧所有 AIMP 侧能力调用一律经 SDK」，已删除 OR 原生读狗实现，开关随之取消（单一实现、无 legacy 通路）。**
 
-**门禁 ✔**：平台 `clean compile`/`package` BUILD SUCCESS（产物含 `com/ruyi/sdk/*`）＋假桥等价回归与改造前并集语义一致（起始最早/到期最晚/剩余最大）；OR `core` compile SUCCESS（228 源文件，release 11）＋ `off/on` 假桥冒烟返回**一致**（有桥 `[inspection, ocr, aimp-chat]` / 无桥 `null`）；`server` 依赖树含 `ruyi-platform-sdk:jar:0.1.0:compile`（随 `copy-dependencies` 落运行期 lib，与既有 `solon-hotplug` 同机制）。
+**门禁 ✔（第一轮）**：平台 `clean compile`/`package` BUILD SUCCESS（产物含 `com/ruyi/sdk/*`；J1 后为 `com/jiongche/sdk/*`）＋假桥等价回归与改造前并集语义一致（起始最早/到期最晚/剩余最大）；OR `core` compile SUCCESS（228 源文件，release 11）＋ `off/on` 假桥冒烟返回**一致**（有桥 `[inspection, ocr, aimp-chat]` / 无桥 `null`）；`server` 依赖树含 `ruyi-platform-sdk:jar:0.1.0:compile`（随 `copy-dependencies` 落运行期 lib，与既有 `solon-hotplug` 同机制）。
 
 **本轮未覆盖**：① OR `AimpClient` 的**三处 multipart 形状**（`----WebKitFormBoundary*` / `----AimpBoundary*` / `----AimpOcrBoundary*`）字节布局各异，**不在 SDK `Multipart` 设计范围**（其 javadoc 已显式排除），故 OR 侧保留原手写（端点字面量为纯等价替换、收益低，未强绑）；② AIMP/Python `modules.py` 跨语言词表对齐另议；③ SSO 转发实现留原处（CP4 只抽常量 `OrContract`）。
+
+#### 要点③-续 · 第二轮（2026-10-17，SDK 命名归位 + 数据源/授权门 + OR 薄壳，**未推送**）
+
+> 用户拍板四项：① SDK 新增最小**数据源接口** ② OR 适配器落 `modules/core` 的 `com.jiongche.refine.data` ③ **授权门放 SDK** ④ 先做 P0+P1 试点。**新约束**：放在平台 SPI 的包**统一以 `com.jiongche` 作顶层，不得出现 `com.ruyi` 包路径**；另一评注：「放 SDK，OR 侧现在所有有关 aimp 侧能力的调用都通过 SDK，所以其内的 `DogModuleReader` 应该去除」。**3A 接入形态 = 进程内**（授权门必须在进程内、进能力实现必经路径，否则加密狗可被绕过）。
+
+**J1 · SDK 包名归位（破坏性重命名）**：
+- SDK 包 `com.ruyi.sdk.*` → **`com.jiongche.sdk.*`**（main 18 源 + test 4 源全量）；`sdk/pom.xml` `groupId` `com.ruyi` → **`com.jiongche`**（`artifactId`/`version` 保留 `ruyi-platform-sdk`/`0.1.0`）；javadoc 里的 `com.ruyi.platform.*` 字面引用清理（`DogLicense`/`ProcessDogBridge` 等）。
+- 平台侧同步：`pom.xml` SDK 依赖 `groupId`→`com.jiongche`；三处 import →`com.jiongche.sdk.*`（`HttpAimpClient`/`PythonDogBridge`/`OrDataQualityClient`），残留 0。
+- **判断（请复核）**：约束针对「放到**平台 SPI** 的包」= **SDK**；平台自身 `com.ruyi.platform.*`（含 `com.ruyi.platform.spi.*` 25 文件）**未改名**。
+
+**J2 · SDK 新增两族契约**：
+- `com.jiongche.sdk.data`：`TableSchema`（`columnNames()`/`columnIndex(name)`）、`TableView`（`schema()`/`rowCount()`/`value(row,col)`/`overlayJson(name)`；标量只 primitive/String/null，复合值 JSON 串）、`TableDriver extends TableView`（`setValue`/`putOverlayJson`/`markDirtyAndPersist`；**铁律：写必走宿主变更施加路径**）、`DataSource`（`exists`/`open`/`create`/`persist`）。
+- `com.jiongche.sdk.authz`：`AuthorizationGate`（`of(Set,boolean)`/`disabled()`/`enforce()`/`modules()`/`isAllowed(String|Integer)`/`require(String)`，复用 `ModuleCodes.nameOf`）＋ `AuthorizationException`。
+
+**J3 · OR 侧薄壳**：
+- `modules/core/pom.xml` SDK 依赖坐标 → `com.jiongche`。
+- 新增 `com.jiongche.refine.data`（活对象适配器，6 文件）：`OrTableSchema`（包 `ColumnModel`）、`OrTableDriver`（包活的 `Project`；`value` 经 `columns.get(col).getCellIndex()` 换算；写经 `AbstractOperation.createProcess(...).performImmediate()`）、`OrDataSource`（`static` 块把两操作注册进 `OperationRegistry` 的 `data` 命名空间）；两个新操作 `SetCellValueOperation`（复用既有 `CellChange`）、`PutOverlayJsonOperation`＋`OverlayChange`（overlay 写仍走 OR `Change`/`History`/持久化，**单一真相源铁律**：OR `Project` 内存 + overlay + `ProjectManager` 落盘）。
+- OR `Project.java` 增 2 个纯转发访问器：`static public Project withId(long)`、`static public Class<? extends OverlayModel> overlayModelClass(String)`（原 `protected` 跨包不可见）。
+- 读狗：**删除 `com.google.refine.licensing.DogModuleReader`**（原生桥定位/子进程/JSON 解析全去掉，`parse()` 契约由 SDK `DogJsonTest` 覆盖），置 `SdkDogReader implements DogReadPort`（**纯经 SDK `ProcessDogBridge`**，只留「按 licenseId 读 modules + 缓存」与 `resolveBridge` 供日志）；`LicenseGuard` 字段改 `DogReadPort`、`fromConfiguration()` 用 `SdkDogReader`；`LicenseGuardTest` 改用 `SdkDogReader` 匿名子类、删 `testDogBridgeJsonParsing`；`ruyi.platform.sdk` 开关取消。
+- OR 侧 SPI javadoc 去 `com.ruyi.platform.spi.*` 字面路径（`AimpPort`/`DogReadPort`）。
+
+**门禁 ✔（J1–J3）**：SDK `test` **15/15 全绿**（`MultipartTest`3 / `BridgeLocatorTest`4 / `DogJsonTest`6 / `ModuleCodesContractTest`2）；平台 `compile` BUILD SUCCESS；OR `modules/core` `test` **14/14 全绿**（`OrDataSourceTest`4 + `LicenseGuardTest`10；断言「写后 `project.history` 新增 1 条 past entry」证明写经变更路径），OR `server -am test-compile` SUCCESS。OR `build/.../modules/server` 不存在，实际模块为 `server`（`-pl server -am`）。
+
+**第二轮未覆盖**：① 适配器**注册入 SPI registry**——`RefineModuleContext` 暂无数据源注册入口，本轮以**可直用类**交付 + `OrDataSource` 自注册操作，注册面留待 P2/P3；② P1：`data-quality` 的 `aimp/*` 下沉 SDK（扩 SDK 覆盖 3 份 multipart 形状 + 提升 `BatchCompareResult`/`LlmAnalyzeResult`/`OcrCropResult` 为独立 DTO）。
 
 ---
 

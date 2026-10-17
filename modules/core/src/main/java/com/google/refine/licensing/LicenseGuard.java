@@ -39,6 +39,7 @@ import java.util.Locale;
 import java.util.ResourceBundle;
 import java.util.Set;
 
+import com.jiongche.refine.spi.platform.DogReadPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -77,9 +78,9 @@ public class LicenseGuard implements CommandGuard {
     private static final String BUNDLE_NAME = "com.google.refine.licensing.LicenseMessages";
 
     private final Mode mode;
-    private final DogModuleReader reader;
+    private final DogReadPort reader;
 
-    public LicenseGuard(Mode mode, DogModuleReader reader) {
+    public LicenseGuard(Mode mode, DogReadPort reader) {
         this.mode = mode;
         this.reader = reader;
     }
@@ -87,7 +88,7 @@ public class LicenseGuard implements CommandGuard {
     /** 从 JVM 系统属性装配（{@code -Druyi.license.*}，如写在 refine.ini 的 JAVA_OPTIONS 中）。 */
     public static LicenseGuard fromConfiguration() {
         Mode mode = parseMode(System.getProperty("ruyi.license.enforce", "off"));
-        DogModuleReader reader = new DogModuleReader(
+        DogReadPort reader = new SdkDogReader(
                 System.getProperty("ruyi.license.bridge"),
                 intProperty("ruyi.license.id", 80),
                 intProperty("ruyi.license.cache-seconds", 60));

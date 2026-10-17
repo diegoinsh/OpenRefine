@@ -1,8 +1,8 @@
 /*
  * JinRefine SPI · OR 侧 AIMP 能力端口（baseline §6 要点③「平台 SDK 接口层」· 步骤 Y1）
  *
- * 本接口声明 OR 对「AIMP（AI 引擎）」的能力面，与平台侧
- * com.ruyi.platform.spi.service.AimpClient（postJson / postMultipart）在**线上契约（wire contract）**
+ * 本接口声明 OR 对「AIMP（AI 引擎）」的能力面，与平台侧 SPI 的 {@code AimpClient}
+ * （postJson / postMultipart）在**线上契约（wire contract）**
  * 上对齐：端点路径、请求/响应字段名、multipart 编码、7998/7999 模式判定
  * —— Y2 起由平台 SDK 以「单一权威常量 + 无依赖 multipart 构造器」提供，两侧共用。
  *

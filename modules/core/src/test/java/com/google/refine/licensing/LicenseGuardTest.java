@@ -46,13 +46,13 @@ import org.testng.annotations.Test;
 /**
  * OR 侧模块授权守卫的单元测试：三态开关、命令映射、失败关闭与消息资源。
  *
- * <p>不接触真狗——{@link DogModuleReader} 的 {@code read()} 被匿名字类覆盖，
+ * <p>不接触真狗——{@link SdkDogReader} 的 {@code read()} 被匿名字类覆盖，
  * 直接注入「授权模块集合」。
  */
 public class LicenseGuardTest {
 
-    private static DogModuleReader reader(final Set<String> modules) {
-        return new DogModuleReader(null, 80, 60) {
+    private static SdkDogReader reader(final Set<String> modules) {
+        return new SdkDogReader(null, 80, 60) {
 
             @Override
             public Set<String> read() {
@@ -149,14 +149,5 @@ public class LicenseGuardTest {
         assertEquals(LicenseModuleMap.modulesFor("files/batch-extraction"), List.of("info_extraction", "aimp-chat"));
         assertEquals(LicenseModuleMap.modulesFor("unknown/command"), List.of());
         assertEquals(LicenseModuleMap.modulesFor(null), List.of());
-    }
-
-    @Test
-    public void testDogBridgeJsonParsing() {
-        assertEquals(DogModuleReader.parse("{\"ok\":true,\"modules\":[\"inspection\",\"ocr\"]}"),
-                Set.of("inspection", "ocr"));
-        // ok=false（无狗/无 DLL）与无有效输出一律视为读不到
-        assertNull(DogModuleReader.parse("{\"ok\":false,\"reason\":\"no_dog\"}"));
-        assertNull(DogModuleReader.parse("some noise"));
     }
 }
