@@ -41,28 +41,29 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
+import com.jiongche.sdk.authz.LicenseGate;
 import org.testng.annotations.Test;
 
 /**
  * OR 侧模块授权守卫的单元测试：三态开关、命令映射、失败关闭与消息资源。
  *
- * <p>不接触真狗——{@link SdkDogReader} 的 {@code read()} 被匿名字类覆盖，
- * 直接注入「授权模块集合」。
+ * <p>不接触真狗——经 {@link LicenseGate#create} 注入「授权模块集合」。
  */
 public class LicenseGuardTest {
 
-    private static SdkDogReader reader(final Set<String> modules) {
-        return new SdkDogReader(null, 80, 60) {
-
-            @Override
-            public Set<String> read() {
-                return modules;
-            }
-        };
-    }
-
-    private static LicenseGuard guard(LicenseGuard.Mode mode, Set<String> modules) {
-        return new LicenseGuard(mode, reader(modules));
+    private static LicenseGuard guard(LicenseGuard.Mode mode, final Set<String> modules) {
+        LicenseGate.Mode gateMode;
+        switch (mode) {
+            case BLOCK:
+                gateMode = LicenseGate.Mode.BLOCK;
+                break;
+            case LOG:
+                gateMode = LicenseGate.Mode.LOG;
+                break;
+            default:
+                gateMode = LicenseGate.Mode.OFF;
+        }
+        return new LicenseGuard(LicenseGate.create(gateMode, () -> modules));
     }
 
     @Test

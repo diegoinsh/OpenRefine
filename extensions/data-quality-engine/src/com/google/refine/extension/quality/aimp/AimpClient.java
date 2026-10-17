@@ -29,6 +29,8 @@ import com.jiongche.sdk.aimp.ElementResult;
 import com.jiongche.sdk.aimp.LlmAnalyzeResult;
 import com.jiongche.sdk.aimp.Multipart;
 import com.jiongche.sdk.aimp.OcrCropResult;
+import com.jiongche.sdk.authz.LicenseGate;
+import com.jiongche.sdk.module.ModuleNames;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -172,6 +174,9 @@ public class AimpClient implements AimpPort {
      * @return Map of extracted labels to values
      */
     public Map<String, String> extractContent(String filePath, String keyList) {
+        // 进程内授权门：直调引擎亦不能绕过（缺省 off 时零开销放行）
+        LicenseGate.fromSystemProperties().require(ModuleNames.INFO_EXTRACTION);
+
         Map<String, String> result = new HashMap<>();
 
         try {
@@ -301,6 +306,8 @@ public class AimpClient implements AimpPort {
             double confidenceThreshold,
             double similarityThreshold) {
 
+        LicenseGate.fromSystemProperties().require(ModuleNames.INFO_EXTRACTION);
+
         BatchCompareResult result = new BatchCompareResult();
         result.setTaskId(taskId);
 
@@ -416,6 +423,8 @@ public class AimpClient implements AimpPort {
      * @return LlmAnalyzeResult containing the analysis result
      */
     public LlmAnalyzeResult llmAnalyze(String prompt, Map<String, Object> context, String responseFormat) {
+        LicenseGate.fromSystemProperties().require(ModuleNames.AIMP_CHAT);
+
         LlmAnalyzeResult result = new LlmAnalyzeResult();
 
         try {
@@ -498,6 +507,8 @@ public class AimpClient implements AimpPort {
      * @return OcrCropResult 识别结果
      */
     public OcrCropResult ocrCrop(byte[] imageBytes, String fileName, String mode) {
+        LicenseGate.fromSystemProperties().require(ModuleNames.OCR);
+
         OcrCropResult result = new OcrCropResult();
 
         try {

@@ -18,6 +18,9 @@
   <build>
     <finalName>jinrefine-data-quality-engine</finalName>
     <sourceDirectory>src</sourceDirectory>
+    <!-- 测试源码放在 test/java（与项目规范一致）：src 是主源码根，若测试留在 src/test/java
+         会被 maven-compiler 的主编译一并收录（testng 不在主 classpath）。 -->
+    <testSourceDirectory>test/java</testSourceDirectory>
     <plugins>
       <!-- 本模块无 localizer 资源束：显式把 fileMask 限定为一个不存在的名字，
            避免 localizer 按 artifactId（含 '-'）生成非法类名。详见 data-quality/pom.xml 注释。 -->
@@ -84,6 +87,13 @@
       <artifactId>pdfbox</artifactId>
       <version>2.0.31</version>
       <scope>provided</scope>
+    </dependency>
+    <!-- 单测：验证引擎直调入口的授权门（与 OR 其余模块同用 TestNG） -->
+    <dependency>
+      <groupId>org.testng</groupId>
+      <artifactId>testng</artifactId>
+      <version>${testng.version}</version>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 

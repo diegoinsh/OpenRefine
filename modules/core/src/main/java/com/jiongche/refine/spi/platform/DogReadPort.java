@@ -1,8 +1,9 @@
 /*
  * JinRefine SPI · OR 侧读狗端口（baseline §6 要点③「平台 SDK 接口层」· 步骤 Y1）
  *
- * 本接口是 OR 侧对「读加密狗」能力的**声明**（port）：实现已收敛为经平台 SDK
- * （{@code ProcessDogBridge}）读狗的 {@code SdkDogReader}，两侧共用同一份桥调用实现。
+ * 本接口是 OR 侧对「读加密狗」能力的**声明**（port）：生产读狗已统一收敛到 SDK
+ * {@code com.jiongche.sdk.authz.LicenseGate}（内部经 {@code ProcessDogBridge}），
+ * 与下沉能力引擎共用同一份实现与缓存；本端口保留为宿主/测试注入点。
  *
  * 与平台侧 SPI 的 {@code LicenseService} / {@code LicenseInfo}
  * **对齐**（同名 / 同签名 / 同语义；跨仓跨框架不共享同一 Java 类型，故两侧各自声明镜像类型）：
@@ -21,7 +22,7 @@ import java.util.Set;
 /**
  * 读狗能力端口：返回加密狗里的授权模块集合，并暴露所用 license-id 与桥定位。
  *
- * <p>实现方为 OR 侧 {@code com.google.refine.licensing.SdkDogReader}（经 SDK 读狗）。
+ * <p>生产路径由 SDK {@code LicenseGate} 承担；实现本接口仅用于宿主自定义或单测注入。
  */
 public interface DogReadPort {
 

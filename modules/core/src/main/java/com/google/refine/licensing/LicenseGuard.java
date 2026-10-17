@@ -37,9 +37,9 @@ import java.text.MessageFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.ResourceBundle;
-import java.util.Set;
 
 import com.jiongche.refine.spi.platform.DogReadPort;
+import com.jiongche.sdk.authz.LicenseGate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,6 +64,10 @@ import com.google.refine.commands.CommandGuard;
  * <p>读不到狗时按 {@code block} **失败关闭**（与能力平台过滤器、AIMP 守卫同口径）：
  * 狗不在 / 读不到 ⇒ 受门禁的命令一律拒绝。
  *
+ * <p>三态解析、读狗与缓存、命令需求映射均已在 SDK（{@link LicenseGate} /
+ * {@code LicenseCapabilities}）；下沉能力引擎用的是同一份实现与同一份授权状态，
+ * 直调引擎不能绕过本门。
+ *
  * <p>相关系统属性：{@code ruyi.license.bridge}（读狗桥路径，缺省自动探测）、
  * {@code ruyi.license.id}（缺省 80）、{@code ruyi.license.cache-seconds}（缺省 60）。
  */
@@ -78,51 +82,51 @@ public class LicenseGuard implements CommandGuard {
     private static final String BUNDLE_NAME = "com.google.refine.licensing.LicenseMessages";
 
     private final Mode mode;
+    private final LicenseGate gate;
     private final DogReadPort reader;
 
     public LicenseGuard(Mode mode, DogReadPort reader) {
+        this(mode, LicenseGate.create(toGateMode(mode), reader::read), reader);
+    }
+
+    /** 直接用 SDK 授权门构造（生产路径：与下沉引擎共享同一份授权状态）。 */
+    public LicenseGuard(LicenseGate gate) {
+        this(fromGateMode(gate.mode()), gate, null);
+    }
+
+    private LicenseGuard(Mode mode, LicenseGate gate, DogReadPort reader) {
         this.mode = mode;
+        this.gate = gate;
         this.reader = reader;
     }
 
     /** 从 JVM 系统属性装配（{@code -Druyi.license.*}，如写在 refine.ini 的 JAVA_OPTIONS 中）。 */
     public static LicenseGuard fromConfiguration() {
-        Mode mode = parseMode(System.getProperty("ruyi.license.enforce", "off"));
-        DogReadPort reader = new SdkDogReader(
-                System.getProperty("ruyi.license.bridge"),
-                intProperty("ruyi.license.id", 80),
-                intProperty("ruyi.license.cache-seconds", 60));
-        return new LicenseGuard(mode, reader);
-    }
-
-    private static int intProperty(String name, int def) {
-        String raw = System.getProperty(name);
-        if (raw == null || raw.trim().isEmpty()) {
-            return def;
-        }
-        try {
-            return Integer.parseInt(raw.trim());
-        } catch (NumberFormatException e) {
-            logger.warn("无法解析 {}={}，回退为 {}", name, raw, def);
-            return def;
-        }
+        return new LicenseGuard(LicenseGate.fromSystemProperties());
     }
 
     static Mode parseMode(String raw) {
-        if (raw == null) {
-            return Mode.OFF;
+        return fromGateMode(LicenseGate.parseMode(raw));
+    }
+
+    private static LicenseGate.Mode toGateMode(Mode mode) {
+        if (mode == Mode.BLOCK) {
+            return LicenseGate.Mode.BLOCK;
         }
-        switch (raw.trim().toLowerCase(Locale.ROOT)) {
-            case "log":
-                return Mode.LOG;
-            case "block":
-                return Mode.BLOCK;
-            case "off":
-                return Mode.OFF;
-            default:
-                logger.warn("未知的 ruyi.license.enforce={}，按 off 处理（不检查）", raw);
-                return Mode.OFF;
+        if (mode == Mode.LOG) {
+            return LicenseGate.Mode.LOG;
         }
+        return LicenseGate.Mode.OFF;
+    }
+
+    private static Mode fromGateMode(LicenseGate.Mode mode) {
+        if (mode == LicenseGate.Mode.BLOCK) {
+            return Mode.BLOCK;
+        }
+        if (mode == LicenseGate.Mode.LOG) {
+            return Mode.LOG;
+        }
+        return Mode.OFF;
     }
 
     public Mode mode() {
@@ -134,10 +138,11 @@ public class LicenseGuard implements CommandGuard {
         if (mode == Mode.OFF) {
             return "模块授权校验：关闭（ruyi.license.enforce=off）";
         }
-        java.nio.file.Path bridge = reader.resolveBridge();
-        return String.format("模块授权校验：%s（license-id=%d，读狗桥=%s）",
-                mode.name().toLowerCase(Locale.ROOT), reader.licenseId(),
-                bridge == null ? "未找到" : bridge.toString());
+        String source = reader != null
+                ? String.format("license-id=%d，读狗桥=%s", reader.licenseId(),
+                        reader.resolveBridge() == null ? "未找到" : reader.resolveBridge().toString())
+                : gate.describeSource();
+        return String.format("模块授权校验：%s（%s）", mode.name().toLowerCase(Locale.ROOT), source);
     }
 
     /** 注册到 servlet（幂等）。 */
@@ -159,27 +164,16 @@ public class LicenseGuard implements CommandGuard {
             return null; // 免授权或未纳入映射的命令
         }
 
-        Set<String> granted = reader.read();
-        String reason = null;
-        if (granted == null) {
-            reason = "dog_unavailable";
-        } else {
-            for (String m : needed) {
-                if (!granted.contains(m)) {
-                    reason = "module_not_licensed";
-                    break;
-                }
-            }
-        }
-        if (reason == null) {
+        LicenseGate.Denial denial = gate.evaluate(needed);
+        if (denial == null) {
             return null; // 所需模块全部在授权集内
         }
 
         if (mode == Mode.BLOCK) {
-            logger.warn("[授权] 拒绝 {}：所需模块 {}（{}）", commandKey, needed, reason);
-            return message(reason, needed, locale);
+            logger.warn("[授权] 拒绝 {}：所需模块 {}（{}）", commandKey, needed, denial.reason().key());
+            return message(denial.reason().key(), needed, locale);
         }
-        logger.warn("[授权] 观察模式放行 {}：所需模块 {}（{}）", commandKey, needed, reason);
+        logger.warn("[授权] 观察模式放行 {}：所需模块 {}（{}）", commandKey, needed, denial.reason().key());
         return null;
     }
 

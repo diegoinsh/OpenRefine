@@ -43,7 +43,9 @@ import java.util.Map;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jiongche.sdk.authz.LicenseGate;
 import com.jiongche.sdk.data.TableView;
+import com.jiongche.sdk.module.ModuleNames;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import org.slf4j.Logger;
@@ -149,6 +151,9 @@ public class ImageQualityChecker {
             result.complete();
             return result;
         }
+
+        // 进程内授权门：图像检查直连 inspection 端点，不经过 AimpClient，须在此校验
+        LicenseGate.fromSystemProperties().require(ModuleNames.INSPECTION);
 
         int totalRows = view.rowCount();
         result.setTotalRows(totalRows);
@@ -475,6 +480,9 @@ public class ImageQualityChecker {
     }
 
     public AiCheckResult checkImage(File imageFile, AiCheckParams params) {
+        // 直调入口同样经授权门（防绕过 runCheck）
+        LicenseGate.fromSystemProperties().require(ModuleNames.INSPECTION);
+
         if (imageFile == null || !imageFile.exists()) {
             logger.warn("图像文件不存在: {}", imageFile);
             return createEmptyResult();
