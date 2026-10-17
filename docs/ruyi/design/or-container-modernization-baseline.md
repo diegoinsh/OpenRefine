@@ -444,13 +444,22 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 - **可注入接缝**：`AimpLlmClient(AimpTransport)`、`AimpClient(serviceUrl, mode, AimpTransport)` 已预留，R1-3 进程内实现可替换传输而不动调用方。
 - **字节级回归**：SDK `HttpAimpTransportTest` 3 项（JSON/原始 multipart/错误体）；`AimpLlmClientMultipartTest`、`AimpClientMultipartTest` 用“旧拼装算法 + 同一 boundary”重建期望值并做 `byte[]` 全等断言。
 - **门禁**：SDK **33/33**；data-quality-engine **3/3**；files-engine **33/33**；FilesExtension **86/87**（仍仅既有 1 项失败）；10 模块 `install -DskipTests` SUCCESS；启动冒烟 `/`、`get-version`、`data-quality/get-config`、`files/extraction-config` 均 200。
-- **新登记既有问题**：`extensions/data-quality` 的 `mvn test` 因 `tests/conf/tests.xml` 缺失而失败（该模块无测试目录，属既有构建配置问题，建议 R1-4 前清理）。
+- **新登记既有问题（已于 2026-10-17 修复）**：`extensions/data-quality` 的 `mvn test` 曾因 `tests/conf/tests.xml` 缺失而失败。根因是该模块 POM 指向并不存在的 `tests/src` 与 `tests/conf/tests.xml`（本模块从无测试，测试都在 `data-quality-engine`）。已移除 `testSourceDirectory` 与 surefire 的 `suiteXmlFiles` 配置，回落 `src/test/java` 默认约定（与 `FilesExtension` 一致）；`mvn test` 现为 `No tests to run.` + BUILD SUCCESS。
 
 **R1-2 执行记录（2026-10-17，✔ 已完成）**：
 - **模块词表单源**：`PlatformFilter.MODULE_PREFIX` 改用 `ModuleNames.INSPECTION`；`DogLicenseService` 的开发旁路快照改用 `ModuleNames.INSPECTION` + `ModuleCodes.idOf(...)`（仍然是 `inspection`/`3`，行为等价）；`CompliancePlugin.moduleCode()` 改用 `ModuleNames.INSPECTION`。平台生产代码中 `"inspection"` 字面量已归零（仅 SDK 权威表与测试保留）。
 - **命令映射单源**：`OrContract` 补齐 `CREATE/DELETE/RENAME_PROJECT`、`SAVE_CONFIG`、`SAVE_IMAGE_QUALITY_RULE`、`RUN_IMAGE_QUALITY_CHECK`、`SAVE_QUALITY_RESULT` 与 `commandKey(...)`；`PlatformFilter.DEFAULT_OR_ALLOW` 由 `OrContract` 派生，键值与原 11 项白名单逐一对应。SSO 转发仍全部经 `OrContract`（R1-2 前已满足）。
 - **门禁**：SDK **33/33**；平台 `clean package/install` SUCCESS（JDK 17）；`compliance-plugin` shaded 打包 SUCCESS（未内嵌 SDK，运行时由内核 jar 提供 `ModuleNames`）；启动冒烟：`/` 200、`/api/auth/me` 200、`/command/core/get-version` 401、`/api/shell/config` 401（无会话，符合过滤器预期）。
 - **说明**：平台无单元测试；本轮以编译、打包、启动与过滤器状态码验证行为等价。
+
+**R1-3 执行记录（2026-10-17，✔ 已完成）**：
+- **落点**：把授权判定下沉到**平台能力实现入口**（`AimpClient` 端口），而非只停留在 HTTP 过滤器。新增 `CapabilityGate`（进程内，数据源与平台 `LicenseService` 同源）与 `GuardedAimpClient`（先判定、再委托 HTTP）；`Kernel` 统一装配。
+- **路径映射**：SDK `LicenseCapabilities.modulesForPath(...)` 覆盖 `/extract/*`、`/api/llm/*`、`/ocr`、`/alot/chek*` 与 7999 专项端点；探活、`/task/*` 等未映射路径放行。与既有命令键映射同源。
+- **开关（缺省零差异）**：`-Druyi.platform.capability.gate=off|log|block`，缺省 `off` 且**不读狗**；`log` 仅告警放行；`block` 在触达 HTTP 前拒绝。
+- **门禁**：SDK **36/36**（新增 `LicenseCapabilitiesTest` 3 项）；平台 `clean install -DskipTests` SUCCESS；临时冒烟验证 `block` 拒绝且 HTTP 调用数为 0、`ocr`/`health` 放行、`log` 放行、`off` 不读授权数据源；平台启动日志 `capability-gate=off`。
+- **边界（明确）**：本轮“进程内”覆盖**授权门**（加密狗不可绕过）；SSO 合规任务/结果查询仍走既有 `SsoComplianceController → OrDataQualityClient → OR` HTTP 适配。若要把“查询本身”也进程内化，需要平台与 OR 共享项目/任务存储契约，属后续独立议题，不在最小闭环内。
+
+**既有问题跟踪**：`extensions/data-quality` 的 `tests/conf/tests.xml` 缺失已由另一 agent 处理，本轮未改动。
 
 
 **明确不在 Release-1（发布后再改造）**
