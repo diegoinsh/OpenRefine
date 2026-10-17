@@ -127,6 +127,15 @@
 
     <!-- add here the dependencies of your extension -->
 
+    <!-- 纯文件工具内核（扫描/自然序/分件/模板/DTO/AIMP LLM 客户端），零 OR core 依赖；
+         compile 以便 copy-dependencies 收进 MOD-INF/lib -->
+    <dependency>
+      <groupId>${project.groupId}</groupId>
+      <artifactId>files-engine</artifactId>
+      <version>${openrefine.version}</version>
+      <scope>compile</scope>
+    </dependency>
+
     <dependency>
       <groupId>org.testng</groupId>
       <artifactId>testng</artifactId>

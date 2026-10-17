@@ -4,10 +4,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-
-import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
  * 页级缓存 JSON 的往返：命中缓存时必须把识别结果原样带回。

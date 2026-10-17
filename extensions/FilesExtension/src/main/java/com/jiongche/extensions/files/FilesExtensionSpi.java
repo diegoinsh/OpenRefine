@@ -7,11 +7,14 @@
 
 package com.jiongche.extensions.files;
 
+import com.google.refine.ProjectManager;
+import com.google.refine.io.FileProjectManager;
 import com.jiongche.refine.spi.RefineModuleContext;
 import com.jiongche.refine.spi.RefineModuleSpi;
 import org.openrefine.extensions.files.importer.BatchExtractionCommand;
 import org.openrefine.extensions.files.importer.ExtractionConfigCommand;
 import org.openrefine.extensions.files.importer.FilesImportingController;
+import org.openrefine.extensions.files.importer.WorkspacePaths;
 
 /**
  * Files extension 的 SPI 实现。
@@ -28,6 +31,15 @@ public class FilesExtensionSpi implements RefineModuleSpi {
 
     @Override
     public void register(RefineModuleContext ctx) {
+        // 下沉的纯文件工具不依赖 OR core：把 workspace 定位能力注入进去（延迟求值，
+        // 避免与 ProjectManager 初始化顺序耦合）。未就绪时返回 null，工具按「无 workspace」处理。
+        WorkspacePaths.configure(() -> {
+            ProjectManager manager = ProjectManager.singleton;
+            return manager instanceof FileProjectManager
+                    ? ((FileProjectManager) manager).getWorkspaceDir()
+                    : null;
+        });
+
         // 导入器控制器
         ctx.registerImporterController("files-importing-controller", new FilesImportingController());
 

@@ -1,13 +1,14 @@
 package org.google.refine.filesExtension.importer;
 
-import org.openrefine.extensions.files.importer.CustomElementType;
-import org.openrefine.extensions.files.importer.ExtractionTemplate;
-import org.testng.Assert;
-import org.testng.annotations.Test;
-
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+
+import org.testng.Assert;
+import org.testng.annotations.Test;
+
+import org.openrefine.extensions.files.importer.CustomElementType;
+import org.openrefine.extensions.files.importer.ExtractionTemplate;
 
 public class CustomElementKeyTest {
 

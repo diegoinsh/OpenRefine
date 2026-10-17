@@ -1,12 +1,5 @@
 package org.openrefine.extensions.files.importer;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -18,6 +11,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.jiongche.sdk.authz.LicenseGate;
+import com.jiongche.sdk.module.ModuleNames;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class AimpLlmClient {
 
@@ -189,6 +191,9 @@ public class AimpLlmClient {
     private ExtractPageResult extractUpload(String filePath, String keyList, String customElementsJson,
                                             Integer currentPage, Integer totalPages, String previousExtractionsJson,
                                             boolean sync, boolean forceExtract) {
+        // 进程内授权门：所有同步/异步抽取入口都汇聚到这里（直调引擎亦不可绕过）
+        LicenseGate.fromSystemProperties().require(ModuleNames.INFO_EXTRACTION);
+
         ExtractPageResult result = new ExtractPageResult();
         try {
             File file = new File(filePath);
@@ -407,6 +412,8 @@ public class AimpLlmClient {
     }
 
     public LlmAnalyzeResult llmAnalyze(String prompt, String responseFormat) {
+        LicenseGate.fromSystemProperties().require(ModuleNames.AIMP_CHAT);
+
         LlmAnalyzeResult r = new LlmAnalyzeResult();
         try {
             HttpURLConnection c = (HttpURLConnection) new URL(serviceUrl + "/api/llm/analyze").openConnection();
@@ -461,6 +468,8 @@ public class AimpLlmClient {
     public SplitResult splitVolumePieces(List<String> pageTitles, List<String> pageParties,
                                          String partyRoles, String archiveCategory,
                                          String archiveSubCategory) {
+        LicenseGate.fromSystemProperties().require(ModuleNames.INFO_EXTRACTION);
+
         SplitResult r = new SplitResult();
         try {
             ObjectNode body = mapper.createObjectNode();
@@ -556,6 +565,8 @@ public class AimpLlmClient {
                                               List<Integer> pageTextLengths,
                                               List<String> requiredElements,
                                               Integer maxRetryPages) {
+        LicenseGate.fromSystemProperties().require(ModuleNames.INFO_EXTRACTION);
+
         PieceIntegrityResult r = new PieceIntegrityResult();
         try {
             ObjectNode body = mapper.createObjectNode();

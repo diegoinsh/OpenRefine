@@ -258,6 +258,16 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 
 **门禁 ✔（T1–T5）**：SDK `test` **30/30 全绿**（新增 `LicenseGateTest` 8 项）；平台 `clean install -DskipTests` BUILD SUCCESS（shade fat jar）；插件 `clean package -DskipTests` BUILD SUCCESS；OR `modules/core` `test` **17/17 全绿**（`LicenseGuardTest` 改注入 `LicenseGate.create`，`OrDataSourceTest` 不变）；OR `extensions/data-quality -am clean install -DskipTests` **5 模块全绿**；`extensions/data-quality-engine` `LicenseGateEntryTest` **2/2 全绿**；`server -am test-compile` 5 模块 SUCCESS。**OR `modules/core` 全量 `test` 215 项中 4 项失败系既有失败**（`HistoryEntryTests`×3 + `HistoryTests.serializeHistory`，报 `"sheetId": null` JSON 不等），经 `git stash` 对照确认与本轮改动无关。
 
+**T6 · P4：FilesExtension 纯文件工具下沉**：
+- 新增 `extensions/files-engine`（`sourceDirectory=src`、`testSourceDirectory=test/java`、`finalName=jinrefine-files-engine`）：**零 OR core 依赖**，依赖仅 SDK + Jackson + slf4j，全部 `provided`；`FilesExtension` 以 compile scope 依赖，经 `copy-dependencies` 收进 `MOD-INF/lib`。
+- 下沉 9 个类（保留原包名 `org.openrefine.extensions.files.importer`，OR 侧调用点零改 import）：`UnitScanner`（核查确认零 OR）、`TitleSplitter`、`CustomElementsCodec`、`CustomElementType`、`ExtractionTemplate`、`ExtractionUnit`、`ArchiveNumberConfig`、`AimpLlmClient`、`ExtractionPageCache`。
+- workspace 解耦：新增 `WorkspacePaths` 注入点；`ExtractionPageCache` 去掉 `FileProjectManager` 直连；`FilesExtensionSpi.register` 注入延迟求值的 workspace 定位（未就绪返回 null，与改造前「定位不到即静默不缓存」一致）。`ExtractionConfigStore` / `ExtractionTaskRegistry` / `FileElementExtractor` 按计划留 OR（前者待后续按需下沉，后者依赖 `SheetData` 且无调用方）。
+- 授权门补齐（P3 遗留）：`AimpLlmClient` 的 `extractUpload`（覆盖 `extractContent`/`extractPage`/`submitAsync`）、`splitVolumePieces`、`pieceIntegrity` → `info_extraction`；`llmAnalyze` → `aimp-chat`；`testConnection`/`checkCompatibility`/`getTaskStatus` **不设门禁**。后台抽取线程因此也在触网前过门。
+- 页级缓存往返修复：`ExtractionPageCache.toJson/fromJson` 补 `titleRegionCount`（既有测试 `ExtractionPageCacheTest` 早已断言该字段，主源码漏写导致命中缓存后分件双证据门限失效）；方法改为包内可见以做纯函数单测。
+- 测试迁移：`AimpLlmClientPieceIntegrityTest`、`ExtractionPageCacheTest`、`CustomElementKeyTest`、`FileNameColumnVisibilityTest` 随类迁入 `files-engine/test/java`；新增 `UnitScannerTest`（扫描/自然序/页号）与 `AimpLlmClientLicenseTest`（直调被拒、探活免门禁）。
+
+**门禁 ✔（T1–T6）**：`extensions/files-engine` `test` **32/32 全绿**；`extensions/FilesExtension` `test` **87 项中 86 通过**，唯一失败 `FilesImportingControllerTest.testLocalDirectoryFileList`（`expected [6] but found [0]`）已在 `f29c1901c` 上以同环境复跑确认**为改造前既有失败**（该测试走的 `FilesImporter`/`importing-controller` 路径本轮未改）；`extensions/files-engine,extensions/FilesExtension,extensions/data-quality -am clean install -DskipTests` **9 模块全绿**；`files-engine` 源码无任何 `import com.google.refine.*`。
+
 ---
 
 ## 7. 路线图与各阶段工作内容

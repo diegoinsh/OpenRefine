@@ -3,9 +3,10 @@ package org.google.refine.filesExtension.importer;
 import java.util.Arrays;
 import java.util.List;
 
-import org.openrefine.extensions.files.importer.ExtractionTemplate;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+
+import org.openrefine.extensions.files.importer.ExtractionTemplate;
 
 /**
  * 「文件名」列可见性：提取对象全是单页图片（无 PDF 等多页文件）时，

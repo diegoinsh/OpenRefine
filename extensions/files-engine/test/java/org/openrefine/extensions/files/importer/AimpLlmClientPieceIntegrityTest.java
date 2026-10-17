@@ -12,10 +12,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.sun.net.httpserver.HttpServer;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-
-import com.sun.net.httpserver.HttpServer;
 
 /**
  * 层2/层3 客户端契约：件级完整性请求的构造与解析、层3 回抽页的 force_extract 选项。

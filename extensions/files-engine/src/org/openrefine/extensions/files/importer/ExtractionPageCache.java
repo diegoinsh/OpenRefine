@@ -8,13 +8,11 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.google.refine.io.FileProjectManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -76,42 +74,48 @@ public final class ExtractionPageCache {
             return null;
         }
         try {
-            JsonNode node = mapper.readTree(file);
-            AimpLlmClient.ExtractPageResult result = new AimpLlmClient.ExtractPageResult();
-            result.success = node.path("success").asBoolean(true);
-            result.skipped = node.path("skipped").asBoolean(false);
-            result.pageCount = node.path("pageCount").asInt(1);
-            result.pageType = node.path("pageType").asText("");
-            if (node.hasNonNull("textLength")) {
-                result.textLength = node.get("textLength").asInt();
-            }
-            result.evidenceHits = new ArrayList<>();
-            for (JsonNode hit : node.withArray("evidenceHits")) {
-                result.evidenceHits.add(hit.asText());
-            }
-            result.values = new LinkedHashMap<>();
-            node.path("values").fields().forEachRemaining(e ->
-                    result.values.put(e.getKey(), e.getValue().asText("")));
-            result.confidences = new LinkedHashMap<>();
-            node.path("confidences").fields().forEachRemaining(e ->
-                    result.confidences.put(e.getKey(), e.getValue().asDouble()));
-            result.candidates = new LinkedHashMap<>();
-            node.path("candidates").fields().forEachRemaining(e -> {
-                List<AimpLlmClient.ElementCandidate> list = new ArrayList<>();
-                for (JsonNode c : e.getValue()) {
-                    list.add(new AimpLlmClient.ElementCandidate(
-                            c.path("value").asText(null),
-                            c.hasNonNull("confidence") ? c.get("confidence").asDouble() : null,
-                            c.path("page").asInt(),
-                            c.hasNonNull("fileName") ? c.get("fileName").asText() : null));
-                }
-                result.candidates.put(e.getKey(), list);
-            });
-            return result;
+            return fromJson(mapper.readTree(file));
         } catch (Exception e) {
             logger.warn("页级缓存读取失败，按未命中处理: {}", key, e);
             return null;
         }
+    }
+
+    /** 缓存 JSON → 页级识别结果（包内可见，供单测做纯函数往返）。 */
+    static AimpLlmClient.ExtractPageResult fromJson(JsonNode node) {
+        AimpLlmClient.ExtractPageResult result = new AimpLlmClient.ExtractPageResult();
+        result.success = node.path("success").asBoolean(true);
+        result.skipped = node.path("skipped").asBoolean(false);
+        result.pageCount = node.path("pageCount").asInt(1);
+        result.pageType = node.path("pageType").asText("");
+        // 版面标题块数量必须随缓存往返：分件双证据门限依赖它，漏写会让整卷认不出件首
+        result.titleRegionCount = node.path("titleRegionCount").asInt(0);
+        if (node.hasNonNull("textLength")) {
+            result.textLength = node.get("textLength").asInt();
+        }
+        result.evidenceHits = new ArrayList<>();
+        for (JsonNode hit : node.withArray("evidenceHits")) {
+            result.evidenceHits.add(hit.asText());
+        }
+        result.values = new LinkedHashMap<>();
+        node.path("values").fields().forEachRemaining(e ->
+                result.values.put(e.getKey(), e.getValue().asText("")));
+        result.confidences = new LinkedHashMap<>();
+        node.path("confidences").fields().forEachRemaining(e ->
+                result.confidences.put(e.getKey(), e.getValue().asDouble()));
+        result.candidates = new LinkedHashMap<>();
+        node.path("candidates").fields().forEachRemaining(e -> {
+            List<AimpLlmClient.ElementCandidate> list = new ArrayList<>();
+            for (JsonNode c : e.getValue()) {
+                list.add(new AimpLlmClient.ElementCandidate(
+                        c.path("value").asText(null),
+                        c.hasNonNull("confidence") ? c.get("confidence").asDouble() : null,
+                        c.path("page").asInt(),
+                        c.hasNonNull("fileName") ? c.get("fileName").asText() : null));
+            }
+            result.candidates.put(e.getKey(), list);
+        });
+        return result;
     }
 
     /** 写入缓存（尽力而为，失败不影响抽取） */
@@ -137,12 +141,14 @@ public final class ExtractionPageCache {
         }
     }
 
-    private static ObjectNode toJson(AimpLlmClient.ExtractPageResult result) {
+    /** 页级识别结果 → 缓存 JSON（包内可见，供单测做纯函数往返）。 */
+    static ObjectNode toJson(AimpLlmClient.ExtractPageResult result) {
         ObjectNode node = mapper.createObjectNode();
         node.put("success", result.success);
         node.put("skipped", result.skipped);
         node.put("pageCount", result.pageCount);
         node.put("pageType", result.pageType == null ? "" : result.pageType);
+        node.put("titleRegionCount", result.titleRegionCount);
         if (result.textLength != null) {
             node.put("textLength", result.textLength);
         }
@@ -191,7 +197,7 @@ public final class ExtractionPageCache {
             return null;
         }
         try {
-            File workspaceDir = ((FileProjectManager) FileProjectManager.singleton).getWorkspaceDir();
+            File workspaceDir = WorkspacePaths.workspaceDir();
             if (workspaceDir == null) {
                 return null;
             }
