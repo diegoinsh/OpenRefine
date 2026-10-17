@@ -461,6 +461,14 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 
 **既有问题跟踪**：`extensions/data-quality` 的 `tests/conf/tests.xml` 缺失已由另一 agent 处理，本轮未改动。
 
+**R1-4 执行记录（2026-10-17，✔ 已完成）**：
+- **全量回归**：SDK **36/36**；OR core **211/215**（仅既有 4 项 History JSON 失败）；data-quality-engine **3/3**；files-engine **33/33**；FilesExtension **86/87**（仅既有 1 项）；data-quality 扩展 `mvn test` **BUILD SUCCESS**（配置修复后无测试可跑）；OR 10 模块 `install -DskipTests` SUCCESS。
+- **打包**：`packaging -am package -DskipTests` SUCCESS；产物 `jinrefine-win-with-java-3.11.0.01.zip`（约 276 MB）、`jinrefine-linux-3.11.0.01.tar.gz`（约 234 MB）、`openrefine_with_jre.exe`；确认包内含两个 engine jar 与 `ruyi-platform-sdk-0.1.0.jar`。平台与合规插件打包 SUCCESS。
+- **冒烟**：OR 启动 `loader=butterfly`，`/`、`get-version`、`data-quality/get-config`、`files/extraction-config`、`get-quality-rules`、`wirings.js`、`get-languages` 均 200；批量抽取返回预期 `aimp-unavailable`；平台 `/` 与 `/api/auth/me` 200，日志 `capability-gate=off`。
+- **发布说明**：见 [release-notes-release-1.md](../release-notes-release-1.md)。
+
+*Release-1 候选收口。下一阶段（发布后）再启动 Butterfly 退场、其余扩展插件化与 AI harness。*
+
 
 **明确不在 Release-1（发布后再改造）**
 1. **Butterfly 退场与装载器自主化**：缺省切 `solon-plugin`、自建 `wirings.js`/i18n/客户端资源装载、移除 `extends Butterfly` 与 `butterfly-1.2.6` 依赖。
