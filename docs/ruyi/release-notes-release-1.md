@@ -32,10 +32,10 @@
 | 项目 | 结果 |
 |---|---|
 | SDK | 36/36 |
-| OR core | 211/215（4 项既有失败，见 §5） |
+| OR core | 215/215 |
 | data-quality-engine | 3/3 |
 | files-engine | 33/33 |
-| FilesExtension | 86/87（1 项既有失败，见 §5） |
+| FilesExtension | 87/87 |
 | data-quality 扩展 | `mvn test` BUILD SUCCESS（无测试；配置已修复） |
 | OR 10 模块 `install -DskipTests` | SUCCESS |
 | `packaging -am package` | SUCCESS（exe / zip / tar.gz） |
@@ -62,11 +62,9 @@
 
 ## 5. 已知问题（不阻塞发布）
 
-1. **OR core 4 项既有失败**：`HistoryEntryTests`×3 + `HistoryTests.serializeHistory`，JSON 中 `sheetId` 空值表示差异；改造前即存在，不影响运行时。
-2. **FilesExtension 1 项既有失败**：`FilesImportingControllerTest.testLocalDirectoryFileList`（`expected [6] but found [0]`），改造前即存在。
-3. **真实 AIMP 抽取未回归**：本次环境未启动 AIMP；已验证命令/CSRF/错误契约与请求字节形状，端到端抽取需在联调环境复跑。
-4. **平台无单元测试**：以构建、启动、授权门冒烟与过滤器状态码验证。
-5. **启动日志噪声**：已禁用的 `database` 扩展仍会打印 `ClassNotFoundException`，属既有行为。
+1. **真实 AIMP 抽取未回归**：本次环境未启动 AIMP；已验证命令/CSRF/错误契约与请求字节形状，端到端抽取需在联调环境复跑。
+2. **平台无单元测试**：以构建、启动、授权门冒烟与过滤器状态码验证。
+3. **启动日志噪声**：已禁用的 `database` 扩展仍会打印 `ClassNotFoundException`，属既有行为。
 
 ## 6. 不在 Release-1 范围
 

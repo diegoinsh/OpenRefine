@@ -31,6 +31,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.file.FileSystems;
 import java.util.*;
 
 import static org.mockito.Mockito.mock;
@@ -126,7 +127,7 @@ public class FilesImportingControllerTest {
 
             String testDirPath = tempDir.getPath();
 
-            String localDirectoryPath = "{\"directoryJsonValue\":[{\"directory\":\"@localdirectorypath\"}],\"fileContentColumn\":0}".replace("@localdirectorypath", testDirPath);
+            String localDirectoryPath = "{\"directoryJsonValue\":[{\"directory\":\"@localdirectorypath\"}],\"fileContentColumn\":0}".replace("@localdirectorypath", testDirPath.replace("\\", "\\\\"));
 
             when(request.getQueryString()).thenReturn(
                     "http://127.0.0.1:3333/command/core/importing-controller?controller=files%2Ffiles-importing-controller&jobID=1&subCommand=local-directory-preview");
@@ -151,36 +152,38 @@ public class FilesImportingControllerTest {
 
         if ( fileCellValue.startsWith("birds")) {
             Assert.assertEquals(row.getCellValue(2).toString(), "csv");
-            Assert.assertNotNull(row.getCellValue(7));
-            Assert.assertNotNull(row.getCellValue(8));
+            assertFileDetails(row);
         }
         else if ( fileCellValue.startsWith("movies")) {
             Assert.assertEquals(row.getCellValue(2).toString(), "tsv");
-            Assert.assertNotNull(row.getCellValue(7));
-            Assert.assertNotNull(row.getCellValue(8));
+            assertFileDetails(row);
         }
         else if ( fileCellValue.startsWith("dates")) {
             Assert.assertEquals(row.getCellValue(2).toString(), "xls");
-            Assert.assertNotNull(row.getCellValue(7));
-            Assert.assertNotNull(row.getCellValue(8));
+            assertFileDetails(row);
         }
         else if ( fileCellValue.startsWith("euc-jp")) {
             Assert.assertEquals(row.getCellValue(2).toString(), "html");
-            Assert.assertNotNull(row.getCellValue(7));
-            Assert.assertNotNull(row.getCellValue(8));
+            assertFileDetails(row);
         }
         else if ( fileCellValue.startsWith("archive")) {
             Assert.assertEquals(row.getCellValue(2).toString(), "zip");
-            Assert.assertNotNull(row.getCellValue(7));
-            Assert.assertNotNull(row.getCellValue(8));
+            assertFileDetails(row);
         }
         else if ( fileCellValue.startsWith("persons")) {
             Assert.assertEquals(row.getCellValue(2).toString(), "gz");
-            Assert.assertNotNull(row.getCellValue(7));
-            Assert.assertNotNull(row.getCellValue(8));
+            assertFileDetails(row);
         }
         else {
             Assert.fail("Test failed : unknown record - " + row.toString());
+        }
+    }
+
+    private void assertFileDetails(Row row) {
+        Assert.assertNotNull(row.getCellValue(8));
+        // POSIX 权限只在类 Unix 文件系统上可用，Windows 下该列为空
+        if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
+            Assert.assertNotNull(row.getCellValue(7));
         }
     }
 
