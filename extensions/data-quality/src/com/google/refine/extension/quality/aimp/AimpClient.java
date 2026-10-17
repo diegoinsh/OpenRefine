@@ -21,6 +21,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jiongche.refine.spi.platform.AimpPort;
+import com.jiongche.sdk.aimp.AimpEndpoints;
+import com.jiongche.sdk.aimp.AimpFields;
+import com.jiongche.sdk.aimp.AimpMode;
+import com.jiongche.sdk.aimp.BatchCompareResult;
+import com.jiongche.sdk.aimp.ElementResult;
+import com.jiongche.sdk.aimp.LlmAnalyzeResult;
+import com.jiongche.sdk.aimp.Multipart;
+import com.jiongche.sdk.aimp.OcrCropResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,68 +38,40 @@ import org.slf4j.LoggerFactory;
  * Supports two interface modes:
  * - 7998: Uses unified /api/ocr/extract endpoint
  * - 7999: Uses individual endpoints (/blank, /stain, /edge, etc.)
+ *
+ * <p>线上契约（端点路径 / 字段名 / 模式判定 / multipart 编码 / 结果 DTO）已下沉平台 SDK
+ * （{@code com.jiongche.sdk.aimp}），本类为 OR 侧薄壳：只保留 HTTP 传输与 Jackson 响应解析。</p>
  */
 public class AimpClient implements AimpPort {
 
-    public static final String INTERFACE_MODE_7998 = "7998";
-    public static final String INTERFACE_MODE_7999 = "7999";
+    public static final String INTERFACE_MODE_7998 = AimpMode.M7998;
+    public static final String INTERFACE_MODE_7999 = AimpMode.M7999;
 
     private static final Logger logger = LoggerFactory.getLogger(AimpClient.class);
     private static final ObjectMapper mapper = new ObjectMapper();
     private static final int TIMEOUT_MS = 30000;
 
+    /** 抽取上传的缺省键表（与改造前一致）。 */
+    private static final String DEFAULT_KEY_LIST = "题名,责任者,文号,成文日期";
+
     private String serviceUrl;
     private String interfaceMode;
 
     public AimpClient(String serviceUrl) {
-        this.serviceUrl = normalizeServiceUrl(serviceUrl);
-        this.interfaceMode = detectInterfaceMode(serviceUrl);
+        this.serviceUrl = AimpMode.normalizeServiceUrl(serviceUrl);
+        this.interfaceMode = AimpMode.detect(serviceUrl);
     }
 
     public AimpClient(String serviceUrl, String interfaceMode) {
-        this.serviceUrl = normalizeServiceUrl(serviceUrl);
-        this.interfaceMode = determineInterfaceMode(serviceUrl, interfaceMode);
-    }
-
-    /**
-     * Detect interface mode from service URL
-     */
-    private String detectInterfaceMode(String serviceUrl) {
-        if (serviceUrl == null) {
-            return INTERFACE_MODE_7998;
-        }
-
-        if (serviceUrl.contains(":7999")) {
-            return INTERFACE_MODE_7999;
-        }
-        if (serviceUrl.contains(":7998")) {
-            return INTERFACE_MODE_7998;
-        }
-        if (serviceUrl.contains(":8089")) {
-            return INTERFACE_MODE_7998;
-        }
-
-        return INTERFACE_MODE_7998;
-    }
-
-    /**
-     * Determine interface mode, prioritizing explicit mode setting
-     */
-    private String determineInterfaceMode(String serviceUrl, String explicitMode) {
-        if (explicitMode != null && !explicitMode.isEmpty() && !explicitMode.equals("auto")) {
-            return explicitMode;
-        }
-        return detectInterfaceMode(serviceUrl);
+        this.serviceUrl = AimpMode.normalizeServiceUrl(serviceUrl);
+        this.interfaceMode = AimpMode.determine(serviceUrl, interfaceMode);
     }
 
     /**
      * Get the appropriate health check URL based on interface mode
      */
     private String getHealthCheckUrl() {
-        if (INTERFACE_MODE_7999.equals(interfaceMode)) {
-            return serviceUrl + "/docs";
-        }
-        return serviceUrl + "/health";
+        return serviceUrl + AimpEndpoints.healthEndpoint(INTERFACE_MODE_7999.equals(interfaceMode));
     }
 
     /**
@@ -99,18 +79,9 @@ public class AimpClient implements AimpPort {
      */
     public String getCheckEndpoint(String checkType) {
         if (INTERFACE_MODE_7999.equals(interfaceMode)) {
-            Map<String, String> endpoints = new HashMap<>();
-            endpoints.put("blank", "/blank");
-            endpoints.put("stain", "/stain");
-            endpoints.put("edge", "/edge");
-            endpoints.put("hole", "/hole");
-            endpoints.put("skew", "/rectify");
-            endpoints.put("dpi", "/dpi");
-            endpoints.put("bitdepth", "/bitdepth");
-            endpoints.put("quality", "/jpeg/quality");
-            return serviceUrl + (endpoints.get(checkType) != null ? endpoints.get(checkType) : "/" + checkType);
+            return serviceUrl + AimpEndpoints.checkEndpoint(checkType);
         }
-        return serviceUrl + "/api/ocr/extract";
+        return serviceUrl + AimpEndpoints.OCR_EXTRACT;
     }
 
     /**
@@ -123,7 +94,7 @@ public class AimpClient implements AimpPort {
         try {
             String baseUrl = serviceUrl.endsWith("/") ? serviceUrl.substring(0, serviceUrl.length() - 1) : serviceUrl;
 
-            String[] endpoints = {"/health", "/docs"};
+            String[] endpoints = {AimpEndpoints.HEALTH, AimpEndpoints.DOCS};
             for (String endpoint : endpoints) {
                 String testUrl = baseUrl + endpoint;
                 try {
@@ -184,34 +155,13 @@ public class AimpClient implements AimpPort {
     }
 
     /**
-     * Normalize service URL to extract base URL (scheme://host:port)
-     */
-    private String normalizeServiceUrl(String url) {
-        if (url == null || url.isEmpty()) {
-            return "";
-        }
-        try {
-            URL parsed = new URL(url.replaceAll("/$", ""));
-            StringBuilder baseUrl = new StringBuilder();
-            baseUrl.append(parsed.getProtocol()).append("://").append(parsed.getHost());
-            if (parsed.getPort() != -1 && parsed.getPort() != parsed.getDefaultPort()) {
-                baseUrl.append(":").append(parsed.getPort());
-            }
-            return baseUrl.toString();
-        } catch (Exception e) {
-            logger.warn("Failed to parse service URL: " + url);
-            return url.replaceAll("/$", "");
-        }
-    }
-
-    /**
      * Extract content from a file using OCR
      * Uses multipart form upload to match AIMP service API
      * @param filePath Path to the file
      * @return Map of extracted labels to values
      */
     public Map<String, String> extractContent(String filePath) {
-        return extractContent(filePath, "题名,责任者,文号,成文日期");
+        return extractContent(filePath, DEFAULT_KEY_LIST);
     }
 
     /**
@@ -230,48 +180,23 @@ public class AimpClient implements AimpPort {
                 return result;
             }
 
-            // Prepare multipart request
-            String boundary = "----WebKitFormBoundary" + System.currentTimeMillis();
-            byte[] fileBytes = Files.readAllBytes(file.toPath());
-            String fileName = file.getName();
-
-            // Build multipart body
-            StringBuilder bodyBuilder = new StringBuilder();
-
-            // File part
-            bodyBuilder.append("--").append(boundary).append("\r\n");
-            bodyBuilder.append("Content-Disposition: form-data; name=\"file\"; filename=\"").append(fileName).append("\"\r\n");
-            bodyBuilder.append("Content-Type: application/octet-stream\r\n\r\n");
-
-            byte[] bodyStart = bodyBuilder.toString().getBytes(StandardCharsets.UTF_8);
-
-            // Key list part
-            StringBuilder keyListPart = new StringBuilder();
-            keyListPart.append("\r\n--").append(boundary).append("\r\n");
-            keyListPart.append("Content-Disposition: form-data; name=\"key_list\"\r\n\r\n");
-            keyListPart.append(keyList);
-
-            // Sync part
-            keyListPart.append("\r\n--").append(boundary).append("\r\n");
-            keyListPart.append("Content-Disposition: form-data; name=\"sync\"\r\n\r\n");
-            keyListPart.append("true");
-
-            keyListPart.append("\r\n--").append(boundary).append("--\r\n");
-            byte[] bodyEnd = keyListPart.toString().getBytes(StandardCharsets.UTF_8);
+            // Prepare multipart request（形状：文件件 + key_list + sync，由平台 SDK 构造）
+            Multipart multipart = Multipart.webKitBoundary()
+                    .file(AimpFields.FILE, file.getName(), Files.readAllBytes(file.toPath()))
+                    .field(AimpFields.KEY_LIST, keyList)
+                    .field(AimpFields.SYNC, "true");
 
             // Send request to /extract/upload endpoint
-            URL url = new URL(serviceUrl + "/extract/upload");
+            URL url = new URL(serviceUrl + AimpEndpoints.EXTRACT_UPLOAD);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+            conn.setRequestProperty("Content-Type", multipart.contentType());
             conn.setConnectTimeout(TIMEOUT_MS);
             conn.setReadTimeout(TIMEOUT_MS);
             conn.setDoOutput(true);
 
             try (OutputStream os = conn.getOutputStream()) {
-                os.write(bodyStart);
-                os.write(fileBytes);
-                os.write(bodyEnd);
+                os.write(multipart.bytes());
             }
 
             int responseCode = conn.getResponseCode();
@@ -290,8 +215,8 @@ public class AimpClient implements AimpPort {
                     JsonNode responseJson = mapper.readTree(response.toString());
 
                     // Check for results field (AIMP response format)
-                    if (responseJson.has("results")) {
-                        JsonNode results = responseJson.get("results");
+                    if (responseJson.has(AimpFields.RESULTS)) {
+                        JsonNode results = responseJson.get(AimpFields.RESULTS);
                         if (results.isObject()) {
                             results.fields().forEachRemaining(entry -> {
                                 result.put(entry.getKey(), entry.getValue().asText());
@@ -299,8 +224,8 @@ public class AimpClient implements AimpPort {
                         }
                     }
                     // Fallback: check for extracted_fields
-                    if (result.isEmpty() && responseJson.has("extracted_fields")) {
-                        JsonNode fields = responseJson.get("extracted_fields");
+                    if (result.isEmpty() && responseJson.has(AimpFields.EXTRACTED_FIELDS)) {
+                        JsonNode fields = responseJson.get(AimpFields.EXTRACTED_FIELDS);
                         fields.fields().forEachRemaining(entry -> {
                             result.put(entry.getKey(), entry.getValue().asText());
                         });
@@ -379,43 +304,37 @@ public class AimpClient implements AimpPort {
         result.setTaskId(taskId);
 
         try {
-            // Build multipart request
-            String boundary = "----AimpBoundary" + System.currentTimeMillis();
-            URL url = new URL(serviceUrl + "/extract/archive/batch_compare");
+            // 总是使用 image_data 格式，因为我们有完整的信息（path, dataKey, imageNames, imageCount）
+            // partNumber 可以为 null，Python 端会正确处理
+            logger.info("Using image_data format with full info");
+            logger.info("image_data content: " + mapper.writeValueAsString(imageData));
+
+            // Build multipart request（形状：仅文本字段，由平台 SDK 构造）
+            Multipart multipart = Multipart.aimpBoundary()
+                    .field(AimpFields.TASK_ID, taskId)
+                    .field(AimpFields.EXCEL_DATA, mapper.writeValueAsString(excelData))
+                    .field(AimpFields.IMAGE_DATA, mapper.writeValueAsString(imageData))
+                    .field(AimpFields.ELEMENTS, mapper.writeValueAsString(elements))
+                    .field(AimpFields.CONFIDENCE_THRESHOLD, String.valueOf(confidenceThreshold))
+                    .field(AimpFields.SIMILARITY_THRESHOLD, String.valueOf(similarityThreshold))
+                    .field(AimpFields.ENABLE_STAMP_PROCESSING, "true")
+                    .field(AimpFields.STAMP_CONFIDENCE_THRESHOLD, "0.5")
+                    .field(AimpFields.ENABLE_PREPROCESSING, "true");
+
+            URL url = new URL(serviceUrl + AimpEndpoints.ARCHIVE_BATCH_COMPARE);
 
             logger.info("Calling AIMP batch_compare: " + url.toString());
             logger.info("excel_data count: " + excelData.size() + ", image_data count: " + imageData.size());
 
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+            conn.setRequestProperty("Content-Type", multipart.contentType());
             conn.setConnectTimeout(30000);  // 30 seconds to establish connection
             conn.setReadTimeout(600000);    // 10 minutes read timeout (AIMP may take long time for batch processing)
             conn.setDoOutput(true);
 
             try (OutputStream os = conn.getOutputStream()) {
-                // task_id
-                writeFormField(os, boundary, "task_id", taskId);
-                // excel_data
-                writeFormField(os, boundary, "excel_data", mapper.writeValueAsString(excelData));
-
-                // 总是使用 image_data 格式，因为我们有完整的信息（path, dataKey, imageNames, imageCount）
-                // partNumber 可以为 null，Python 端会正确处理
-                logger.info("Using image_data format with full info");
-                logger.info("image_data content: " + mapper.writeValueAsString(imageData));
-                writeFormField(os, boundary, "image_data", mapper.writeValueAsString(imageData));
-
-                // elements
-                writeFormField(os, boundary, "elements", mapper.writeValueAsString(elements));
-                // thresholds
-                writeFormField(os, boundary, "confidence_threshold", String.valueOf(confidenceThreshold));
-                writeFormField(os, boundary, "similarity_threshold", String.valueOf(similarityThreshold));
-                writeFormField(os, boundary, "enable_stamp_processing", "true");
-                writeFormField(os, boundary, "stamp_confidence_threshold", "0.5");
-                writeFormField(os, boundary, "enable_preprocessing", "true");
-
-                // End boundary
-                os.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+                os.write(multipart.bytes());
             }
 
             int responseCode = conn.getResponseCode();
@@ -433,10 +352,10 @@ public class AimpClient implements AimpPort {
                     logger.debug("AIMP batch_compare response: " + response.toString());
                     JsonNode responseJson = mapper.readTree(response.toString());
 
-                    result.setSuccess(responseJson.has("success") && responseJson.get("success").asBoolean());
+                    result.setSuccess(responseJson.has(AimpFields.SUCCESS) && responseJson.get(AimpFields.SUCCESS).asBoolean());
 
-                    if (responseJson.has("comparison_result")) {
-                        JsonNode compResult = responseJson.get("comparison_result");
+                    if (responseJson.has(AimpFields.COMPARISON_RESULT)) {
+                        JsonNode compResult = responseJson.get(AimpFields.COMPARISON_RESULT);
                         Map<String, Map<String, ElementResult>> comparisonResult = new HashMap<>();
 
                         compResult.fieldNames().forEachRemaining(dataKey -> {
@@ -460,8 +379,8 @@ public class AimpClient implements AimpPort {
                         result.setComparisonResult(comparisonResult);
                     }
 
-                    if (responseJson.has("error")) {
-                        result.setError(responseJson.get("error").asText());
+                    if (responseJson.has(AimpFields.ERROR)) {
+                        result.setError(responseJson.get(AimpFields.ERROR).asText());
                     }
                 }
             } else {
@@ -487,71 +406,6 @@ public class AimpClient implements AimpPort {
         return result;
     }
 
-    private void writeFormField(OutputStream os, String boundary, String name, String value) throws Exception {
-        StringBuilder sb = new StringBuilder();
-        sb.append("--").append(boundary).append("\r\n");
-        sb.append("Content-Disposition: form-data; name=\"").append(name).append("\"\r\n\r\n");
-        sb.append(value).append("\r\n");
-        os.write(sb.toString().getBytes(StandardCharsets.UTF_8));
-    }
-
-    /**
-     * Result of batch compare operation
-     */
-    public static class BatchCompareResult {
-        private boolean success;
-        private String taskId;
-        private Map<String, Map<String, ElementResult>> comparisonResult;
-        private String error;
-
-        public boolean isSuccess() { return success; }
-        public void setSuccess(boolean success) { this.success = success; }
-        public String getTaskId() { return taskId; }
-        public void setTaskId(String taskId) { this.taskId = taskId; }
-        public Map<String, Map<String, ElementResult>> getComparisonResult() { return comparisonResult; }
-        public void setComparisonResult(Map<String, Map<String, ElementResult>> comparisonResult) { this.comparisonResult = comparisonResult; }
-        public String getError() { return error; }
-        public void setError(String error) { this.error = error; }
-    }
-
-    /**
-     * Result for a single element comparison
-     */
-    public static class ElementResult {
-        private boolean hasError;
-        private String excelValue;
-        private String extractedValue;
-        private double similarity;
-        private String suggestion;
-
-        public boolean isHasError() { return hasError; }
-        public void setHasError(boolean hasError) { this.hasError = hasError; }
-        public String getExcelValue() { return excelValue; }
-        public void setExcelValue(String excelValue) { this.excelValue = excelValue; }
-        public String getExtractedValue() { return extractedValue; }
-        public void setExtractedValue(String extractedValue) { this.extractedValue = extractedValue; }
-        public double getSimilarity() { return similarity; }
-        public void setSimilarity(double similarity) { this.similarity = similarity; }
-        public String getSuggestion() { return suggestion; }
-        public void setSuggestion(String suggestion) { this.suggestion = suggestion; }
-    }
-
-    /**
-     * Generic LLM analysis result
-     */
-    public static class LlmAnalyzeResult {
-        private boolean success;
-        private JsonNode result;
-        private String error;
-
-        public boolean isSuccess() { return success; }
-        public void setSuccess(boolean success) { this.success = success; }
-        public JsonNode getResult() { return result; }
-        public void setResult(JsonNode result) { this.result = result; }
-        public String getError() { return error; }
-        public void setError(String error) { this.error = error; }
-    }
-
     /**
      * Generic LLM analysis using prompt
      *
@@ -564,7 +418,7 @@ public class AimpClient implements AimpPort {
         LlmAnalyzeResult result = new LlmAnalyzeResult();
 
         try {
-            String endpoint = serviceUrl + "/api/llm/analyze";
+            String endpoint = serviceUrl + AimpEndpoints.LLM_ANALYZE;
             logger.info("Calling LLM analyze: " + endpoint);
 
             HttpURLConnection conn = (HttpURLConnection) new URL(endpoint).openConnection();
@@ -574,13 +428,12 @@ public class AimpClient implements AimpPort {
             conn.setReadTimeout(120000);
             conn.setDoOutput(true);
 
-            ObjectMapper requestMapper = new ObjectMapper();
-            ObjectNode requestBody = requestMapper.createObjectNode();
-            requestBody.put("prompt", prompt);
+            ObjectNode requestBody = mapper.createObjectNode();
+            requestBody.put(AimpFields.PROMPT, prompt);
             if (context != null && !context.isEmpty()) {
-                requestBody.putPOJO("context", context);
+                requestBody.putPOJO(AimpFields.CONTEXT, context);
             }
-            requestBody.put("response_format", responseFormat != null ? responseFormat : "json");
+            requestBody.put(AimpFields.RESPONSE_FORMAT, responseFormat != null ? responseFormat : "json");
 
             logger.info("LLM analyze request: " + requestBody.toString());
 
@@ -603,14 +456,14 @@ public class AimpClient implements AimpPort {
                     logger.debug("LLM analyze response: " + response.toString());
                     JsonNode responseJson = mapper.readTree(response.toString());
 
-                    result.setSuccess(responseJson.has("success") && responseJson.get("success").asBoolean());
+                    result.setSuccess(responseJson.has(AimpFields.SUCCESS) && responseJson.get(AimpFields.SUCCESS).asBoolean());
 
                     if (responseJson.has("result")) {
-                        result.setResult(responseJson.get("result"));
+                        result.setResultJson(responseJson.get("result").toString());
                     }
 
-                    if (responseJson.has("error")) {
-                        result.setError(responseJson.get("error").asText());
+                    if (responseJson.has(AimpFields.ERROR)) {
+                        result.setError(responseJson.get(AimpFields.ERROR).asText());
                     }
                 }
             } else {
@@ -647,30 +500,24 @@ public class AimpClient implements AimpPort {
         OcrCropResult result = new OcrCropResult();
 
         try {
-            String boundary = "----AimpOcrBoundary" + System.currentTimeMillis();
-            URL url = new URL(serviceUrl + "/ocr");
+            Multipart multipart = Multipart.aimpOcrBoundary()
+                    .file(AimpFields.IMG,
+                            fileName != null && !fileName.isEmpty() ? fileName : "crop.png",
+                            "image/png", imageBytes)
+                    .field(AimpFields.MODE, mode != null && !mode.isEmpty() ? mode : "auto");
+
+            URL url = new URL(serviceUrl + AimpEndpoints.OCR);
             logger.info("Calling AIMP ocr: {}", url.toString());
 
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+            conn.setRequestProperty("Content-Type", multipart.contentType());
             conn.setConnectTimeout(TIMEOUT_MS);
             conn.setReadTimeout(120000);
             conn.setDoOutput(true);
 
             try (OutputStream os = conn.getOutputStream()) {
-                StringBuilder filePart = new StringBuilder();
-                filePart.append("--").append(boundary).append("\r\n");
-                filePart.append("Content-Disposition: form-data; name=\"img\"; filename=\"")
-                        .append(fileName != null && !fileName.isEmpty() ? fileName : "crop.png")
-                        .append("\"\r\n");
-                filePart.append("Content-Type: image/png\r\n\r\n");
-                os.write(filePart.toString().getBytes(StandardCharsets.UTF_8));
-                os.write(imageBytes);
-                os.write("\r\n".getBytes(StandardCharsets.UTF_8));
-
-                writeFormField(os, boundary, "mode", mode != null && !mode.isEmpty() ? mode : "auto");
-                os.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+                os.write(multipart.bytes());
             }
 
             int responseCode = conn.getResponseCode();
@@ -690,12 +537,12 @@ public class AimpClient implements AimpPort {
 
             if (responseCode == 200) {
                 JsonNode json = mapper.readTree(response.toString());
-                result.setSuccess(json.has("success") && json.get("success").asBoolean());
-                result.setText(json.has("text") ? json.get("text").asText() : "");
-                result.setCategory(json.has("category") ? json.get("category").asText() : "");
-                result.setConfidence(json.has("confidence") ? json.get("confidence").asDouble() : 0.0);
-                if (json.has("error")) {
-                    result.setError(json.get("error").asText());
+                result.setSuccess(json.has(AimpFields.SUCCESS) && json.get(AimpFields.SUCCESS).asBoolean());
+                result.setText(json.has(AimpFields.TEXT) ? json.get(AimpFields.TEXT).asText() : "");
+                result.setCategory(json.has(AimpFields.CATEGORY) ? json.get(AimpFields.CATEGORY).asText() : "");
+                result.setConfidence(json.has(AimpFields.CONFIDENCE) ? json.get(AimpFields.CONFIDENCE).asDouble() : 0.0);
+                if (json.has(AimpFields.ERROR)) {
+                    result.setError(json.get(AimpFields.ERROR).asText());
                 }
             } else {
                 logger.warn("AIMP ocr failed: {}, error: {}", responseCode, response);
@@ -709,28 +556,6 @@ public class AimpClient implements AimpPort {
         }
 
         return result;
-    }
-
-    /**
-     * 裁剪区域 OCR 识别结果
-     */
-    public static class OcrCropResult {
-        private boolean success;
-        private String text = "";
-        private String category = "";
-        private double confidence;
-        private String error = "";
-
-        public boolean isSuccess() { return success; }
-        public void setSuccess(boolean success) { this.success = success; }
-        public String getText() { return text; }
-        public void setText(String text) { this.text = text != null ? text : ""; }
-        public String getCategory() { return category; }
-        public void setCategory(String category) { this.category = category != null ? category : ""; }
-        public double getConfidence() { return confidence; }
-        public void setConfidence(double confidence) { this.confidence = confidence; }
-        public String getError() { return error; }
-        public void setError(String error) { this.error = error != null ? error : ""; }
     }
 }
 

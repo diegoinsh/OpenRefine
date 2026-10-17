@@ -6,14 +6,20 @@
  * 上对齐：端点路径、请求/响应字段名、multipart 编码、7998/7999 模式判定
  * —— Y2 起由平台 SDK 以「单一权威常量 + 无依赖 multipart 构造器」提供，两侧共用。
  *
- * <p><b>未纳入</b>的方法：{@code batchCompare} / {@code llmAnalyze} / {@code ocrCrop} 的返回值是
- * 实现类 {@code AimpClient} 的**内嵌结果类**（{@code BatchCompareResult} / {@code LlmAnalyzeResult} /
- * {@code OcrCropResult}），纳入 port 会让接口反向依赖实现类；Y2 下沉 SDK 时再定是否提升为独立 DTO。
+ * <p>{@code batchCompare} / {@code llmAnalyze} / {@code ocrCrop} 的返回值原为实现类
+ * {@code AimpClient} 的**内嵌结果类**；本轮（Y2）已提升为 SDK 独立 DTO
+ * （{@code com.jiongche.sdk.aimp.{BatchCompareResult,LlmAnalyzeResult,OcrCropResult}}），
+ * 故一并纳入本端口，能力面完整。</p>
  */
 
 package com.jiongche.refine.spi.platform;
 
+import java.util.List;
 import java.util.Map;
+
+import com.jiongche.sdk.aimp.BatchCompareResult;
+import com.jiongche.sdk.aimp.LlmAnalyzeResult;
+import com.jiongche.sdk.aimp.OcrCropResult;
 
 /**
  * AIMP（AI 引擎）能力端口。
@@ -34,6 +40,21 @@ public interface AimpPort {
 
     /** 用 OCR 从文件抽取内容，指定逗号分隔的键表。 */
     Map<String, String> extractContent(String filePath, String keyList);
+
+    /** 批次比对：按要素比对 Excel 行数据与图像抽取结果。 */
+    BatchCompareResult batchCompare(
+            String taskId,
+            List<Map<String, Object>> excelData,
+            List<Map<String, Object>> imageData,
+            List<String> elements,
+            double confidenceThreshold,
+            double similarityThreshold);
+
+    /** 通用 LLM 分析（{@code /api/llm/analyze}）。 */
+    LlmAnalyzeResult llmAnalyze(String prompt, Map<String, Object> context, String responseFormat);
+
+    /** 裁剪区域 OCR（{@code /ocr}）：服务端完成版面分类后路由识别流程。 */
+    OcrCropResult ocrCrop(byte[] imageBytes, String fileName, String mode);
 
     /** AIMP 服务基址（已归一化为 {@code scheme://host:port}）。 */
     String getServiceUrl();

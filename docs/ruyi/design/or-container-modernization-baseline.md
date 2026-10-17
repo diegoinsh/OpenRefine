@@ -208,7 +208,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 **J1 · SDK 包名归位（破坏性重命名）**：
 - SDK 包 `com.ruyi.sdk.*` → **`com.jiongche.sdk.*`**（main 18 源 + test 4 源全量）；`sdk/pom.xml` `groupId` `com.ruyi` → **`com.jiongche`**（`artifactId`/`version` 保留 `ruyi-platform-sdk`/`0.1.0`）；javadoc 里的 `com.ruyi.platform.*` 字面引用清理（`DogLicense`/`ProcessDogBridge` 等）。
 - 平台侧同步：`pom.xml` SDK 依赖 `groupId`→`com.jiongche`；三处 import →`com.jiongche.sdk.*`（`HttpAimpClient`/`PythonDogBridge`/`OrDataQualityClient`），残留 0。
-- **判断（请复核）**：约束针对「放到**平台 SPI** 的包」= **SDK**；平台自身 `com.ruyi.platform.*`（含 `com.ruyi.platform.spi.*` 25 文件）**未改名**。
+- **判断（请复核）**：约束针对「放到**平台 SPI** 的包」= **SDK**；平台自身 `com.ruyi.platform.*`（含 `com.ruyi.platform.spi.*` 25 文件）**未改名**。→ **第三轮已复核并执行**：按用户「确认，请完成改名」，平台 `com.ruyi.platform.*` / `com.ruyi.plugin.compliance.*` **一并归位**为 `com.jiongche.*`（见下「第三轮」T3）。
 
 **J2 · SDK 新增两族契约**：
 - `com.jiongche.sdk.data`：`TableSchema`（`columnNames()`/`columnIndex(name)`）、`TableView`（`schema()`/`rowCount()`/`value(row,col)`/`overlayJson(name)`；标量只 primitive/String/null，复合值 JSON 串）、`TableDriver extends TableView`（`setValue`/`putOverlayJson`/`markDirtyAndPersist`；**铁律：写必走宿主变更施加路径**）、`DataSource`（`exists`/`open`/`create`/`persist`）。
@@ -223,7 +223,26 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 
 **门禁 ✔（J1–J3）**：SDK `test` **15/15 全绿**（`MultipartTest`3 / `BridgeLocatorTest`4 / `DogJsonTest`6 / `ModuleCodesContractTest`2）；平台 `compile` BUILD SUCCESS；OR `modules/core` `test` **14/14 全绿**（`OrDataSourceTest`4 + `LicenseGuardTest`10；断言「写后 `project.history` 新增 1 条 past entry」证明写经变更路径），OR `server -am test-compile` SUCCESS。OR `build/.../modules/server` 不存在，实际模块为 `server`（`-pl server -am`）。
 
-**第二轮未覆盖**：① 适配器**注册入 SPI registry**——`RefineModuleContext` 暂无数据源注册入口，本轮以**可直用类**交付 + `OrDataSource` 自注册操作，注册面留待 P2/P3；② P1：`data-quality` 的 `aimp/*` 下沉 SDK（扩 SDK 覆盖 3 份 multipart 形状 + 提升 `BatchCompareResult`/`LlmAnalyzeResult`/`OcrCropResult` 为独立 DTO）。
+**第二轮未覆盖**：① 适配器**注册入 SPI registry**——`RefineModuleContext` 暂无数据源注册入口，本轮以**可直用类**交付 + `OrDataSource` 自注册操作，注册面留待 P2/P3；② P1：`data-quality` 的 `aimp/*` 下沉 SDK（扩 SDK 覆盖 3 份 multipart 形状 + 提升 `BatchCompareResult`/`LlmAnalyzeResult`/`OcrCropResult` 为独立 DTO）。→ **均已于第三轮收口**（见下 T1 / T2）。
+
+#### 要点③-续 · 第三轮（2026-10-17，SPI 注册面收口 + OR 薄壳化 + 平台包归位，**未推送**）
+
+**T1 · 数据源 SPI 注册最终态**（收口第二轮「未覆盖①」）：
+- `RefineModuleContext` 增 `void registerDataSource(String name, DataSource ds)`；`ButterflyModuleContext` 实现之、委托 `com.jiongche.refine.data.DataSourceRegistry`。
+- 新增 `DataSourceRegistry`（`register(name, ds)` / `dataSources()` / `get(name)`）：静态、全局、进程内目录，同 `OperationRegistry`/`ExporterRegistry` 模式，同名以最后一次为准。
+- `RefineServlet` 启动期把 SPi 声明的数据源纳入目录；`OrDataSource` 交付为可注册 / 可直用态；`OrDataSourceTest` 增断言「注册后经 `get(name)` 可取回」。
+
+**T2 · P1：`data-quality` 的 `aimp/*` 下沉 SDK**（收口第二轮「未覆盖②」与第一轮「未覆盖①」）：
+- SDK `com.jiongche.sdk.aimp`：`Multipart` 扩**三形状工厂** `webKitBoundary()`/`aimpBoundary()`/`aimpOcrBoundary()`（前缀 `----WebKitFormBoundary` / `----AimpBoundary` / `----AimpOcrBoundary`）；提升 `BatchCompareResult`/`ElementResult`/`LlmAnalyzeResult`/`OcrCropResult` 为**独立 DTO**（`LlmAnalyzeResult.result` → `String resultJson`，Jackson 解析留在 OR 侧，因 SDK 零第三方依赖）。
+- OR `AimpClient` 三处手写 multipart（抽取上传 / 批次比对 / 裁剪 OCR）**改由 SDK 构造**；端点/字段/模式改用 `AimpEndpoints`/`AimpFields`/`AimpMode`；删除 `normalizeServiceUrl`/`writeFormField` 与 4 个内嵌 DTO。**契约测试证明与旧手写逐字节一致**（`MultipartTest` 三形状断言）。
+- `ContentChecker`/`TypoChecker`/`OcrCropCommand` 引用改 `com.jiongche.sdk.aimp.*` DTO。
+
+**T3 · 平台包名归位（破坏性重命名，用户「确认，请完成改名」）**：
+- 平台内核 `src/main/java/com/{ruyi→jiongche}/platform/**`（含 `spi/` 25 文件、`kernel/`、`web/`）与插件 `.../com/{ruyi→jiongche}/plugin/compliance/**` 目录级 `git mv`；95 个 `.java` 文本 `com.ruyi.platform` / `com.ruyi.plugin.compliance` → `com.jiongche.*`（含 `ShellController` 全限定名、`AuditEntry` javadoc `{@link}`）。
+- 非 Java 引用同步：`pom.xml` `mainClass`、`run.ps1`、`plugin.properties`、`deploy/bridge/dog_read.py` 注释、两份 `docs/*.md` 路径。**保留** Maven `groupId`（`com.ruyi` / `com.ruyi.plugin`）、`artifactId`、`app.yml` group/name、`app.js` `localStorage` key、`run.ps1` `-Druyi.license.dev` 属性名——**均非 Java 包路径**，按「包路径」口径保留。
+- 修插件 `pom.xml` 内核依赖版本 `0.1.0-SNAPSHOT` → `0.1.0`（本地仓库该坐标为旧包名旧 jar，原版本取不到 → 编译失败）。
+
+**门禁 ✔（T1–T3）**：SDK `clean install` **22/22 全绿**（新增 `MultipartTest` 三形状契约 + `AimpResultsTest`）；平台 `clean install -DskipTests` BUILD SUCCESS（shade fat jar）；插件 `clean package -DskipTests` BUILD SUCCESS；OR `modules/core` `install` SUCCESS、`server -am test-compile` SUCCESS、`extensions/data-quality -am clean compile` SUCCESS。**OR `modules/core` `test` 215 项中 4 项失败系既有失败**（`HistoryEntryTests`×3 + `HistoryTests.serializeHistory`，报 `"sheetId": null` JSON 不等），经 `git stash` 对照确认与本轮改动无关。
 
 ---
 
@@ -331,7 +350,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 
 1. **P1 SPI 横向补全**（自有扩展注册面 SPI 化）；
 2. **Phase 3 装载器收敛**（`butterfly | solon | solon-plugin`，按自有节奏）；
-3. **要点③ 平台 SDK 接口层**（Y1–V3 已落地，剩余项见 §6 要点③ 执行记录「本轮未覆盖」）；
+3. **要点③ 平台 SDK 接口层**（Y1–V3 已落地，第三轮 T1/T2/T3 已收口 SDK 下沉与平台包归位；剩余项见 §6 要点③ 执行记录）；
 4. **新目标架构**：OR 作为插件/子模块 + 业务 SPI + AI 能力 SPI + 可选 AI harness。
 
 **新增常态动作**：

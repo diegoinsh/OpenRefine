@@ -8,11 +8,11 @@ import java.util.Map;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.jiongche.sdk.aimp.LlmAnalyzeResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.refine.extension.quality.aimp.AimpClient;
-import com.google.refine.extension.quality.aimp.AimpClient.LlmAnalyzeResult;
 import com.google.refine.extension.quality.model.CheckResult;
 import com.google.refine.extension.quality.model.CheckResult.CheckError;
 import com.google.refine.extension.quality.model.FormatRule;
@@ -292,7 +292,9 @@ public class TypoChecker {
                 return resultMap;
             }
 
-            JsonNode resultNode = analyzeResult.getResult();
+            JsonNode resultNode = analyzeResult.getResultJson() == null
+                    ? null
+                    : ParsingUtilities.mapper.readTree(analyzeResult.getResultJson());
             if (resultNode == null || !resultNode.has("results")) return resultMap;
 
             JsonNode resultsArray = resultNode.get("results");
