@@ -64,6 +64,7 @@
 `model` / `importers` / `exporters` / `operations` / `grel` / `browsing` / `clustering` / `history` / `Process` / `FileProjectManager` / `Workspace`，以及各扩展业务逻辑（`AimpClient`、`FilesExtension` 导入器等）。
 - 仅依赖 jackson / commons / httpclient / poi / jena 等，**不感知 servlet / butterfly**。
 - 唯一例外：3 个注册表方法签名带 `ButterflyModule` 参数（仅为取 `module.getName()` 做命名空间）→ 改成 `String` 即可（`OperationRegistry` / `ImportingManager` / `ReconConfig` 各 1 处）。
+- **P5 校准（P2/P4 后）**：data-quality 与 FilesExtension 的**纯业务内核**已下沉为独立零 OR 依赖模块（`extensions/data-quality-engine`、`extensions/files-engine`），取数/宿主耦合分别经 SDK `TableView` 与 `WorkspacePaths`；OR 侧保留命令面/导入器/管理器等薄壳。原“业务逻辑 0 改动”仅指**容器迁移维度**（Solon 替换不改业务），不排斥本轮与容器正交的 SPI 下沉。
 
 ### 4.2 需适配（机械、可控）
 - **`Command` 基类**：本身 servlet 无关（只用 `HttpServletRequest/Response`）。**若 Solon 走 servlet 适配器，121 个命令类一行不改**；若走非 servlet（smart-http）则需写 request/response 适配层。
@@ -183,10 +184,12 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 #### 要点③ 执行记录（2026-10-17，与 Solon 迁移正交、直做，**未推送**）
 
 > 落法：两侧重复的**平台耦合知识**（AIMP 传输/端点/字段、读狗桥 CLI/JSON/定位、模块词表、OR 命令契约、部署布局）收敛为**无第三方依赖、两侧可引用**的 SDK 单一实现；OR 侧只**声明端口**并**经开关委托**，缺省仍走原实现（保留 legacy 通路与回退锚点）。**接口声明在 OR 侧**（与平台 `com.ruyi.platform.spi.*` 同名/同签名/同语义），**实现下沉到平台/SDK**，**不搬空 OR**。
+>
+> **P5 校准**：上段的「缺省走原实现 / 保留 legacy 通路」是**第一轮**形态；第二轮 J1 起改为**单一实现**（OR 侧原生读狗与 AIMP 客户端实现已删除，`ruyi.platform.sdk` 开关取消），第三轮 T4/T6 进一步把 data-quality / files 的内核下沉为零 OR 依赖引擎。**回退方式 = 开关降级**（`ruyi.license.enforce=off`、`ruyi.data-quality.view=live`）与 git 回退，**不再有双实现通路**。
 
 **分支**：OR worktree `build/or-solon-poc` @ `feat/platform-sdk-decoupling`（base `dcbf8dbc6`）；能力平台 @ `feat/platform-sdk-decoupling`（本地，无远端）。
 
-**SDK 落点**：`ruyi-capability-platform/sdk/`（`com.jiongche:ruyi-platform-sdk:0.1.0`，零第三方依赖、`maven.compiler.release=11`、刻意无 parent；**包顶层 `com.jiongche`**，第二轮已归位，见「要点③-续」）；契约测试 15 项全绿（含模块词表 ↔ `deploy/bridge/dog_read.py` `MODULES` 逐项一致、`Multipart` 与改造前手写**字节级一致**）。
+**SDK 落点**：`ruyi-capability-platform/sdk/`（`com.jiongche:ruyi-platform-sdk:0.1.0`，零第三方依赖、`maven.compiler.release=11`、刻意无 parent；**包顶层 `com.jiongche`**，第二轮已归位，见「要点③-续」）；契约测试**第一轮 15 项**全绿（含模块词表 ↔ `deploy/bridge/dog_read.py` `MODULES` 逐项一致、`Multipart` 与改造前手写**字节级一致**）；后续：第三轮 22 项、T5 后 **30 项**。
 
 | 阶段 | 提交 | 内容 |
 |---|---|---|
@@ -267,6 +270,35 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 - 测试迁移：`AimpLlmClientPieceIntegrityTest`、`ExtractionPageCacheTest`、`CustomElementKeyTest`、`FileNameColumnVisibilityTest` 随类迁入 `files-engine/test/java`；新增 `UnitScannerTest`（扫描/自然序/页号）与 `AimpLlmClientLicenseTest`（直调被拒、探活免门禁）。
 
 **门禁 ✔（T1–T6）**：`extensions/files-engine` `test` **32/32 全绿**；`extensions/FilesExtension` `test` **87 项中 86 通过**，唯一失败 `FilesImportingControllerTest.testLocalDirectoryFileList`（`expected [6] but found [0]`）已在 `f29c1901c` 上以同环境复跑确认**为改造前既有失败**（该测试走的 `FilesImporter`/`importing-controller` 路径本轮未改）；`extensions/files-engine,extensions/FilesExtension,extensions/data-quality -am clean install -DskipTests` **9 模块全绿**；`files-engine` 源码无任何 `import com.google.refine.*`。
+
+**T7 · P5：一致性校准与改动面汇总（收口）**：
+
+**① 最终结构（本轮结束时）**
+
+| 层 | 落点 | 关键内容 |
+|---|---|---|
+| SDK（平台仓 `sdk/`） | `com.jiongche.sdk.*`（零第三方依赖） | `aimp/`（端点/字段/模式/multipart 三形状/DTO）、`data/`（`TableSchema`/`TableView`/`TableDriver`/`DataSource`）、`authz/`（`AuthorizationGate`/`LicenseGate`/`LicenseCapabilities`/`AuthorizationException`）、`dog/`（桥/JSON/定位）、`module/`（词表）、`orcontract/` |
+| OR core | `com.jiongche.refine.data` / `com.google.refine.licensing` | 活对象适配器（`OrTableDriver`/`OrTableSchema`/`OrDataSource`/`OrViews`/`SnapshotTableView`/两个 operation/`OverlayChange`）、`DataSourceRegistry`、`LicenseGuard`（持 SDK `LicenseGate`）、`LicenseModuleMap`（委托 SDK 映射） |
+| OR 扩展·数据质量 | `extensions/data-quality-engine` + `extensions/data-quality` | 引擎 51 源（checker/model/util/aimp/task，全经 `TableView`）；OR 侧仅 overlay 薄壳 + 命令面 |
+| OR 扩展·文件 | `extensions/files-engine` + `extensions/FilesExtension` | 引擎 10 源（9 个下沉类 + `WorkspacePaths`）；OR 侧保留导入管线、命令、管理器、SPI |
+| 平台内核 | `com.jiongche.platform.*` / `com.jiongche.plugin.compliance.*` | 包名归位 + 三处 AIMP/读狗委托 SDK |
+
+**② 提交锚点（均本地，未推送）**
+
+| 仓 | 提交 | 内容 |
+|---|---|---|
+| 平台 | `c042219` → `2d24639` → `c12a5f4` → `35a66c4` → `d19667c` → `4edaa95` → `cc601e0` | SDK 骨架/aimp/dog/module/orcontract → 平台委托 → SDK 包归位 + data/authz → AIMP 契约下沉 → 平台包归位 → `TableView` 默认方法 + `AimpPort` → `LicenseGate`/`LicenseCapabilities` |
+| OR | `4535b4477` → `686e5b860` → `e159be1fb` → `e71212af4` → `6fe195db2` → `ac76af78f` → `f29c1901c` → `462207b08` | OR 端口声明 → 读狗委托 → 适配器薄壳 → 数据源注册面 → `aimp/*` 下沉 → data-quality 内核下沉（T4）→ 授权门（T5）→ files 内核下沉（T6） |
+
+**③ 开关最终态**：`ruyi.license.enforce = off(缺省)/log/block`（唯一授权判定实现，OR 命令面与两个引擎共用）；`ruyi.data-quality.view = live(缺省)/snapshot`；`ruyi.license.bridge|id|cache-seconds`（读狗配置）。`ruyi.platform.sdk` 已取消，**无 legacy 双实现**。
+
+**④ 门禁总表**：SDK `test` 30/30；平台 `clean install -DskipTests` SUCCESS；插件 `clean package -DskipTests` SUCCESS；OR core `test` 17/17（全量 215 中 4 项既有失败）；`data-quality-engine` 2/2、`files-engine` 32/32；`server -am test-compile` SUCCESS；`extensions/files-engine,extensions/FilesExtension,extensions/data-quality -am clean install -DskipTests` 9 模块 SUCCESS。
+
+**⑤ 已知边界（如实保留）**
+- `FilesImportingControllerTest.testLocalDirectoryFileList` 与 `HistoryEntryTests`×3/`HistoryTests.serializeHistory` 为**改造前既有失败**，均已对照复跑确认，不在本轮修复范围。
+- `ExtractionConfigStore` / `ExtractionTaskRegistry` 仍留 OR（仅 `FileProjectManager` 单点耦合，按计划未列入下沉清单）；`FileElementExtractor` 依赖 OR `SheetData` 且无调用方，留原处。
+- OR 侧 `DogReadPort` 保留为宿主/测试注入端口，生产读狗只经 SDK `LicenseGate`。
+- `FilesExtension` 的 `AimpLlmClient` 仅对「实际触网入口」设门；`getTaskStatus` 轮询与探活免门禁（与既有命令映射口径一致）。
 
 ---
 
