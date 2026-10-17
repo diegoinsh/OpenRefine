@@ -16,6 +16,8 @@ import java.io.InputStream;
 import java.util.Properties;
 import java.util.ServiceLoader;
 
+import com.jiongche.refine.kernel.ButterflyModuleView;
+import com.jiongche.refine.kernel.ModuleView;
 import edu.mit.simile.butterfly.ButterflyModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +52,13 @@ public final class SpiBootstrap {
      * @return 传给 SPI 的注册门面（供装载器后续复用）
      */
     public static RefineModuleContext register(ButterflyModule module, String spiClassName) {
+        return register(new ButterflyModuleView(module), spiClassName);
+    }
+
+    /**
+     * 框架无关版本：以 {@link ModuleView} 为门面注册 SPI。
+     */
+    public static RefineModuleContext register(ModuleView module, String spiClassName) {
         RefineModuleContext ctx = new ButterflyModuleContext(module);
         try {
             // 插件形态：该模块的注册已交由 Solon 插件的 Plugin.start 驱动，
@@ -136,9 +145,9 @@ public final class SpiBootstrap {
      * <li>本类（core）自己的类加载器。</li>
      * </ol>
      */
-    private static Class<?> resolveSpiClass(String className, ButterflyModule module) throws ClassNotFoundException {
+    private static Class<?> resolveSpiClass(String className, ModuleView module) throws ClassNotFoundException {
         ClassLoader ctx = Thread.currentThread().getContextClassLoader();
-        ClassLoader moduleCl = module.getClass().getClassLoader();
+        ClassLoader moduleCl = module.getClassLoader();
         ClassLoader coreCl = SpiBootstrap.class.getClassLoader();
 
         ClassNotFoundException last = null;

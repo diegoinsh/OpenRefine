@@ -36,7 +36,10 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import com.jiongche.refine.kernel.ButterflyModuleView;
+import com.jiongche.refine.kernel.ModuleRegistry;
 import com.jiongche.refine.spi.SolonPluginBridge;
+import com.jiongche.refine.web.ModuleRequestDispatcher;
 import edu.mit.simile.butterfly.ButterflyModule;
 import edu.mit.simile.butterfly.ButterflyModuleImpl;
 import org.apache.commons.collections.ExtendedProperties;
@@ -60,6 +63,8 @@ public final class SolonPluginModuleLoader implements RefineModuleLoader {
 
     private RefineServlet _servlet;
     private final Map<String, Entry> _entries = new LinkedHashMap<>();
+    private ModuleRegistry _registry;
+    private ModuleRequestDispatcher _dispatcher;
 
     private SolonPluginModuleLoader() {
     }
@@ -96,7 +101,17 @@ public final class SolonPluginModuleLoader implements RefineModuleLoader {
                 claimed.add(name);
             }
         }
+
+        ModuleRegistry registry = new ModuleRegistry();
+        for (ButterflyModule module : servlet.moduleMap().values()) {
+            registry.register(new ButterflyModuleView(module));
+        }
+        registry.computeOrder();
+        _registry = registry;
+        _dispatcher = new ModuleRequestDispatcher(registry);
+
         logger.info("SolonPluginModuleLoader: claimed={}", claimed);
+        logger.info("Module kernel: registry={} order={}", servlet.moduleMap().keySet(), registry.getOrder());
     }
 
     @Override
@@ -159,8 +174,7 @@ public final class SolonPluginModuleLoader implements RefineModuleLoader {
 
     @Override
     public boolean handle(HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException {
-        // 保留的请求路径接缝：本装载器恒 false（资源仍由 super.service() 经 _mounter 分发）
-        return false;
+        return _dispatcher != null && _dispatcher.handle(request, response);
     }
 
     @Override
@@ -179,6 +193,8 @@ public final class SolonPluginModuleLoader implements RefineModuleLoader {
             }
         }
         _entries.clear();
+        _registry = null;
+        _dispatcher = null;
         SolonPluginBridge.clearOwned();
         // 模块对象自身的销毁由 Butterfly.destroy() 统一完成，此处只驱动插件生命周期并关 CL。
         logger.info("SolonPluginModuleLoader: unloaded {} plugins (classloaders closed)", closed);

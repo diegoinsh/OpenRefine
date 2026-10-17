@@ -11,6 +11,8 @@ import java.io.File;
 import java.net.URL;
 
 import com.jiongche.refine.data.DataSourceRegistry;
+import com.jiongche.refine.kernel.ButterflyModuleView;
+import com.jiongche.refine.kernel.ModuleView;
 import com.jiongche.sdk.data.DataSource;
 import edu.mit.simile.butterfly.ButterflyModule;
 
@@ -42,18 +44,24 @@ import com.google.refine.operations.OperationRegistry;
  */
 public class ButterflyModuleContext implements RefineModuleContext {
 
-    private final ButterflyModule _module;
+    private final ModuleView _module;
 
     public ButterflyModuleContext(ButterflyModule module) {
+        this(new ButterflyModuleView(module));
+    }
+
+    public ButterflyModuleContext(ModuleView module) {
         if (module == null) {
             throw new IllegalArgumentException("module must not be null");
         }
         _module = module;
     }
 
-    /** 底层 ButterflyModule（供装载器复用其 ButterflyModule 版 API，如 MountPoint 相关）。 */
+    /** 底层 ButterflyModule（仅过渡期使用；A7 后移除）。 */
     public ButterflyModule getModule() {
-        return _module;
+        return _module instanceof ButterflyModuleView
+                ? ((ButterflyModuleView) _module).unwrap()
+                : null;
     }
 
     @Override

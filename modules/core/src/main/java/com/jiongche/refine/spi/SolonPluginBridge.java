@@ -12,11 +12,13 @@ package com.jiongche.refine.spi;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.jiongche.refine.kernel.ButterflyModuleView;
+import com.jiongche.refine.kernel.ModuleView;
 import edu.mit.simile.butterfly.ButterflyModule;
 
 public final class SolonPluginBridge {
 
-    private static final ThreadLocal<ButterflyModule> CURRENT = new ThreadLocal<>();
+    private static final ThreadLocal<ModuleView> CURRENT = new ThreadLocal<>();
 
     /**
      * 由「插件形态」装载器接管的模块名集合。这些模块的 SPI 注册**由插件驱动**，
@@ -46,11 +48,19 @@ public final class SolonPluginBridge {
      * 即忽略 JS 侧那次调用，留给 {@link #registerCurrentModule()}。
      */
     public static boolean isDelegated(ButterflyModule module) {
+        return isDelegated(new ButterflyModuleView(module));
+    }
+
+    public static boolean isDelegated(ModuleView module) {
         return module != null && OWNED.contains(module.getName()) && CURRENT.get() != module;
     }
 
     /** 装载器在驱动插件生命周期前置入当前模块。 */
     public static void bindCurrent(ButterflyModule module) {
+        bindCurrent(new ButterflyModuleView(module));
+    }
+
+    public static void bindCurrent(ModuleView module) {
         CURRENT.set(module);
     }
 
@@ -60,7 +70,7 @@ public final class SolonPluginBridge {
     }
 
     /** 当前绑定的 OR 模块；未绑定（非插件装载窗口）时为 {@code null}。 */
-    public static ButterflyModule currentModule() {
+    public static ModuleView currentModule() {
         return CURRENT.get();
     }
 
@@ -70,7 +80,7 @@ public final class SolonPluginBridge {
      * 上下文类加载器（= 该插件自己的 CL）内完成。
      */
     public static void registerCurrentModule() {
-        ButterflyModule module = CURRENT.get();
+        ModuleView module = CURRENT.get();
         if (module == null) {
             throw new IllegalStateException(
                     "SolonPluginBridge.registerCurrentModule() 必须在装载器绑定的模块初始化窗口内调用");

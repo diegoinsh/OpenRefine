@@ -300,6 +300,8 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 - OR 侧 `DogReadPort` 保留为宿主/测试注入端口，生产读狗只经 SDK `LicenseGate`。
 - `FilesExtension` 的 `AimpLlmClient` 仅对「实际触网入口」设门；`getTaskStatus` 轮询与探活免门禁（与既有命令映射口径一致）。
 
+**后续工作包（Release-1 后）**：Release-1 已收口平台耦合点下沉（AIMP 传输、平台 SDK 语义、3A 进程内最小闭环），交付基线固定 `refine.module.loader=butterfly`。§6 目标架构的剩余缺口（装载器自主化与 Butterfly 退场、SSO 下沉、3A 查询进程内化、工程化与合入）已拆为工作包 A–D，见 [or-loader-autonomy-plan.md](or-loader-autonomy-plan.md)。其中 D3 既有失败清理已于 R1-5 完成；2026-10-17 深夜修订补充生态选型结论、A0 依赖倒置/golden 基线与待决策清单（该文档 §12）。
+
 ---
 
 ## 7. 路线图与各阶段工作内容
@@ -462,10 +464,24 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 **既有问题跟踪**：`extensions/data-quality` 的 `tests/conf/tests.xml` 缺失已由另一 agent 处理，本轮未改动。
 
 **R1-4 执行记录（2026-10-17，✔ 已完成）**：
-- **全量回归**：SDK **36/36**；OR core **211/215**（仅既有 4 项 History JSON 失败）；data-quality-engine **3/3**；files-engine **33/33**；FilesExtension **86/87**（仅既有 1 项）；data-quality 扩展 `mvn test` **BUILD SUCCESS**（配置修复后无测试可跑）；OR 10 模块 `install -DskipTests` SUCCESS。
+- **全量回归**：SDK **36/36**；OR core **211/215**（仅既有 4 项 History JSON 失败，已于 R1-5 修复）；data-quality-engine **3/3**；files-engine **33/33**；FilesExtension **86/87**（仅既有 1 项，已于 R1-5 修复）；data-quality 扩展 `mvn test` **BUILD SUCCESS**（配置修复后无测试可跑）；OR 10 模块 `install -DskipTests` SUCCESS。
 - **打包**：`packaging -am package -DskipTests` SUCCESS；产物 `jinrefine-win-with-java-3.11.0.01.zip`（约 276 MB）、`jinrefine-linux-3.11.0.01.tar.gz`（约 234 MB）、`openrefine_with_jre.exe`；确认包内含两个 engine jar 与 `ruyi-platform-sdk-0.1.0.jar`。平台与合规插件打包 SUCCESS。
 - **冒烟**：OR 启动 `loader=butterfly`，`/`、`get-version`、`data-quality/get-config`、`files/extraction-config`、`get-quality-rules`、`wirings.js`、`get-languages` 均 200；批量抽取返回预期 `aimp-unavailable`；平台 `/` 与 `/api/auth/me` 200，日志 `capability-gate=off`。
 - **发布说明**：见 [release-notes-release-1.md](../release-notes-release-1.md)。
+
+**R1-5 既有失败清理（2026-10-17，✔ 已完成）**：
+- **OR core 4 项**（`HistoryEntryTests`×3 + `HistoryTests.serializeHistory`）：根因是多 Sheet 改造给 `HistoryEntry` 新增的 `sheetId` 字段在空值时仍被序列化为 `"sheetId":null`，与测试/既有 JSON 契约不符。修复：字段加 `@JsonInclude(NON_NULL)`，单 Sheet 项目不再输出该键；前端 `history-panel.js` 以 `entry.sheetId || activeSheetId` 读取，语义不变。
+- **FilesExtension 1 项**（`FilesImportingControllerTest.testLocalDirectoryFileList`）：根因有两层，均为 Windows 平台适配问题，非生产缺陷。① 测试把 Windows 路径原样拼进 JSON，`\U` 触发 Jackson `Unrecognized character escape`，预览接口提前返回 error，项目 0 行；修复为 JSON 转义反斜杠。② 预览恢复后，断言仍要求 POSIX 权限列非空，而 Windows 不支持 `PosixFileAttributeView`，该列为空；修复为仅在文件系统支持 `posix` 视图时断言第 7 列，SHA256 列仍始终断言。
+- **门禁结果**：`mvn -pl modules/core test` **215/215**、`mvn -pl extensions/FilesExtension test` **87/87**，全部通过。
+
+**R2-1 自研请求内核（2026-10-17 深夜，✔ 已完成切片）**：
+- **A0 依赖倒置**：新增 `ModuleView` / `ButterflyModuleView`；`ClientSideResourceManager`、`ButterflyModuleContext`、`SpiBootstrap`、`SolonPluginBridge` 改为面向 `ModuleView`，旧 Butterfly 重载保留。
+- **内核骨架**：`ModuleDescriptor` / `ModuleDescriptorReader` / `ModuleGraph` / `ModuleRegistry`；新增 6 项单测。
+- **请求内核**：`ModuleRequestDispatcher` + `WiringsHandler` + `BundleHandler` + `StaticResourceService` + `TemplateService`（Velocity 2.4.1）；`wirings.js` JSON 深度一致，bundle/首页/静态资源 SHA256 一致。
+- **插件化**：records-db / records-assets 补 Solon 插件与描述符；`claimed=[records-db, files, data-quality, records-assets]`。
+- **缺省切换**：`refine.module.loader` 缺省改为 `solon-plugin`；`-Drefine.module.loader=butterfly` 回退实测 200。
+- **门禁**：core **221/221**、FilesExtension **87/87**、files-engine **33/33**、data-quality-engine **3/3**；golden **9/9 PASS**。
+- **未完成**：Butterfly 的模块发现/装配与 `controller.js` Rhino 宿主仍在使用；A7 删除依赖、B1/B2、C1/C2、D1/D2/D4 留待下一阶段。详见 [or-loader-autonomy-plan.md](or-loader-autonomy-plan.md) §14。
 
 *Release-1 候选收口。下一阶段（发布后）再启动 Butterfly 退场、其余扩展插件化与 AI harness。*
 
