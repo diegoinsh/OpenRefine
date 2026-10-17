@@ -2,7 +2,7 @@
 
 > Status: Draft（基线稿，供双侧分支改造遵循）
 > Owner: Ruyi / OpenRefine 定制版（JinRefine 3.11.0.01）
-> Date: 2026-10-16
+> Date: 2026-10-16（**2026-10-17 定位校准修订**：OR 为插件/子模块之一、**已断开上游**、独立演进 —— 见 §1 定位声明 / §5.4 / §7「后续开发截断与边界」）
 > 取证方式：只读代码扫描 + 官方文档/论坛一手材料（未改代码、未打包、未重启服务）
 
 ---
@@ -15,6 +15,8 @@
 3. 给出**路线图与各阶段工作内容**（Phase 0–3，含门禁与回退开关）；
 4. 给出**双侧分支约定**与**待验证清单**。
 
+**定位声明（2026-10-17 校准）**：本项目**不是** OR 的定制发行版，而是**以 OR 为插件/子模块之一**的**业务融合平台**——OR（数据展示 / 清洗 / UI）+ 业务逻辑 SPI + AI 能力 SPI 并列挂载；最上层还可有**可选 AI harness**（人机接口 + 统一流程调度，部分客户不需要）。因与官方 OR（**以 OR 为核心、其余皆其插件**）**目标不一致**，本项目**已断开与上游 OR 的跟随**、独立演进；上游仅作**新功能来源（cherry-pick 抽取）**。详见 §5.4 与 §7「后续开发截断与边界」。
+
 **基线期硬约束**：只评估、不改代码、不打包、不重启服务；不触碰工作区内其他 agent 未提交的改动（如 `extensions/FilesExtension` 相关文件）、不干扰正在运行的回归任务。
 
 ---
@@ -25,7 +27,7 @@
 |---|---|---|
 | 2.1 | 交付方式别扭 | OR 与能力平台**双向耦合**：OR 扩展（`AimpClient`）直连 AIMP HTTP；平台侧又内嵌 `dog_read.exe` / `deploy/bridge`。架构上应是**平台在下、OR 在上**，OR 的功能建立在平台能力之上 |
 | 2.2 | 技术栈割裂 | OR 为 Java + 静态 JS（Butterfly/Jetty/JSP 式老架构）；平台为 Java（Solon 系）。两套技术栈并存，维护与协作成本高 |
-| 2.3 | OR 架构老旧 | 扩展机制基于 **SIMILE Butterfly 的 fork**：模块描述符 `MOD-INF`、命令注册写在 **`controller.js`（JS 脚本）**，JS 与业务逻辑混杂、限制多；HTTP 层为 **Jetty 10 内嵌 + `javax.servlet`**。OR 上游自身也在做现代化，但**结果未出** |
+| 2.3 | OR 架构老旧 | 扩展机制基于 **SIMILE Butterfly 的 fork**：模块描述符 `MOD-INF`、命令注册写在 **`controller.js`（JS 脚本）**，JS 与业务逻辑混杂、限制多；HTTP 层为 **Jetty 10 内嵌 + `javax.servlet`**。OR 上游自身也在做现代化，但**结果未出**（**2026-10-17 起本项目已不再等待上游，见 §5.4**） |
 | 2.4 | 业务耦合 | OR 定位应为**通用数据清洗 + UI 层**（类似 Excel）；各行业业务逻辑不应与 OR 绑定，应通过插件/SPI 挂载。当前 Butterfly 的插件机制无法满足"业务与 OR 彻底解耦" |
 | 2.5 | 国产化风险 | 在国产化环境下，Google 版权代码构成合规负担。**注意：真正的合规抓手是"平台解耦 + 夺回自主演进权"，而非换容器**（Jetty 属 Eclipse、Butterfly 属 MIT/SIMILE，均非 Google；Google 版权的 `com.google.refine.*` 业务内核恰是要保留的部分） |
 | 2.6 | 成本与风险被 AI 压缩 | AI coding 大幅压低"写代码"成本，使改造的技术风险可控；**成本重心从"写代码"转移到"验证"** |
@@ -114,7 +116,7 @@ OR 性能热点全在 `model / importers / operations / grel / OCR 调用`（CPU
 ### 5.2 硬阻断点：javax vs jakarta
 - OR 命令层全部基于 **`javax.servlet` 4.0.1**；**上游 OR 已规划 Servlet 4 → Servlet 6（`javax.*` → `jakarta.*`）**。
 - Solon 侧：**`solon-web-servlet`（javax）/ `solon-web-servlet-jakarta`（jakarta）双轨并存**；`solon-server-jetty(nio, 支持 servlet api)`、`solon-server-jetty-jakarta` 均存在。
-- 结论：**javax 路径存在**，可先保 `javax` 让 121 个命令类零改动；但若长期跟随上游，命令层终将迁 `jakarta`——**两侧需同向选择、避免二次返工**。
+- 结论：**javax 路径存在**，保 `javax` 让 121 个命令类零改动；**本项目已决定不再跟随上游**（§5.4），故 `javax → jakarta` 迁移**不再以上游为准**，按自身演进需要另行决策（当前维持 `javax`）。
 - **P0 首要验证项（比 javax/jakarta 更前置）**：Solon 的 boot 适配器能否**直接挂载现成 `HttpServlet`**，并支持 **init-params / `ServletContext` 属性（tempdir） / webapp 资源根语义**——这决定"薄采用"是否成立。
 
 ### 5.3 Solon 插件机制与 Butterfly 的对应（方向成立，形态非 1:1）
@@ -128,15 +130,15 @@ OR 性能热点全在 `model / importers / operations / grel / OCR 调用`（CPU
 
 **实现形态**（重要）：**不是"Solon 插件 = Butterfly 模块"的 1:1 替换**，而是 **OR 自定义 SPI（上述 ~10 个注册面）+ Solon 的 SPI/DI 承载装载**；前端资源装载与"每模块 web root"Solon 无对等物，**需自建**。
 
-### 5.4 决定性发现：上游 OR 正在做同向改造
-- 官方文档单列 [Architecture **before version 4**]：**4.0 是架构分水岭**。
-- 官方论坛《Scheduling breaking changes》：**Butterfly 升级包含 Jetty 10→12、Servlet 4→6（javax→jakarta）**（PR #6077）。
-- 官方论坛《Extension Operations during Project load》：上游正把 **`controller.js` 最小化**为"简易扩展启动器"，并"通过 `Command` 类对齐初始化流程"——**即上游自己在做"注册 Java 化、去 JS 混杂"**。
-- 官方论坛《Improving the UX of extension install, and Butterfly》：社区已讨论改进扩展机制，**甚至考虑采用 OSGi 或 pf4j**，同时自陈"任务规模令人生畏""前端侧隔离保证很弱""pinned down to an aging stack"。
+### 5.4 上游 OR 走向与我们的关系（2026-10-17 定位校准，**取代原「同向跟随」判断**）
 
-**含义**：上游现代化（jakarta / Jetty 12 / controller.js Java 化 / 甚至换插件框架）与我们的目标**高度同向**。
-→ **不该抢跑硬分叉容器外壳**（会失去 rebase 能力，这是长期成本的**最大一根杠杆**）；应**"跟随上游现代化 + 在其上叠加业务 SPI"**。
-> 证据强度：官方文档 + 官方论坛线程，属公开一手材料但非已定稿设计文档；4.0 最终是否移除 Butterfly **尚无定论**，以官方 4.0 设计文档为准。
+**事实（取证未变，保留）**：官方文档单列 [Architecture **before version 4**]（4.0 是架构分水岭）；论坛《Scheduling breaking changes》称 Butterfly 升级含 Jetty 10→12、Servlet 4→6（javax→jakarta）；上游正把 **`controller.js` 最小化**为"简易扩展启动器"、并"通过 `Command` 类对齐初始化流程"；社区讨论 OSGi/pf4j，同时自陈"任务规模令人生畏""前端侧隔离保证很弱""pinned down to an aging stack"。**且上游 4.0 未发布、无日期**（详见 §10 末「上游 4.0 走向调研结论」）。
+
+**⚠ 定位校准（2026-10-17）**：官方 OR 是**独立产品**——**以 OR 为核心、其余（含 UI）皆为其插件**；而本项目的目标是**把 OR 作为插件/子模块之一**，与业务 SPI、AI 能力 SPI 并列挂在**业务融合平台**之下（最上层还可能有可选的 AI harness）。**两者目标不一致**。本轮改造对 OR 的侵入性已经很大（`RefineSolon` 外壳、自研装载器、core 重打包、前端契约以自有方式承载），**已不具备回馈上游的可能，也不可能持续与上游 rebase**。
+
+→ **决策：本项目直接断开与 OR 上游的跟随关系，独立演进**；OR 上游**仅保留为新功能来源**（对有价值的上游特性做 **cherry-pick 式抽取**接入，**不合并、不 rebase**）。
+→ **原「不该抢跑硬分叉」结论作废**：容器外壳、javax/jakarta、Butterfly 去留、`controller.js` 形态等，一律按**本项目自有节奏与目标**决定，不再以上游时间线为准。
+→ 若某天确需与上游保持一致，正确做法是**另立独立项目**做"OR 插件式适配"，**不在本工程内**。
 
 ### 5.5 解耦的真正杠杆 = SPI 边界，不是框架
 **"换掉 Butterfly"本身不会自动带来解耦**；解耦取决于**是否定义 SPI 并把业务实现搬出 core**——保留 Butterfly 也能做。
@@ -172,6 +174,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 ```
 
 要点：
+0. **定位（2026-10-17 校准）**：OR 是**插件/子模块之一**（非核心）；其上方可有**可选 AI harness**（人机接口 + 统一流程调度，部分客户不需要）。见 §1 定位声明、§5.4。
 1. **OR core 只依赖 SPI 接口**，不直接依赖任何行业业务。
 2. **业务插件**以 Solon 插件形态装载（E-Spi 体外 jar / H-Spi 热插拔），摆脱 JS 注册混杂。
 3. **平台 SDK 接口层**把 `AimpClient`、`dog_read.exe`、SSO、`deploy/bridge` 等双向耦合点收敛为接口——**与 Solon 迁移正交、可先行**。
@@ -202,7 +205,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 
 ## 7. 路线图与各阶段工作内容
 
-> 原则：每阶段**开关可回退**、**不与上游硬分叉**、**先易后难**（SPI 化先于装载器替换）。
+> 原则：每阶段**开关可回退**、**独立演进（已与上游断开，见 §5.4）**、**先易后难**（SPI 化先于装载器替换）。
 
 ### Phase 0 · 只读验证（P0）+ POC
 - **目标**：把关键推测变为证据，验证"薄采用"是否成立。
@@ -210,7 +213,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
   1. Solon 各 adapter 的 **javax/jakarta × Java 版本矩阵**。
   2. `solon-web-servlet` 能否**直接挂载现成 `HttpServlet`** + init-params / `ServletContext` 属性 / webapp 资源根。
   3. **POC：Solon boot 直挂现有 `RefineServlet`**（独立分支/工作区），跑 `main/tests` + `server` 回归 + benchmark 微基准。
-  4. 以 **OR 官方 4.0 设计文档**锁定上游走向。
+  4. ~~以 **OR 官方 4.0 设计文档**锁定上游走向。~~ → **已取消**（2026-10-17：不再等待上游，改为独立演进，见 §5.4）。
 - **门禁**：回归**全绿** + 重负载端点性能偏差 **≤ ±10%**（P50/P95/吞吐/峰值内存）。
 - **产出**：P0 验证结论 + 退化风险专项清单。
 - **回退**：POC 在独立分支，不影响主干。
@@ -250,7 +253,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 
 #### Phase 1 横向补全（records-db / records-assets，2026-10-16）
 
-> 承接上方 P1 试点，把 SPI 化横向扩到**自有业务扩展** `records-db`、`records-assets`（**上游扩展 `pc-axis` / `jython` / `database` 按约定不动**，以降低 rebase 冲突面）。产物直接喂给 Phase 3 收敛扩面。
+> 承接上方 P1 试点，把 SPI 化横向扩到**自有业务扩展** `records-db`、`records-assets`（**上游自带扩展 `pc-axis` / `jython` / `database` 暂不动** —— 原为降低 rebase 冲突面；**2026-10-17 起该理由作废**，处置可自主决定，见 §5.4）。产物直接喂给 Phase 3 收敛扩面。
 
 **① 两个扩展 SPI 化**：新增 `com.jiongche.extension.records.db.RecordsDBExtensionSpi`、`com.jiongche.extension.records.assets.RecordsAssetsExtensionSpi`（包名对应公司实体「炅澈技术」）；各自 `controller.js` 的 `init()` 瘦身为一行 `SpiBootstrap.register(module, null)`（`null` → 从 `MOD-INF/module.properties` 读 `refine.spi`）；两个 `module.properties` 追加 `refine.spi = <SPI 类>`，**保留各自 `module-impl`**（`RecordsDBModuleImpl` 仍经装载器 `cl.loadClass(implClass)` 创建）。
 **② 注册逻辑收敛**：`records-db` 的 overlay 模型 + 导入控制器（原写在 `RecordsDBModuleImpl.init()`）连同命令、客户端资源一并移入 SPI；`RecordsDBModuleImpl.init()` 仅剩 `super.init()` + 单例赋值。
@@ -271,17 +274,18 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 
 **结论：横向补全达成——`records-db` / `records-assets` 注册面改由框架无关 Java SPI 驱动；四个自有扩展（files / data-quality / records-db / records-assets）的注册面在 `butterfly` 与 `solon` 两种装载器下**内容等价**，唯一可观测差异为既有的每进程键序抖动，非装载器引入。**
 
-### Phase 2 · 跟随上游现代化
-- **目标**：对齐上游（jakarta / Jetty 升级 / controller.js Java 化），**保住 rebase 能力**。
-- **工作项**：评估并实施与上游 4.0 同向的改动；保持 `upstream` 远端可合并。
-- **门禁**：与上游 diff 可控；回归全绿。
-- **回退**：逐项对齐，可暂缓单项。
-- **前置调研结论（2026-10-16，详见 §10 末「上游 4.0 走向调研结论」）**：上游容器外壳**尚未定稿**——jakarta 迁移被**显式推迟**（保留 EE8 / Servlet 4.0），Jetty 12 PR **未合并**，4.0 **无发布日期**。
-  → 本阶段**降级为「观察 + 预备」**：不抢跑容器变更，仅跟踪 issue #7706 / PR #7707 / #5664 与里程碑 `V.next`；**原列 "jakarta 迁移" 一项取消**（与上游同向，继续保持 `javax`）。
-  → **Phase 3 不再被 Phase 2 阻塞**（上游选"保留并改造 Butterfly"而非替换，我方 Solon 装载器为并行备选），顺序调整见 §10 末。
+### Phase 2 · ~~跟随上游现代化~~ → **已取消**（2026-10-17 定位校准）
+- ~~**目标**：对齐上游（jakarta / Jetty 升级 / controller.js Java 化），**保住 rebase 能力**。~~
+- **现状态**：本项目**已与上游断开**（§5.4），"跟随上游 / 保住 rebase"前提不再成立 → **本阶段整体取消**。原列工作项去向：
+  - **jakarta 迁移 → 不做**（维持 `javax.servlet`，除非自身演进另有需要）；
+  - **Jetty 12 对齐 → 无关**（Jetty 已在 R2 彻底移除，交付形态为原生 Solon）；
+  - **controller.js Java 化 → 无关**（我方已用自有 `SpiBootstrap` SPI 取代 JS 注册，见 Phase 1）。
+- **替代动作**：OR 上游转为**新功能来源** → 建立 **cherry-pick 抽取清单**，随上游 release 评估值得接入的特性，**逐个抽取适配（不合并）**。
+- **门禁 / 回退**：不适用（本阶段取消，无代码变更）。
+- **历史留存**：原「上游 4.0 走向调研结论」（2026-10-16）保留于 §10 末，**仅作背景，不再作为路线决策依据**。
 
 ### Phase 3 · 装载器选型落地
-- **目标**：在"上游最小化 Butterfly" 与 "Solon E-Spi/H-Spi" 之间**选型并落地**。
+- **目标**：装载器**选型并落地**（Butterfly 保留态 vs Solon E-Spi/H-Spi）——**不再参照上游 Butterfly 走向**（§5.4）。
 - **工作项**：实现模块发现/ClassLoader/资源装载/`/wirings.js` 等价端点；前端契约不变。
 - **开关**：`refine.module.loader = butterfly | solon`（秒级回退）。
 - **门禁**：回归全绿 + 性能偏差 ≤ ±10% + 插件热插拔/隔离验证。
@@ -289,6 +293,26 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
   - **收敛（2026-10-16）**：core 正式重打包进 webapp（`core-3.11.0.01.jar` 含 `com.jiongche.refine.{loader,spi}`），**彻底去掉 dev-shim（core classes 前置）**；`StandaloneModuleLoader` 日志收敛 + `unload()` 补可观测日志（不重复销毁）；接管面由 2 模块扩到 **4 模块**（`files` / `data-quality` / `records-db` / `records-assets`）。详见 §10「P3 收敛执行记录（去 dev-shim + 隔离/卸载 + 四模块扩面，2026-10-16）」。
   - **R2 交付形态（2026-10-16）**：**彻底移除 Jetty**，交付两条真实入口（`jinrefine.exe` 与 `refine.bat`）原生走 Solon——不再保留 Jetty 启动分支。核心解法为 **D1「依赖落位」**（`server/pom.xml` 把 `main` 依赖由 pom+provided 改为普通 jar + `compile`），使 `copy-dependencies(includeScope=runtime)` 自动把 `core`/`grel`/`main` 及其运行时依赖拷入 `server/target/lib`，从而 exe / bat / launch4j / `refine`（Unix）**零改动**即可见（等价于 POC 验证过的扁平 classpath 模型）。上传上限由 Jetty 专属键解耦为容器无关新键 `refine.container.max_post_size`（缺省 64MB）。**缺省装载器仍 `butterfly`**。详见 §10「R2 执行记录（彻底移除 Jetty · 交付形态原生 Solon，2026-10-16）」。
   - **Solon 插件装载形态（D1-a，2026-10-16）**：新增第 3 个装载器 `SolonPluginModuleLoader`（开关值 **`solon-plugin`**）——以 Solon **插件契约**（`org.noear.solon.core.Plugin` + 描述符 `META-INF/solon/*.properties`）作为业务插件的「发现 + 生命周期」契约，借 `org.noear:solon-hotplug` 的 `PluginClassLoader` 提供 **per-plugin 类加载器隔离**（parent = core CL）。试点 `files` / `data-quality` 改造为**插件 jar**（双描述符：插件描述符 + `MOD-INF/module.properties`），其 `controller.js` 的 `SpiBootstrap.register` 行在插件模式**让位**（`SolonPluginBridge.isDelegated` ⇒ 单一注册路径）。`butterfly`（缺省）与 `solon`（P3 自研）路径**均不动**。详见 §10「Solon 插件装载形态执行记录（D1-a：H-Spi 隔离 + 插件契约，2026-10-16）」。
+
+#### 后续开发截断与边界（2026-10-17 重定）
+
+**已截断（不再做）**：
+
+1. **不再跟随 / 等待上游**：原 Phase 2「跟随上游现代化」取消；issue #7706 / PR #7707 / #5664 / milestone `V.next` **不再作为路线触发**；不再"待 4.0 定稿后决定是否对齐容器外壳"。
+2. **不再为 rebase 让步**：不为降低与上游的 rebase 冲突面而回避任何改动；上游自带扩展（`pc-axis` / `jython` / `database` / `wikibase`）的处置**不再受"按约定不动"约束**（视需要自主决定）。
+3. **不迁 jakarta**：维持 `javax.servlet`（除非自身演进另有需要）。
+4. **不承担 upstream 合并 / rebase 义务**：`upstream` 远端**降级为只读来源**。
+
+**继续做（收敛后的范围）**：
+
+1. **P1 SPI 横向补全**（自有扩展注册面 SPI 化）；
+2. **Phase 3 装载器收敛**（`butterfly | solon | solon-plugin`，按自有节奏）；
+3. **要点③ 平台 SDK 接口层**（Y1–V3 已落地，剩余项见 §6 要点③ 执行记录「本轮未覆盖」）；
+4. **新目标架构**：OR 作为插件/子模块 + 业务 SPI + AI 能力 SPI + 可选 AI harness。
+
+**新增常态动作**：
+
+- **上游 cherry-pick 抽取**：随上游 release 定期评估值得接入的新功能，**逐个抽取适配**（不合并），登记到**抽取清单**。
 
 **双侧分支**：OR 侧与能力平台侧各起独立分支；**平台 SDK 解耦（Phase 1 的耦合点抽取）与 Solon 迁移并行推进**。
 
@@ -312,7 +336,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 
 | 侧 | 仓库 | 分支（拟） | 基线原点 | 备注 |
 |---|---|---|---|---|
-| OR | `g:\workshop\RUYI\OpenRefine` | `feat/or-solon-migration` | `feat/batch-title-extraction` HEAD | 远端 `origin`=diegoinsh/OpenRefine，`upstream`=OpenRefine/OpenRefine |
+| OR | `g:\workshop\RUYI\OpenRefine` | `feat/or-solon-migration` | `feat/batch-title-extraction` HEAD | 远端 `origin`=diegoinsh/OpenRefine；`upstream`=OpenRefine/OpenRefine **仅作只读新功能来源（cherry-pick），不再 rebase / 合并**（§5.4） |
 | OR（要点③ SDK 线） | `g:\workshop\RUYI\build\or-solon-poc` | `feat/platform-sdk-decoupling` | `feat/or-solon-migration` HEAD `dcbf8dbc6` | 与 Solon 迁移正交、可先行；未推送 |
 | 能力平台 | `g:\workshop\RUYI\ruyi-capability-platform` | `feat/platform-sdk-decoupling` | `main` HEAD | 无远端（本地） |
 
@@ -320,6 +344,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 - **不碰他人改动**：工作区内其他 agent 未提交的 `extensions/FilesExtension` 等改动**勿动、勿提交、勿回退**。
 - **不干扰回归**：`test/run_batch_extraction.ps1` 等正在运行的回归任务不得被打断。
 - **推送**：统一 GH_TOKEN + https（借 `gh` 凭据），不改 git 配置、token 不出现在命令与输出中。
+- **上游策略（2026-10-17 校准）**：**已断开与上游 OR 的跟随**（§5.4）。`upstream` 远端**只读**，仅用于 **cherry-pick 抽取上游新功能**；**不再做 rebase / 合并**，也不为降低 rebase 冲突面做任何设计妥协。
 
 ---
 
@@ -329,7 +354,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 2. 各 adapter 的 javax/jakarta × Java 版本矩阵（与 OR 侧最终选择的 javax/jakarta 对齐）。
 3. Solon 维护活跃度（近 6–12 个月 commit/issue/release 频率）与 tomcat/undertow 适配成熟度。
 4. 与 commons-fileupload / velocity / Rhino(GraalJS) / `dog_read.exe` native 调用的共存性。
-5. ~~上游 OR 4.0 设计文档中的容器/Butterfly/Jetty 走向（决定 Phase 2/3 顺序）。~~ → **已调研（2026-10-16）**，结论与 Phase 2/3 顺序建议见本节末「上游 4.0 走向调研结论」。
+5. ~~上游 OR 4.0 设计文档中的容器/Butterfly/Jetty 走向（决定 Phase 2/3 顺序）。~~ → **已调研（2026-10-16）**，结论与 Phase 2/3 顺序建议见本节末「上游 4.0 走向调研结论」。**并已于 2026-10-17 定位校准：本项目与上游断开、不再等待，该项不再是待验证项**（见 §5.4）。
 
 ### P0 执行记录（2026-10-16）
 
@@ -422,6 +447,8 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 
 ### 上游 4.0 走向调研结论（Phase 2 前置，2026-10-16）
 
+> ⚠ **2026-10-17 定位更新**：本节结论（含下方"对 Phase 2 / Phase 3 顺序的建议"）**已被 §5.4「上游 OR 走向与我们的关系」取代**。本项目**已与上游断开、独立演进**，**不再等待 4.0 / #7707**，也**不再为保住 rebase 做任何设计妥协**。本节**仅作背景留档**（记录上游当时的形态），**不再作为路线决策依据**。
+
 > 取证来源：OpenRefine 官方文档 + GitHub 一手材料（issue/PR 状态经 GitHub API **逐条核验**）+ 官方论坛线程。
 > 置信度分档：**★ = 有 GitHub API 一手核验**；**☆ = 仅文档/论坛材料（未逐条 API 核验）**。
 
@@ -445,7 +472,7 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 1. **"保 `javax` 让 121 命令类零改动"与上游同向** ✔ —— 上游明确选 EE8 / Servlet 4.0，我方**不需、也不应抢跑 jakarta**；Phase 2 原列 "jakarta 迁移" 一项**取消**。
 2. **Phase 2 剩余实质 = 跟随 `Jetty 10 → 12`**，但该 PR **未合并、4.0 无日期** → 抢跑只会引入 rebase 摩擦，故 Phase 2 **降级为「观察 + 预备」，不阻塞后续**。
 3. **Phase 3（装载器选型）不必等 Phase 2**：上游选"**保留并改造 Butterfly**"而非替换，我方 Solon 装载器是**并行备选**；且上游长期方向正是"**扩展 API 稳定化**"，与我方 SPI 边界**同向**，存在收敛机会。
-4. **建议主线顺序**：**先 Phase 3（Solon 装载器 POC）+ P1 横向补全**，以「**扩展稳定性优先 + 保住 rebase**」为纲，装载器做成**开关回退**（`refine.module.loader = butterfly | solon`）；**待上游 #7707 合并 / 4.0 定稿后，再决定是否对齐容器外壳**。
+4. ~~**建议主线顺序**：**先 Phase 3（Solon 装载器 POC）+ P1 横向补全**，以「**扩展稳定性优先 + 保住 rebase**」为纲，装载器做成**开关回退**（`refine.module.loader = butterfly | solon`）；**待上游 #7707 合并 / 4.0 定稿后，再决定是否对齐容器外壳**。~~ → **已作废（2026-10-17）**：其中"保住 rebase / 待上游 #7707"前提不再成立（§5.4）。**装载器做成开关回退**这一条仍有效（见 §7 Phase 3），其余以 §5.4 / §7 为准。
 5. **复评触发清单**：issue #7706 / PR #7707（Jetty 12）、issue #5664（扩展注册）、milestone `V.next` 有实质进展即重估顺序。
 
 ---
