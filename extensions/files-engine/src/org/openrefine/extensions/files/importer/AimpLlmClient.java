@@ -1,9 +1,6 @@
 package org.openrefine.extensions.files.importer;
 
-import java.io.*;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
+import java.io.File;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -16,6 +13,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.jiongche.sdk.aimp.AimpEndpoints;
+import com.jiongche.sdk.aimp.AimpFields;
+import com.jiongche.sdk.aimp.AimpTransport;
+import com.jiongche.sdk.aimp.HttpAimpTransport;
+import com.jiongche.sdk.aimp.Multipart;
 import com.jiongche.sdk.authz.LicenseGate;
 import com.jiongche.sdk.module.ModuleNames;
 import org.slf4j.Logger;
@@ -39,10 +41,16 @@ public class AimpLlmClient {
      * __api_version__），并更新 docs/release-compat.md。
      */
     private static final Set<Integer> SUPPORTED_API_VERSIONS = Set.of(2);
-    private final String serviceUrl;
+    private final AimpTransport transport;
 
     public AimpLlmClient(String serviceUrl) {
-        this.serviceUrl = serviceUrl != null ? serviceUrl.replaceAll("/+$", "") : "http://127.0.0.1:7998";
+        this(new HttpAimpTransport(serviceUrl != null && !serviceUrl.trim().isEmpty()
+                ? serviceUrl : "http://127.0.0.1:7998"));
+    }
+
+    /** 注入传输实现（HTTP / 进程内）；调用方代码不感知传输形态。 */
+    public AimpLlmClient(AimpTransport transport) {
+        this.transport = transport;
     }
 
     /** 服务可达性与版本配套性的探测结果 */
@@ -90,22 +98,17 @@ public class AimpLlmClient {
     public CompatibilityResult checkCompatibility() {
         CompatibilityResult result = new CompatibilityResult();
         try {
-            HttpURLConnection c = (HttpURLConnection) new URL(serviceUrl + "/health").openConnection();
-            c.setRequestMethod("GET");
-            c.setConnectTimeout(HEALTH_CONNECT_TIMEOUT);
-            c.setReadTimeout(HEALTH_READ_TIMEOUT);
-            int code = c.getResponseCode();
-            if (code != 200) {
-                result.error = "HTTP " + code;
-                c.disconnect();
+            AimpTransport.Response response = transport.execute(
+                    AimpTransport.Request.get(AimpEndpoints.HEALTH, HEALTH_CONNECT_TIMEOUT, HEALTH_READ_TIMEOUT));
+            if (response.status() != 200) {
+                result.error = "HTTP " + response.status();
                 return result;
             }
-            JsonNode json = mapper.readTree(readStream(c.getInputStream()));
-            c.disconnect();
+            JsonNode json = mapper.readTree(response.text());
             result.reachable = true;
-            if (json.hasNonNull("api_version")) result.apiVersion = json.get("api_version").asInt();
-            if (json.hasNonNull("version")) result.appVersion = json.get("version").asText();
-            if (json.hasNonNull("git_sha")) result.gitSha = json.get("git_sha").asText();
+            if (json.hasNonNull(AimpFields.API_VERSION)) result.apiVersion = json.get(AimpFields.API_VERSION).asInt();
+            if (json.hasNonNull(AimpFields.VERSION)) result.appVersion = json.get(AimpFields.VERSION).asText();
+            if (json.hasNonNull(AimpFields.GIT_SHA)) result.gitSha = json.get(AimpFields.GIT_SHA).asText();
             result.compatible = result.apiVersion != null && SUPPORTED_API_VERSIONS.contains(result.apiVersion);
             return result;
         } catch (Exception e) {
@@ -201,30 +204,16 @@ public class AimpLlmClient {
                 result.error = "File not found: " + filePath;
                 return result;
             }
-            String boundary = "----WebKitFormBoundary" + System.currentTimeMillis();
             byte[] fileBytes = Files.readAllBytes(file.toPath());
             String fileName = file.getName();
 
-            StringBuilder bodyBuilder = new StringBuilder();
-            bodyBuilder.append("--").append(boundary).append("\r\n");
-            bodyBuilder.append("Content-Disposition: form-data; name=\"file\"; filename=\"").append(fileName).append("\"\r\n");
-            bodyBuilder.append("Content-Type: application/octet-stream\r\n\r\n");
-
-            byte[] bodyStart = bodyBuilder.toString().getBytes(StandardCharsets.UTF_8);
-
-            StringBuilder parts = new StringBuilder();
-            parts.append("\r\n--").append(boundary).append("\r\n");
-            parts.append("Content-Disposition: form-data; name=\"key_list\"\r\n\r\n");
-            parts.append(keyList);
-
-            parts.append("\r\n--").append(boundary).append("\r\n");
-            parts.append("Content-Disposition: form-data; name=\"sync\"\r\n\r\n");
-            parts.append(sync ? "true" : "false");
+            Multipart multipart = Multipart.webKitBoundary()
+                    .file(AimpFields.FILE, fileName, fileBytes)
+                    .field(AimpFields.KEY_LIST, keyList)
+                    .field(AimpFields.SYNC, sync ? "true" : "false");
 
             if (customElementsJson != null && !customElementsJson.isEmpty()) {
-                parts.append("\r\n--").append(boundary).append("\r\n");
-                parts.append("Content-Disposition: form-data; name=\"custom_elements\"\r\n\r\n");
-                parts.append(customElementsJson);
+                multipart.field(AimpFields.CUSTOM_ELEMENTS, customElementsJson);
             }
 
             boolean hasPrev = previousExtractionsJson != null && !previousExtractionsJson.isEmpty();
@@ -233,71 +222,63 @@ public class AimpLlmClient {
             if (currentPage != null || totalPages != null || disableCache || hasPrev
                     || hasArchiveCategory || hasArchiveSubCategory || forceExtract) {
                 ObjectNode opts = mapper.createObjectNode();
-                if (currentPage != null) opts.put("current_page", currentPage);
-                if (totalPages != null) opts.put("total_pages", totalPages);
-                if (disableCache) opts.put("disable_cache", true);
-                if (forceExtract) opts.put("force_extract", true);
-                if (hasArchiveCategory) opts.put("archive_category", archiveCategory);
-                if (hasArchiveSubCategory) opts.put("archive_sub_category", archiveSubCategory);
+                if (currentPage != null) opts.put(AimpFields.CURRENT_PAGE, currentPage);
+                if (totalPages != null) opts.put(AimpFields.TOTAL_PAGES, totalPages);
+                if (disableCache) opts.put(AimpFields.DISABLE_CACHE, true);
+                if (forceExtract) opts.put(AimpFields.FORCE_EXTRACT, true);
+                if (hasArchiveCategory) opts.put(AimpFields.ARCHIVE_CATEGORY, archiveCategory);
+                if (hasArchiveSubCategory) opts.put(AimpFields.ARCHIVE_SUB_CATEGORY, archiveSubCategory);
                 if (hasPrev) {
                     try {
-                        opts.set("previous_extractions", mapper.readTree(previousExtractionsJson));
+                        opts.set(AimpFields.PREVIOUS_EXTRACTIONS, mapper.readTree(previousExtractionsJson));
                     } catch (Exception e) {
                         logger.warn("previous_extractions 不是合法JSON，已忽略: " + e.getMessage());
                     }
                 }
-                parts.append("\r\n--").append(boundary).append("\r\n");
-                parts.append("Content-Disposition: form-data; name=\"options\"\r\n\r\n");
-                parts.append(opts.toString());
+                multipart.field(AimpFields.OPTIONS, opts.toString());
             }
 
-            parts.append("\r\n--").append(boundary).append("--\r\n");
-            byte[] bodyEnd = parts.toString().getBytes(StandardCharsets.UTF_8);
-
-            HttpURLConnection c = (HttpURLConnection) new URL(serviceUrl + "/extract/upload").openConnection();
-            c.setRequestMethod("POST");
-            c.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
-            c.setConnectTimeout(CONNECT_TIMEOUT);
-            c.setReadTimeout(READ_TIMEOUT);
-            c.setDoOutput(true);
-            try (OutputStream os = c.getOutputStream()) {
-                os.write(bodyStart);
-                os.write(fileBytes);
-                os.write(bodyEnd);
-            }
-            if (c.getResponseCode() == 200) {
-                JsonNode json = mapper.readTree(readStream(c.getInputStream()));
-                JsonNode taskIdNode = json.get("task_id");
+            AimpTransport.Response response = transport.execute(AimpTransport.Request.post(
+                    AimpEndpoints.EXTRACT_UPLOAD, multipart.contentType(), multipart.bytes(),
+                    CONNECT_TIMEOUT, READ_TIMEOUT));
+            if (response.status() == 200) {
+                JsonNode json = mapper.readTree(response.text());
+                JsonNode taskIdNode = json.get(AimpFields.TASK_ID);
                 if (taskIdNode != null && !taskIdNode.isNull()) result.taskId = taskIdNode.asText();
-                if (json.has("results") && json.get("results").isObject()) {
-                    json.get("results").fields().forEachRemaining(e ->
+                if (json.has(AimpFields.RESULTS) && json.get(AimpFields.RESULTS).isObject()) {
+                    json.get(AimpFields.RESULTS).fields().forEachRemaining(e ->
                             result.values.put(e.getKey(), e.getValue().asText()));
                 }
-                JsonNode dataNode = json.get("data");
-                if (dataNode != null && dataNode.has("results") && dataNode.get("results").isObject()) {
-                    dataNode.get("results").fields().forEachRemaining(e -> {
+                JsonNode dataNode = json.get(AimpFields.DATA);
+                if (dataNode != null && dataNode.has(AimpFields.RESULTS)
+                        && dataNode.get(AimpFields.RESULTS).isObject()) {
+                    dataNode.get(AimpFields.RESULTS).fields().forEachRemaining(e -> {
                         JsonNode info = e.getValue();
-                        if (info != null && info.isObject() && info.has("confidence")) {
-                            result.confidences.put(e.getKey(), info.get("confidence").asDouble(0.0));
+                        if (info != null && info.isObject() && info.has(AimpFields.CONFIDENCE)) {
+                            result.confidences.put(e.getKey(),
+                                    info.get(AimpFields.CONFIDENCE).asDouble(0.0));
                         }
                     });
                 }
-                if (result.values.isEmpty() && json.has("extracted_fields") && json.get("extracted_fields").isObject()) {
-                    json.get("extracted_fields").fields().forEachRemaining(e ->
+                if (result.values.isEmpty() && json.has(AimpFields.EXTRACTED_FIELDS)
+                        && json.get(AimpFields.EXTRACTED_FIELDS).isObject()) {
+                    json.get(AimpFields.EXTRACTED_FIELDS).fields().forEachRemaining(e ->
                             result.values.put(e.getKey(), e.getValue().asText()));
                 }
-                JsonNode pc = json.get("page_count");
+                JsonNode pc = json.get(AimpFields.PAGE_COUNT);
                 if (pc != null && pc.isNumber()) result.pageCount = pc.asInt(1);
                 // 同步逐页路径（图片模式）同样要认「本页是否走了 LLM」与页型：
                 // 前者供调用方从「平均每页耗时」的摊分里剔除短路页，后者供 pageMap 标注页型。
                 // 注意取值位置：同步响应把流水线结果整份放在 data 下（data.processing_mode /
                 // data.document_status），只读顶层会恒为空——跳页与页型都拿不到，标记也就画不出来
-                JsonNode payload = json.path("data");
-                if (!payload.isObject() || !payload.has("processing_mode")) {
+                JsonNode payload = json.path(AimpFields.DATA);
+                if (!payload.isObject() || !payload.has(AimpFields.PROCESSING_MODE)) {
                     payload = json;
                 }
-                result.skipped = payload.path("processing_mode").asText("").startsWith("single_page_skipped");
-                result.pageType = payload.path("document_status").path("page_type").asText("");
+                result.skipped = payload.path(AimpFields.PROCESSING_MODE).asText("")
+                        .startsWith("single_page_skipped");
+                result.pageType = payload.path(AimpFields.DOCUMENT_STATUS)
+                        .path(AimpFields.PAGE_TYPE).asText("");
                 // 层3 候选页信号：跳过的页会回带 page_status.full_evidence（全文痕迹）与
                 // page_status.text_length（OCR 文本长度）。两者随页序收集，分件后交给
                 // /extract/piece-integrity 做优先级排序与正则预筛
@@ -307,19 +288,19 @@ public class AimpLlmClient {
                     if (fullEvidence.isArray()) {
                         for (JsonNode n : fullEvidence) result.evidenceHits.add(n.asText(""));
                     }
-                    JsonNode textLength = pageStatus.path("text_length");
+                    JsonNode textLength = pageStatus.path(AimpFields.TEXT_LENGTH);
                     if (textLength.isNumber()) result.textLength = textLength.asInt();
                 }
                 // 版面标题块证据（l0.pt 同一次推理）：分件层判件首用，不额外增加推理开销
-                JsonNode layoutTitles = payload.path("layout_titles");
+                JsonNode layoutTitles = payload.path(AimpFields.LAYOUT_TITLES);
                 if (layoutTitles.isObject()) {
-                    JsonNode trc = layoutTitles.path("title_region_count");
+                    JsonNode trc = layoutTitles.path(AimpFields.TITLE_REGION_COUNT);
                     if (trc.isNumber()) result.titleRegionCount = trc.asInt(0);
                 }
                 result.success = true;
             } else {
-                result.error = "HTTP " + c.getResponseCode();
-                logger.warn("AIMP extract failed: HTTP " + c.getResponseCode());
+                result.error = "HTTP " + response.status();
+                logger.warn("AIMP extract failed: HTTP " + response.status());
             }
         } catch (Exception e) {
             logger.error("Error extracting: " + filePath, e);
@@ -332,26 +313,23 @@ public class AimpLlmClient {
     public TaskStatusResult getTaskStatus(String taskId) {
         TaskStatusResult r = new TaskStatusResult();
         try {
-            HttpURLConnection c = (HttpURLConnection) new URL(serviceUrl + "/task/" + taskId).openConnection();
-            c.setRequestMethod("GET");
-            c.setConnectTimeout(CONNECT_TIMEOUT);
-            c.setReadTimeout(STATUS_READ_TIMEOUT);
-            int code = c.getResponseCode();
+            AimpTransport.Response response = transport.execute(AimpTransport.Request.get(
+                    AimpEndpoints.taskStatus(taskId), CONNECT_TIMEOUT, STATUS_READ_TIMEOUT));
+            int code = response.status();
             if (code == 200) {
-                JsonNode json = mapper.readTree(readStream(c.getInputStream()));
-                r.status = json.path("status").asText("");
-                r.progress = json.path("progress").asDouble(0.0);
-                r.processedPages = json.path("processed_pages").asInt(0);
-                r.totalPages = json.path("total_pages").asInt(0);
-                JsonNode errNode = json.get("error");
+                JsonNode json = mapper.readTree(response.text());
+                r.status = json.path(AimpFields.STATUS).asText("");
+                r.progress = json.path(AimpFields.PROGRESS).asDouble(0.0);
+                r.processedPages = json.path(AimpFields.PROCESSED_PAGES).asInt(0);
+                r.totalPages = json.path(AimpFields.TOTAL_PAGES).asInt(0);
+                JsonNode errNode = json.get(AimpFields.ERROR);
                 if (errNode != null && !errNode.isNull()) r.error = errNode.asText();
-                JsonNode resultNode = json.get("result");
+                JsonNode resultNode = json.get(AimpFields.RESULT);
                 if (resultNode != null && !resultNode.isNull()) r.result = resultNode;
                 r.success = true;
             } else {
                 r.error = "HTTP " + code;
             }
-            c.disconnect();
         } catch (Exception e) {
             logger.warn("Error querying AIMP task status: " + taskId, e);
             r.error = e.getMessage() == null ? e.toString() : e.getMessage();
@@ -416,26 +394,20 @@ public class AimpLlmClient {
 
         LlmAnalyzeResult r = new LlmAnalyzeResult();
         try {
-            HttpURLConnection c = (HttpURLConnection) new URL(serviceUrl + "/api/llm/analyze").openConnection();
-            c.setRequestMethod("POST");
-            c.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-            c.setConnectTimeout(CONNECT_TIMEOUT);
-            c.setReadTimeout(READ_TIMEOUT);
-            c.setDoOutput(true);
             ObjectNode body = mapper.createObjectNode();
-            body.put("prompt", prompt);
-            body.put("response_format", responseFormat != null ? responseFormat : "json");
-            try (OutputStream os = c.getOutputStream()) {
-                os.write(body.toString().getBytes(StandardCharsets.UTF_8));
-            }
-            if (c.getResponseCode() == 200) {
-                JsonNode json = mapper.readTree(readStream(c.getInputStream()));
-                r.success = json.path("success").asBoolean(false);
-                if (json.has("result")) r.result = json.get("result");
-                if (json.has("error")) r.error = json.get("error").asText();
+            body.put(AimpFields.PROMPT, prompt);
+            body.put(AimpFields.RESPONSE_FORMAT, responseFormat != null ? responseFormat : "json");
+            AimpTransport.Response response = transport.execute(AimpTransport.Request.postJson(
+                    AimpEndpoints.LLM_ANALYZE, body.toString(), "application/json; charset=UTF-8",
+                    CONNECT_TIMEOUT, READ_TIMEOUT));
+            if (response.status() == 200) {
+                JsonNode json = mapper.readTree(response.text());
+                r.success = json.path(AimpFields.SUCCESS).asBoolean(false);
+                if (json.has(AimpFields.RESULT)) r.result = json.get(AimpFields.RESULT);
+                if (json.has(AimpFields.ERROR)) r.error = json.get(AimpFields.ERROR).asText();
             } else {
                 r.success = false;
-                r.error = "HTTP " + c.getResponseCode();
+                r.error = "HTTP " + response.status();
             }
         } catch (Exception e) {
             logger.error("Error calling LLM analyze", e);
@@ -473,47 +445,41 @@ public class AimpLlmClient {
         SplitResult r = new SplitResult();
         try {
             ObjectNode body = mapper.createObjectNode();
-            ArrayNode pages = body.putArray("pages");
+            ArrayNode pages = body.putArray(AimpFields.PAGES);
             for (int i = 0; i < pageTitles.size(); i++) {
                 ObjectNode p = pages.addObject();
-                p.put("page", i + 1);
-                p.put("title", pageTitles.get(i) == null ? "" : pageTitles.get(i));
+                p.put(AimpFields.PAGE, i + 1);
+                p.put(AimpFields.TITLE, pageTitles.get(i) == null ? "" : pageTitles.get(i));
                 if (pageParties != null && i < pageParties.size() && pageParties.get(i) != null) {
-                    p.put("party", pageParties.get(i));
+                    p.put(AimpFields.PARTY, pageParties.get(i));
                 }
             }
-            body.put("total_pages", pageTitles.size());
-            if (partyRoles != null && !partyRoles.isEmpty()) body.put("party_roles", partyRoles);
-            if (archiveCategory != null) body.put("archive_category", archiveCategory);
-            if (archiveSubCategory != null) body.put("archive_sub_category", archiveSubCategory);
+            body.put(AimpFields.TOTAL_PAGES, pageTitles.size());
+            if (partyRoles != null && !partyRoles.isEmpty()) body.put(AimpFields.PARTY_ROLES, partyRoles);
+            if (archiveCategory != null) body.put(AimpFields.ARCHIVE_CATEGORY, archiveCategory);
+            if (archiveSubCategory != null) body.put(AimpFields.ARCHIVE_SUB_CATEGORY, archiveSubCategory);
 
-            HttpURLConnection c = (HttpURLConnection) new URL(serviceUrl + "/extract/split-pieces").openConnection();
-            c.setRequestMethod("POST");
-            c.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-            c.setConnectTimeout(CONNECT_TIMEOUT);
-            c.setReadTimeout(READ_TIMEOUT);
-            c.setDoOutput(true);
-            try (OutputStream os = c.getOutputStream()) {
-                os.write(body.toString().getBytes(StandardCharsets.UTF_8));
-            }
-            if (c.getResponseCode() == 200) {
-                JsonNode json = mapper.readTree(readStream(c.getInputStream()));
-                r.success = json.path("success").asBoolean(false);
-                r.reason = json.path("reason").asText("");
-                JsonNode arr = json.path("pieces");
+            AimpTransport.Response response = transport.execute(AimpTransport.Request.postJson(
+                    AimpEndpoints.EXTRACT_SPLIT_PIECES, body.toString(), "application/json; charset=UTF-8",
+                    CONNECT_TIMEOUT, READ_TIMEOUT));
+            if (response.status() == 200) {
+                JsonNode json = mapper.readTree(response.text());
+                r.success = json.path(AimpFields.SUCCESS).asBoolean(false);
+                r.reason = json.path(AimpFields.REASON).asText("");
+                JsonNode arr = json.path(AimpFields.PIECES);
                 if (arr.isArray()) {
                     for (JsonNode n : arr) {
                         TitleSplitter.Piece p = new TitleSplitter.Piece();
-                        p.startPage = n.path("start").asInt(0);
-                        p.endPage = n.path("end").asInt(0);
-                        p.title = n.path("title").asText("");
+                        p.startPage = n.path(AimpFields.START).asInt(0);
+                        p.endPage = n.path(AimpFields.END).asInt(0);
+                        p.title = n.path(AimpFields.TITLE).asText("");
                         r.pieces.add(p);
                     }
                 }
                 if (!r.success) r.pieces.clear();
             } else {
                 r.success = false;
-                r.reason = "HTTP " + c.getResponseCode();
+                r.reason = "HTTP " + response.status();
             }
         } catch (Exception e) {
             logger.error("Error calling volume piece split", e);
@@ -570,20 +536,20 @@ public class AimpLlmClient {
         PieceIntegrityResult r = new PieceIntegrityResult();
         try {
             ObjectNode body = mapper.createObjectNode();
-            ArrayNode pieceArr = body.putArray("pieces");
+            ArrayNode pieceArr = body.putArray(AimpFields.PIECES);
             for (TitleSplitter.Piece p : pieces) {
                 ObjectNode n = pieceArr.addObject();
-                n.put("start", p.startPage);
-                n.put("end", p.endPage);
-                n.put("title", p.title == null ? "" : p.title);
+                n.put(AimpFields.START, p.startPage);
+                n.put(AimpFields.END, p.endPage);
+                n.put(AimpFields.TITLE, p.title == null ? "" : p.title);
             }
-            ArrayNode pageArr = body.putArray("pages");
+            ArrayNode pageArr = body.putArray(AimpFields.PAGES);
             int pageTotal = pageSkipped == null ? 0 : pageSkipped.size();
             for (int i = 0; i < pageTotal; i++) {
                 ObjectNode n = pageArr.addObject();
-                n.put("page", i + 1);
-                n.put("skipped", Boolean.TRUE.equals(pageSkipped.get(i)));
-                ObjectNode els = n.putObject("elements");
+                n.put(AimpFields.PAGE, i + 1);
+                n.put(AimpFields.SKIPPED, Boolean.TRUE.equals(pageSkipped.get(i)));
+                ObjectNode els = n.putObject(AimpFields.ELEMENTS);
                 Map<String, String> vals = pageElements != null && i < pageElements.size()
                         ? pageElements.get(i) : null;
                 if (vals != null) {
@@ -598,55 +564,48 @@ public class AimpLlmClient {
                 List<String> evidence = pageEvidence != null && i < pageEvidence.size()
                         ? pageEvidence.get(i) : null;
                 if (evidence != null && !evidence.isEmpty()) {
-                    ArrayNode evArr = n.putArray("evidence");
+                    ArrayNode evArr = n.putArray(AimpFields.EVIDENCE);
                     for (String h : evidence) {
                         if (h != null && !h.trim().isEmpty()) evArr.add(h);
                     }
                 }
                 if (pageTextLengths != null && i < pageTextLengths.size()
                         && pageTextLengths.get(i) != null) {
-                    n.put("text_length", pageTextLengths.get(i));
+                    n.put(AimpFields.TEXT_LENGTH, pageTextLengths.get(i));
                 }
             }
             if (requiredElements != null && !requiredElements.isEmpty()) {
-                ArrayNode req = body.putArray("required_elements");
+                ArrayNode req = body.putArray(AimpFields.REQUIRED_ELEMENTS);
                 for (String k : requiredElements) req.add(k);
             }
-            if (maxRetryPages != null) body.put("max_retry_pages", maxRetryPages);
+            if (maxRetryPages != null) body.put(AimpFields.MAX_RETRY_PAGES, maxRetryPages);
 
-            HttpURLConnection c = (HttpURLConnection) new URL(serviceUrl + "/extract/piece-integrity").openConnection();
-            c.setRequestMethod("POST");
-            c.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-            c.setConnectTimeout(CONNECT_TIMEOUT);
-            c.setReadTimeout(READ_TIMEOUT);
-            c.setDoOutput(true);
-            try (OutputStream os = c.getOutputStream()) {
-                os.write(body.toString().getBytes(StandardCharsets.UTF_8));
-            }
-            if (c.getResponseCode() == 200) {
-                JsonNode json = mapper.readTree(readStream(c.getInputStream()));
-                r.success = json.path("success").asBoolean(false);
-                r.reason = json.path("reason").asText("");
-                JsonNode summary = json.path("summary");
-                r.suspectPieces = summary.path("suspect_pieces").asInt(0);
-                r.retryPageCount = summary.path("retry_pages").asInt(0);
-                for (JsonNode n : json.path("dashboard")) {
+            AimpTransport.Response response = transport.execute(AimpTransport.Request.postJson(
+                    AimpEndpoints.EXTRACT_PIECE_INTEGRITY, body.toString(), "application/json; charset=UTF-8",
+                    CONNECT_TIMEOUT, READ_TIMEOUT));
+            if (response.status() == 200) {
+                JsonNode json = mapper.readTree(response.text());
+                r.success = json.path(AimpFields.SUCCESS).asBoolean(false);
+                r.reason = json.path(AimpFields.REASON).asText("");
+                JsonNode summary = json.path(AimpFields.SUMMARY);
+                r.suspectPieces = summary.path(AimpFields.SUSPECT_PIECES).asInt(0);
+                r.retryPageCount = summary.path(AimpFields.RETRY_PAGES).asInt(0);
+                for (JsonNode n : json.path(AimpFields.DASHBOARD)) {
                     PieceIntegrityItem item = new PieceIntegrityItem();
-                    item.index = n.path("index").asInt(0);
-                    item.start = n.path("start").asInt(0);
-                    item.end = n.path("end").asInt(0);
-                    item.title = n.path("title").asText("");
-                    item.suspect = n.path("suspect").asBoolean(false);
-                    for (JsonNode m : n.path("missing")) item.missing.add(m.asText(""));
-                    for (JsonNode pg : n.path("retry_pages")) item.retryPages.add(pg.asInt(0));
+                    item.index = n.path(AimpFields.INDEX).asInt(0);
+                    item.start = n.path(AimpFields.START).asInt(0);
+                    item.end = n.path(AimpFields.END).asInt(0);
+                    item.title = n.path(AimpFields.TITLE).asText("");
+                    item.suspect = n.path(AimpFields.SUSPECT).asBoolean(false);
+                    for (JsonNode m : n.path(AimpFields.MISSING)) item.missing.add(m.asText(""));
+                    for (JsonNode pg : n.path(AimpFields.RETRY_PAGES)) item.retryPages.add(pg.asInt(0));
                     r.dashboard.add(item);
                 }
                 if (!r.success) r.dashboard.clear();
             } else {
                 r.success = false;
-                r.reason = "HTTP " + c.getResponseCode();
+                r.reason = "HTTP " + response.status();
             }
-            c.disconnect();
         } catch (Exception e) {
             logger.warn("Error calling piece integrity", e);
             r.success = false;
@@ -673,16 +632,6 @@ public class AimpLlmClient {
         public List<PieceIntegrityItem> dashboard = new ArrayList<>();
         public int suspectPieces;
         public int retryPageCount;
-    }
-
-    private String readStream(InputStream s) throws IOException {
-        if (s == null) return "";
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(s, StandardCharsets.UTF_8))) {
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = br.readLine()) != null) sb.append(line);
-            return sb.toString();
-        }
     }
 
     public static class LlmAnalyzeResult {

@@ -21,16 +21,10 @@
  */
 package com.google.refine.extension.quality.checker;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.math.BigInteger;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -43,6 +37,11 @@ import java.util.Map;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jiongche.sdk.aimp.AimpEndpoints;
+import com.jiongche.sdk.aimp.AimpFields;
+import com.jiongche.sdk.aimp.AimpTransport;
+import com.jiongche.sdk.aimp.HttpAimpTransport;
+import com.jiongche.sdk.aimp.Multipart;
 import com.jiongche.sdk.authz.LicenseGate;
 import com.jiongche.sdk.data.TableView;
 import com.jiongche.sdk.module.ModuleNames;
@@ -81,6 +80,7 @@ public class ImageQualityChecker {
     private final String interfaceMode;
     private final int connectTimeout;
     private final int readTimeout;
+    private final AimpTransport transport;
     private boolean taskCreated = false;
     private com.google.refine.extension.quality.task.QualityCheckTask task;
 
@@ -91,6 +91,7 @@ public class ImageQualityChecker {
         this.interfaceMode = detectInterfaceMode(aimpEndpoint);
         this.connectTimeout = CONNECT_TIMEOUT;
         this.readTimeout = READ_TIMEOUT;
+        this.transport = new HttpAimpTransport(aimpEndpoint);
     }
 
     public ImageQualityChecker(TableView view, QualityRulesConfig rules, String aimpEndpoint, String interfaceMode) {
@@ -100,6 +101,7 @@ public class ImageQualityChecker {
         this.interfaceMode = interfaceMode != null ? interfaceMode : detectInterfaceMode(aimpEndpoint);
         this.connectTimeout = CONNECT_TIMEOUT;
         this.readTimeout = READ_TIMEOUT;
+        this.transport = new HttpAimpTransport(aimpEndpoint);
     }
 
     public void resetTaskCreated() {
@@ -538,7 +540,7 @@ public class ImageQualityChecker {
 
         try {
             String baseUrl = aimpEndpoint.replaceAll("/$", "");
-            String taskUrl = baseUrl + "/alot/chek";
+            String taskUrl = baseUrl + AimpEndpoints.INSPECT_TASK_CREATE;
 
             logger.info("检查任务是否已创建: " + taskCreated);
 
@@ -548,7 +550,7 @@ public class ImageQualityChecker {
                            ", stain: " + params.isCheckStain() + ", hole: " + params.isCheckHole() + 
                            ", dpi: " + params.isCheckDpi() + ", kb: " + params.isCheckKb() + ", 篇幅统计：" + params.isCheckPageSize());
 
-                boolean createSuccess = createInspectTask(taskUrl, params);
+                boolean createSuccess = createInspectTask(AimpEndpoints.INSPECT_TASK_CREATE, params);
                 if (!createSuccess) {
                     logger.warn("创建审核任务失败，返回空结果");
                     return result;
@@ -560,10 +562,10 @@ public class ImageQualityChecker {
             }
 
             logger.info("步骤2: 发送图像检测");
-            String inspectUrl = baseUrl + "/alot/chek/inspect";
+            String inspectUrl = baseUrl + AimpEndpoints.INSPECT;
             logger.info("检测URL: " + inspectUrl);
 
-            String response = sendImageToInspect(inspectUrl, imageFile, params);
+            String response = sendImageToInspect(AimpEndpoints.INSPECT, imageFile, params);
             logger.info("检测响应长度: " + response.length() + " 字符");
             logger.info("检测响应: " + response);
 
@@ -608,7 +610,7 @@ public class ImageQualityChecker {
                lowerMessage.contains("拒绝连接");
     }
 
-    private boolean createInspectTask(String taskUrl, AiCheckParams params) throws IOException {
+    private boolean createInspectTask(String taskPath, AiCheckParams params) throws IOException {
         StringBuilder queryParams = new StringBuilder();
         queryParams.append("flag_blank=").append(params.isCheckBlank());
         queryParams.append("&flag_house_angle=true");
@@ -622,35 +624,23 @@ public class ImageQualityChecker {
         queryParams.append("&flag_page_size=").append(params.isCheckPageSize());
         queryParams.append("&flag_bit_depth=").append(params.isCheckBitDepth());
 
-        String urlString = taskUrl + "?" + queryParams.toString();
-        logger.info("创建任务URL: " + urlString);
+        String pathWithQuery = taskPath + "?" + queryParams;
+        logger.info("创建任务URL: " + pathWithQuery);
 
-        URL url = new URL(urlString);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
-        conn.setConnectTimeout(connectTimeout * 1000);
-        conn.setReadTimeout(readTimeout * 1000);
+        AimpTransport.Response response = transport.execute(AimpTransport.Request.postEmpty(
+                pathWithQuery, connectTimeout * 1000, readTimeout * 1000));
 
-        int responseCode = conn.getResponseCode();
+        int responseCode = response.status();
         logger.info("创建任务响应码: " + responseCode);
 
         if (responseCode == 200 || responseCode == 201 || responseCode == 202) {
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
-                StringBuilder response = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    response.append(line);
-                }
-                logger.info("创建任务响应: " + response.toString());
-                return true;
-            }
+            logger.info("创建任务响应: " + response.text());
+            return true;
         }
-
         return false;
     }
 
-    private String sendImageToInspect(String inspectUrl, File imageFile, AiCheckParams params) throws IOException {
+    private String sendImageToInspect(String inspectPath, File imageFile, AiCheckParams params) throws IOException {
         StringBuilder queryParams = new StringBuilder();
         queryParams.append("set_sensitivity=").append(params.getSensitivity());
         queryParams.append("&set_angle=").append(params.getSkewTolerance());
@@ -665,49 +655,22 @@ public class ImageQualityChecker {
         queryParams.append("&edge_strict=").append(params.getEdgeStrictMode());
         queryParams.append("&tolerance=").append(params.getTolerance());
 
-        String urlString = inspectUrl + "?" + queryParams.toString();
-        logger.info("检测URL: " + urlString);
+        String pathWithQuery = inspectPath + "?" + queryParams;
+        logger.info("检测URL: " + pathWithQuery);
 
         byte[] fileBytes = Files.readAllBytes(imageFile.toPath());
-        String boundary = "----WebKitFormBoundary" + System.currentTimeMillis();
+        Multipart multipart = Multipart.webKitBoundary()
+                .file(AimpFields.IMG, imageFile.getName(), fileBytes);
 
-        StringBuilder bodyBuilder = new StringBuilder();
-        bodyBuilder.append("--").append(boundary).append("\r\n");
-        bodyBuilder.append("Content-Disposition: form-data; name=\"img\"; filename=\"").append(imageFile.getName()).append("\"\r\n");
-        bodyBuilder.append("Content-Type: application/octet-stream\r\n\r\n");
-        byte[] bodyStart = bodyBuilder.toString().getBytes(StandardCharsets.UTF_8);
-        byte[] bodyEnd = ("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8);
+        AimpTransport.Response response = transport.execute(AimpTransport.Request.post(
+                pathWithQuery, multipart.contentType(), multipart.bytes(),
+                connectTimeout * 1000, readTimeout * 1000));
 
-        URL url = new URL(urlString);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
-        conn.setConnectTimeout(connectTimeout * 1000);
-        conn.setReadTimeout(readTimeout * 1000);
-        conn.setDoOutput(true);
-
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(bodyStart);
-            os.write(fileBytes);
-            os.write(bodyEnd);
+        logger.info("检测响应码: " + response.status());
+        if (response.status() != 200) {
+            throw new IOException("HTTP请求失败, 响应码: " + response.status());
         }
-
-        int responseCode = conn.getResponseCode();
-        logger.info("检测响应码: " + responseCode);
-
-        if (responseCode != HttpURLConnection.HTTP_OK) {
-            throw new IOException("HTTP请求失败, 响应码: " + responseCode);
-        }
-
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
-            StringBuilder response = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                response.append(line);
-            }
-            return response.toString();
-        }
+        return response.text();
     }
 
     private void parseInspectResponse(String response, AiCheckResult result) {

@@ -438,6 +438,14 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 - **批量抽取路径冒烟**：POST `files/batch-extraction`（`subCommand=start`）返回预期 `{"code":"error","messageKey":"files-importing/aimp-unavailable","message":"AI服务模块不可用，请检查或重启模块"}`——命令/CSRF/错误契约可用；AIMP 未启动，故未跑真实抽取回归（环境前置，非缺陷）。
 - **已知问题（不阻塞基线，登记待清理）**：① OR core 全量 215 项中 4 项既有失败（`HistoryEntryTests`×3 + `HistoryTests.serializeHistory`，`"sheetId": null` JSON 不等）；② `FilesImportingControllerTest.testLocalDirectoryFileList`（87 项中 1 项，`expected [6] but found [0]`）。两者均已在改造前提交上复现。
 
+**R1-1 执行记录（2026-10-17，✔ 已完成）**：
+- **SDK 传输端口**：新增 `com.jiongche.sdk.aimp.AimpTransport`（`Request`/`Response`，含 `get/post/postEmpty/postJson`）与 `HttpAimpTransport`（仅 JDK `HttpURLConnection`）；端点补齐 `TASK_PREFIX`/`EXTRACT_SPLIT_PIECES`/`EXTRACT_PIECE_INTEGRITY`/`INSPECT_TASK_CREATE`/`INSPECT`，字段补齐抽取选项、分件与件级完整性、健康检查与响应键。
+- **4 处直连全部收口**：`AimpLlmClient`（files-engine）、`AimpClient`、`ImageQualityChecker`（data-quality-engine）、`TestAimpConnectionCommand`（data-quality）均改经 `AimpTransport`；multipart 统一由 `Multipart` 三形状构造。`extensions/**` 下 `HttpURLConnection`/`openConnection()` 检索为 **0**。
+- **可注入接缝**：`AimpLlmClient(AimpTransport)`、`AimpClient(serviceUrl, mode, AimpTransport)` 已预留，R1-3 进程内实现可替换传输而不动调用方。
+- **字节级回归**：SDK `HttpAimpTransportTest` 3 项（JSON/原始 multipart/错误体）；`AimpLlmClientMultipartTest`、`AimpClientMultipartTest` 用“旧拼装算法 + 同一 boundary”重建期望值并做 `byte[]` 全等断言。
+- **门禁**：SDK **33/33**；data-quality-engine **3/3**；files-engine **33/33**；FilesExtension **86/87**（仍仅既有 1 项失败）；10 模块 `install -DskipTests` SUCCESS；启动冒烟 `/`、`get-version`、`data-quality/get-config`、`files/extraction-config` 均 200。
+- **新登记既有问题**：`extensions/data-quality` 的 `mvn test` 因 `tests/conf/tests.xml` 缺失而失败（该模块无测试目录，属既有构建配置问题，建议 R1-4 前清理）。
+
 
 **明确不在 Release-1（发布后再改造）**
 1. **Butterfly 退场与装载器自主化**：缺省切 `solon-plugin`、自建 `wirings.js`/i18n/客户端资源装载、移除 `extends Butterfly` 与 `butterfly-1.2.6` 依赖。
