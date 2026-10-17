@@ -446,6 +446,12 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 - **门禁**：SDK **33/33**；data-quality-engine **3/3**；files-engine **33/33**；FilesExtension **86/87**（仍仅既有 1 项失败）；10 模块 `install -DskipTests` SUCCESS；启动冒烟 `/`、`get-version`、`data-quality/get-config`、`files/extraction-config` 均 200。
 - **新登记既有问题**：`extensions/data-quality` 的 `mvn test` 因 `tests/conf/tests.xml` 缺失而失败（该模块无测试目录，属既有构建配置问题，建议 R1-4 前清理）。
 
+**R1-2 执行记录（2026-10-17，✔ 已完成）**：
+- **模块词表单源**：`PlatformFilter.MODULE_PREFIX` 改用 `ModuleNames.INSPECTION`；`DogLicenseService` 的开发旁路快照改用 `ModuleNames.INSPECTION` + `ModuleCodes.idOf(...)`（仍然是 `inspection`/`3`，行为等价）；`CompliancePlugin.moduleCode()` 改用 `ModuleNames.INSPECTION`。平台生产代码中 `"inspection"` 字面量已归零（仅 SDK 权威表与测试保留）。
+- **命令映射单源**：`OrContract` 补齐 `CREATE/DELETE/RENAME_PROJECT`、`SAVE_CONFIG`、`SAVE_IMAGE_QUALITY_RULE`、`RUN_IMAGE_QUALITY_CHECK`、`SAVE_QUALITY_RESULT` 与 `commandKey(...)`；`PlatformFilter.DEFAULT_OR_ALLOW` 由 `OrContract` 派生，键值与原 11 项白名单逐一对应。SSO 转发仍全部经 `OrContract`（R1-2 前已满足）。
+- **门禁**：SDK **33/33**；平台 `clean package/install` SUCCESS（JDK 17）；`compliance-plugin` shaded 打包 SUCCESS（未内嵌 SDK，运行时由内核 jar 提供 `ModuleNames`）；启动冒烟：`/` 200、`/api/auth/me` 200、`/command/core/get-version` 401、`/api/shell/config` 401（无会话，符合过滤器预期）。
+- **说明**：平台无单元测试；本轮以编译、打包、启动与过滤器状态码验证行为等价。
+
 
 **明确不在 Release-1（发布后再改造）**
 1. **Butterfly 退场与装载器自主化**：缺省切 `solon-plugin`、自建 `wirings.js`/i18n/客户端资源装载、移除 `extends Butterfly` 与 `butterfly-1.2.6` 依赖。
