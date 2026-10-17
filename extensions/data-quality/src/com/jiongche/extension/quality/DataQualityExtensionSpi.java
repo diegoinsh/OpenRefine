@@ -30,8 +30,8 @@ import com.google.refine.extension.quality.commands.SaveQualityResultCommand;
 import com.google.refine.extension.quality.commands.SaveQualityRulesCommand;
 import com.google.refine.extension.quality.commands.TaskControlCommand;
 import com.google.refine.extension.quality.commands.TestAimpConnectionCommand;
-import com.google.refine.extension.quality.model.CheckResult;
-import com.google.refine.extension.quality.model.QualityRulesConfig;
+import com.google.refine.extension.quality.model.OverlayQualityCheckResult;
+import com.google.refine.extension.quality.model.OverlayQualityRulesConfig;
 import com.google.refine.extension.quality.operations.SaveQualityResultOperation;
 import com.google.refine.extension.quality.operations.SaveQualityRulesOperation;
 
@@ -101,8 +101,8 @@ public class DataQualityExtensionSpi implements RefineModuleSpi {
                 "com.google.refine.extension.quality.operations.SaveQualityRulesOperation$QualityRulesChange");
         ctx.cacheClass(SaveQualityRulesOperation.QualityRulesChange.class);
 
-        // 质量规则 overlay 模型
-        ctx.registerOverlayModel("qualityRulesConfig", QualityRulesConfig.class);
+        // 质量规则 overlay 模型（OR 侧薄壳子类：内核实体已下沉，overlay 需 OverlayModel 能力）
+        ctx.registerOverlayModel("qualityRulesConfig", OverlayQualityRulesConfig.class);
 
         // 保存质量结果 operation
         ctx.registerOperation("save-quality-result-operation", SaveQualityResultOperation.class);
@@ -113,8 +113,8 @@ public class DataQualityExtensionSpi implements RefineModuleSpi {
                 "com.google.refine.extension.quality.operations.SaveQualityResultOperation$QualityResultChange");
         ctx.cacheClass(SaveQualityResultOperation.QualityResultChange.class);
 
-        // 质量结果 overlay 模型
-        ctx.registerOverlayModel("qualityCheckResult", CheckResult.class);
+        // 质量结果 overlay 模型（OR 侧薄壳子类）
+        ctx.registerOverlayModel("qualityCheckResult", OverlayQualityCheckResult.class);
     }
 
     private void registerClientSideResources(RefineModuleContext ctx) {

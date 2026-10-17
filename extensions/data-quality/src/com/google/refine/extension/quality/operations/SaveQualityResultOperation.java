@@ -16,6 +16,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import com.google.refine.extension.quality.model.CheckResult;
+import com.google.refine.extension.quality.model.OverlayQualityCheckResult;
 import com.google.refine.history.Change;
 import com.google.refine.history.HistoryEntry;
 import com.google.refine.model.AbstractOperation;
@@ -35,11 +36,11 @@ public class SaveQualityResultOperation extends AbstractOperation {
     public static final String OVERLAY_MODEL_KEY = "qualityCheckResult";
 
     @JsonProperty("result")
-    protected final CheckResult _result;
+    protected final OverlayQualityCheckResult _result;
 
     @JsonCreator
     public SaveQualityResultOperation(
-            @JsonProperty("result") CheckResult result) {
+            @JsonProperty("result") OverlayQualityCheckResult result) {
         this._result = result;
     }
 
@@ -71,17 +72,17 @@ public class SaveQualityResultOperation extends AbstractOperation {
      */
     public static class QualityResultChange implements Change {
 
-        protected final CheckResult _newResult;
-        protected CheckResult _oldResult = null;
+        protected final OverlayQualityCheckResult _newResult;
+        protected OverlayQualityCheckResult _oldResult = null;
 
-        public QualityResultChange(CheckResult newResult) {
+        public QualityResultChange(OverlayQualityCheckResult newResult) {
             this._newResult = newResult;
         }
 
         @Override
         public void apply(Project project) {
             synchronized (project) {
-                _oldResult = (CheckResult) project.overlayModels.get(OVERLAY_MODEL_KEY);
+                _oldResult = (OverlayQualityCheckResult) project.overlayModels.get(OVERLAY_MODEL_KEY);
                 project.overlayModels.put(OVERLAY_MODEL_KEY, _newResult);
             }
         }
@@ -109,8 +110,8 @@ public class SaveQualityResultOperation extends AbstractOperation {
         }
 
         public static Change load(LineNumberReader reader, Pool pool) throws Exception {
-            CheckResult oldResult = null;
-            CheckResult newResult = null;
+            OverlayQualityCheckResult oldResult = null;
+            OverlayQualityCheckResult newResult = null;
 
             String line;
             while ((line = reader.readLine()) != null && !"/ec/".equals(line)) {
@@ -119,9 +120,9 @@ public class SaveQualityResultOperation extends AbstractOperation {
                 String value = line.substring(equal + 1);
 
                 if ("oldResult".equals(field) && value.length() > 0) {
-                    oldResult = ParsingUtilities.mapper.readValue(value, CheckResult.class);
+                    oldResult = ParsingUtilities.mapper.readValue(value, OverlayQualityCheckResult.class);
                 } else if ("newResult".equals(field) && value.length() > 0) {
-                    newResult = ParsingUtilities.mapper.readValue(value, CheckResult.class);
+                    newResult = ParsingUtilities.mapper.readValue(value, OverlayQualityCheckResult.class);
                 }
             }
 

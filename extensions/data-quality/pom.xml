@@ -90,6 +90,20 @@
       <version>${project.version}</version>
       <scope>provided</scope>
     </dependency>
+    <!-- 数据质量内核（checker/model/util/task），经 TableView 取数；compile 以便 copy-dependencies 收进 MOD-INF/lib -->
+    <dependency>
+      <groupId>${project.groupId}</groupId>
+      <artifactId>data-quality-engine</artifactId>
+      <version>${project.version}</version>
+      <scope>compile</scope>
+    </dependency>
+    <!-- SDK 数据源契约（OR 壳的 viewFor / TableDriver 引用）与 AIMP 契约 -->
+    <dependency>
+      <groupId>com.jiongche</groupId>
+      <artifactId>ruyi-platform-sdk</artifactId>
+      <version>0.1.0</version>
+      <scope>provided</scope>
+    </dependency>
     <dependency>
       <groupId>javax.servlet</groupId>
       <artifactId>javax.servlet-api</artifactId>

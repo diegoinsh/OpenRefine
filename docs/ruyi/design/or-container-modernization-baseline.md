@@ -242,7 +242,14 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 - 非 Java 引用同步：`pom.xml` `mainClass`、`run.ps1`、`plugin.properties`、`deploy/bridge/dog_read.py` 注释、两份 `docs/*.md` 路径。**保留** Maven `groupId`（`com.ruyi` / `com.ruyi.plugin`）、`artifactId`、`app.yml` group/name、`app.js` `localStorage` key、`run.ps1` `-Druyi.license.dev` 属性名——**均非 Java 包路径**，按「包路径」口径保留。
 - 修插件 `pom.xml` 内核依赖版本 `0.1.0-SNAPSHOT` → `0.1.0`（本地仓库该坐标为旧包名旧 jar，原版本取不到 → 编译失败）。
 
-**门禁 ✔（T1–T3）**：SDK `clean install` **22/22 全绿**（新增 `MultipartTest` 三形状契约 + `AimpResultsTest`）；平台 `clean install -DskipTests` BUILD SUCCESS（shade fat jar）；插件 `clean package -DskipTests` BUILD SUCCESS；OR `modules/core` `install` SUCCESS、`server -am test-compile` SUCCESS、`extensions/data-quality -am clean compile` SUCCESS。**OR `modules/core` `test` 215 项中 4 项失败系既有失败**（`HistoryEntryTests`×3 + `HistoryTests.serializeHistory`，报 `"sheetId": null` JSON 不等），经 `git stash` 对照确认与本轮改动无关。
+**T4 · P2：`data-quality` 内核下沉（checker/model/util/task）**：
+- 新增 `extensions/data-quality-engine`（`sourceDirectory=src`、`finalName=jinrefine-data-quality-engine`）：**零 OR core 依赖**，依赖仅 SDK `TableView/TableDriver` + Jackson + slf4j + fastutil + pdfbox，全部 `provided`（运行期由 OR server 主 lib 与 SDK 提供）；localizer 插件 `fileMask` 显式指向不存在的束，避免按 artifactId 生成非法类名。51 个源文件下沉（checker 27 / model 16 / util 6 / aimp 1 / task 1）。
+- 取数一律经 `com.jiongche.sdk.data.TableView`：`view.schema().columnNames()` / `view.rowCount()` / `view.value(row, colIndex)` / `view.valueByCellIndex` / `view.id()` / `view.metadataJson("project")`；列索引语义由 `util/TableViews.columnIndexMap(view)` 统一（等价于原 `Column.getCellIndex()`），页区间/资源文件选取由 `ResourceSelector` 承接。
+- `model/*` 去 `OverlayModel` 依赖（DTO 纯净）；OR 侧以子类薄壳承接两个 overlay 槽位：`OverlayQualityRulesConfig` / `OverlayQualityCheckResult`（**不新增任何 JSON 属性 → 落盘序列化逐字节等价**），`DataQualityExtensionSpi` 注册、`SaveQuality*Operation` 与命令面类型同步改子类。
+- OR core 侧新增 `com.jiongche.refine.data.OrViews.viewFor(project)`：开关 `ruyi.data-quality.view = live(缺省) | snapshot`——`live` 返回活对象适配器 `OrTableDriver`（零拷贝、缺省零差异），`snapshot` 返回新增的 `SnapshotTableView`（冻结列名/单元格值/overlay，隔离后台检查线程与活 Project 并发变更）。`OrTableDriver` 的 `toJson` 提为 `public` 并新增 `projectCellValue`，供快照复用同一转换，**不引入第二套取值逻辑**。
+- 命令面（`RunQualityCheckCommand` / `RunImageQualityCheckCommand`）只把 `Project` 换成 `view`，检查逻辑全部由下沉引擎执行，OR 不保留旧实现（**禁双套逻辑**）。
+
+**门禁 ✔（T1–T4）**：SDK `clean install` **22/22 全绿**（新增 `MultipartTest` 三形状契约 + `AimpResultsTest`）；平台 `clean install -DskipTests` BUILD SUCCESS（shade fat jar）；插件 `clean package -DskipTests` BUILD SUCCESS；OR `modules/core` `install` SUCCESS、`server -am test-compile` SUCCESS、`extensions/data-quality -am clean install -DskipTests` **5 模块全绿**（`OpenRefine` / `core` / `extensions` / `data-quality-engine` / `data-quality`）。**OR `modules/core` `test` 215 项中 4 项失败系既有失败**（`HistoryEntryTests`×3 + `HistoryTests.serializeHistory`，报 `"sheetId": null` JSON 不等），经 `git stash` 对照确认与本轮改动无关。
 
 ---
 

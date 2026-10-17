@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <artifactId>data-quality-engine</artifactId>
+  <packaging>jar</packaging>
+
+  <name>JinRefine - Data Quality Engine</name>
+  <description>Data quality checking engine (checker/model/util/task) driven via the platform SDK data-source contract (zero OpenRefine-core dependency)</description>
+  <url>http://openrefine.org/</url>
+  <parent>
+    <groupId>org.openrefine</groupId>
+    <artifactId>extensions</artifactId>
+    <version>3.11.0.01</version>
+  </parent>
+
+  <build>
+    <finalName>jinrefine-data-quality-engine</finalName>
+    <sourceDirectory>src</sourceDirectory>
+    <plugins>
+      <!-- 本模块无 localizer 资源束：显式把 fileMask 限定为一个不存在的名字，
+           避免 localizer 按 artifactId（含 '-'）生成非法类名。详见 data-quality/pom.xml 注释。 -->
+      <plugin>
+        <groupId>org.jvnet.localizer</groupId>
+        <artifactId>localizer-maven-plugin</artifactId>
+        <configuration>
+          <fileMask>no-localizer-bundles.properties</fileMask>
+        </configuration>
+      </plugin>
+      <!-- 覆盖 extensions 父 POM 的 jar 落点（父级缺省写到 module/MOD-INF/lib）。
+           本模块是纯类库 jar，直接落 target，由依赖方 data-quality 的 copy-dependencies 收口。 -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.4.2</version>
+        <configuration>
+          <outputDirectory>${project.build.directory}</outputDirectory>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <dependencies>
+    <!-- 平台 SDK：数据源契约（TableView/TableDriver）+ AIMP 契约。provided：运行期由 OR server 主 lib 提供 -->
+    <dependency>
+      <groupId>com.jiongche</groupId>
+      <artifactId>ruyi-platform-sdk</artifactId>
+      <version>0.1.0</version>
+      <scope>provided</scope>
+    </dependency>
+    <!-- Jackson（DTO 序列化）。provided 的传递依赖不参与编译，故 databind/core/annotations 均显式声明 -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-core</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-annotations</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>${slf4j.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <!-- FastUtil（ImageQualityChecker 的哈希桶） -->
+    <dependency>
+      <groupId>it.unimi.dsi</groupId>
+      <artifactId>fastutil</artifactId>
+      <version>8.5.12</version>
+      <scope>provided</scope>
+    </dependency>
+    <!-- PDFBox（FileImageRenderer 的 PDF 页渲染） -->
+    <dependency>
+      <groupId>org.apache.pdfbox</groupId>
+      <artifactId>pdfbox</artifactId>
+      <version>2.0.31</version>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+
+</project>

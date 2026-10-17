@@ -48,17 +48,32 @@ public class OrTableDriver implements TableDriver {
             return null;
         }
         int cellIndex = project.columnModel.columns.get(col).getCellIndex();
-        Object v = project.rows.get(row).getCellValue(cellIndex);
-        if (v == null || v instanceof String || v instanceof Number || v instanceof Boolean) {
-            return v;
-        }
-        return toJson(v); // 复合值（日期/错误等）统一以 JSON 串返回，下沉模块无需依赖 OR 类型
+        return projectCellValue(project.rows.get(row).getCellValue(cellIndex));
     }
 
     @Override
     public String overlayJson(String name) {
         OverlayModel model = project.overlayModels.get(name);
         return model == null ? null : toJson(model);
+    }
+
+    @Override
+    public String id() {
+        return String.valueOf(project.id);
+    }
+
+    @Override
+    public String metadataJson(String key) {
+        Serializable value = project.getMetadata().getCustomMetadata(key);
+        return value == null ? null : toJson(value);
+    }
+
+    @Override
+    public Object valueByCellIndex(int row, int cellIndex) {
+        if (row < 0 || row >= project.rows.size() || cellIndex < 0) {
+            return null;
+        }
+        return projectCellValue(project.rows.get(row).getCellValue(cellIndex));
     }
 
     @Override
@@ -96,7 +111,19 @@ public class OrTableDriver implements TableDriver {
         }
     }
 
-    private static String toJson(Object value) {
+    /**
+     * 单元格值的 SDK 投影：primitive / {@link String} 原样返回；复合值（日期/错误等）统一以
+     * JSON 串返回，使下沉模块无需依赖 OR 类型。{@link SnapshotTableView} 复用本投影以保证与其一致。
+     */
+    public static Object projectCellValue(Object v) {
+        if (v == null || v instanceof String || v instanceof Number || v instanceof Boolean) {
+            return v;
+        }
+        return toJson(v);
+    }
+
+    /** 任意 OR 复合值 → JSON 串；序列化失败返回 {@code null}。 */
+    public static String toJson(Object value) {
         try {
             return ParsingUtilities.mapper.writeValueAsString(value);
         } catch (JsonProcessingException e) {
