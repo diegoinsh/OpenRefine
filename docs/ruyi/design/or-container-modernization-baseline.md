@@ -415,6 +415,38 @@ Solon 的增益是"**装载器纯 Java、可 DI、可热插拔、可单测**"，
 
 **双侧分支**：OR 侧与能力平台侧各起独立分支；**平台 SDK 解耦（Phase 1 的耦合点抽取）与 Solon 迁移并行推进**。
 
+#### Release-1 范围与优先级（2026-10-17 拍板）
+
+> **原则：先交付、后改造。** 装载器/Butterfly 退场工作面大，**不纳入第一个可交付版本**；Release-1 只做「B 包（SDK 覆盖收口）+ C 包中的 3A 进程内接入」，并先冻结一个可回退的交付基线。
+
+**纳入 Release-1（按开工顺序）**
+
+| 编号 | 工作 | 来源 | 验收口径 |
+|---|---|---|---|
+| **R1-0** | **可交付基线冻结**：固定 `refine.module.loader=butterfly`，全量构建 + 打包 + 冒烟；登记两处既有测试失败为已知问题；形成本地发布锚点 | 工程化 | `install/package` 成功；启动、`/command`、两个扩展命令、批量抽取冒烟通过；已知问题清单入库 |
+| **R1-1** | **AIMP 传输收口**：4 处直连（`AimpLlmClient` / `AimpClient` / `ImageQualityChecker` / `TestAimpConnectionCommand`）统一经 SDK 传输端口；端点、字段、multipart 全部走 SDK 常量/工厂 | B 包 | 请求**字节级等价**（固定 boundary 断言）；现有单测全绿；新增传输契约测试；缺省行为不变 |
+| **R1-2** | **平台侧采用 SDK 语义**：去掉 `"inspection"` 等硬编码，改用 `ModuleCodes`/`LicenseCapabilities`/`LicenseGate`；SSO 转发契约保持 `OrContract` 单一来源 | B 包 | 平台编译/测试绿；授权与命令映射行为等价 |
+| **R1-3** | **3A 进程内接入（最小闭环）**：定义进程内能力调用端口，先落「授权/合规查询」的进程内实现；HTTP 反代保留为 `off` 回退 | C 包（3A） | `off`＝现状；`on` 时进程内调用与 HTTP 等价；授权门仍在能力实现入口、不可绕过 |
+| **R1-4** | **发布候选验证**：完整回归（OR core / 两个 engine / FilesExtension）+ 打包冒烟 + 发布说明 | 工程化 | 门禁记录与已知问题清单一致；产物可交付 |
+
+**R1-0 执行记录（2026-10-17，✔ 已完成）**：
+- **环境前置**：`JAVA_HOME` 必须指向 **JDK 11**（根 POM 的 `impsort-maven-plugin` 等要求 class 55；缺省 JDK 8 会在根模块直接失败）。
+- **构建**：`mvn clean install -DskipTests -pl server,extensions/data-quality,extensions/FilesExtension -am` → **10 模块 SUCCESS**（root/core/grel/main/server/extensions/data-quality-engine/data-quality/files-engine/FilesExtension）。首次 `clean` 因 `data-quality-engine/target` 被瞬时占用失败，重试后通过（非代码问题）。
+- **打包**：`mvn -pl packaging -am package -DskipTests` → SUCCESS；产物 `packaging/target/openrefine_with_jre.exe`、`jinrefine-win-with-java-3.11.0.01.zip`、`jinrefine-linux-3.11.0.01.tar.gz`；staging `OpenRefine.app/Contents/Resources/webapp/extensions/{FilesExtension,data-quality}/module/MOD-INF/lib` 内含 `files-engine-3.11.0.01.jar` / `data-quality-engine-3.11.0.01.jar`。
+- **单测**：SDK **30/30**；OR core 定向 **17/17**（`LicenseGuardTest` + `OrDataSourceTest`）；`data-quality-engine` **2/2**；`files-engine` **32/32**；`FilesExtension` **87 项 86 通过**；平台根 `mvn test` BUILD SUCCESS（无测试）。
+- **启动冒烟**（`server/target/*-server.jar` + `server/target/lib/*`，`-Drefine.port=3533`，临时 data dir）：`Module loader: butterfly`；SPI 注册 files / data-quality / records-db / records-assets；GET `/`、`/command/core/get-version`、`/command/data-quality/get-config`、`/command/files/extraction-config`、`/command/data-quality/get-quality-rules`、`/wirings.js` 全部 **200**。
+- **批量抽取路径冒烟**：POST `files/batch-extraction`（`subCommand=start`）返回预期 `{"code":"error","messageKey":"files-importing/aimp-unavailable","message":"AI服务模块不可用，请检查或重启模块"}`——命令/CSRF/错误契约可用；AIMP 未启动，故未跑真实抽取回归（环境前置，非缺陷）。
+- **已知问题（不阻塞基线，登记待清理）**：① OR core 全量 215 项中 4 项既有失败（`HistoryEntryTests`×3 + `HistoryTests.serializeHistory`，`"sheetId": null` JSON 不等）；② `FilesImportingControllerTest.testLocalDirectoryFileList`（87 项中 1 项，`expected [6] but found [0]`）。两者均已在改造前提交上复现。
+
+
+**明确不在 Release-1（发布后再改造）**
+1. **Butterfly 退场与装载器自主化**：缺省切 `solon-plugin`、自建 `wirings.js`/i18n/客户端资源装载、移除 `extends Butterfly` 与 `butterfly-1.2.6` 依赖。
+2. **其余扩展插件化**：`records-db`/`records-assets` 的 Solon 描述符、`jython`/`wikibase`/`pc-axis` 的 SPI 化（`database` 已禁用）。
+3. **AI harness**：仅前瞻性规划，不进入 JinRefine 首个发布版本。
+4. **`import-from-local-dir` 前端 Java 化**、`BatchExtractionManager`/`ExtractionTaskRegistry` 下沉、SSO 转发下沉 SDK、jakarta 迁移。
+
+*依据：用户 2026-10-17 拍板「先稳定可交付版本；优先 B 包与 C 包 3A 部分；OR 插件其余部分非本项目重点，发布后再改造；harness 暂不纳入第一版计划」。*
+
 ---
 
 ## 8. 退化风险专项清单（重负载端点 × 容器依赖）
