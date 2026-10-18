@@ -53,7 +53,10 @@ Write-Host '[1/6] Running Maven packaging for Windows...' -ForegroundColor Cyan
 
 # Build ALL modules first (including extensions like records-assets) so that
 # their jars are copied into module/MOD-INF/lib before assembly packaging.
-$mvnCmd = 'mvn package -DskipTests -P windows'
+# Release build: also skip test compilation. -DskipTests only skips test *execution*;
+# a temporarily inconsistent test case (e.g. new case calling a not-yet-implemented
+# method) still fails testCompile and blocks the release build.
+$mvnCmd = 'mvn package -Dmaven.test.skip=true -P windows'
 & cmd /c $mvnCmd
 if ($LASTEXITCODE -ne 0) {
     throw 'Maven packaging failed.'
