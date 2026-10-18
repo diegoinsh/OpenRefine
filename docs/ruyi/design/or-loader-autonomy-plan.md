@@ -312,7 +312,7 @@ Release-1 已完成**最小闭环**（`CapabilityGate` / `GuardedAimpClient`，�
 | D1 装载器/SPI 自动化测试 | ✔ 已完成（2026-10-18）：补 `WiringsHandlerTest` 3（mount 映射/空表/无挂载点）、`BundleHandlerTest` 3（分隔注释+换行字节断言/缺资源跳过/未知 bundle）；golden 由 `scripts/verify_kernel_golden.ps1` 覆盖 | — | core 新增 6/6 全绿 |
 | D2 开关通道完整 | ✔ 已完成（2026-10-18）：原口径（`refine.module.loader` init-param）随 A7 删除装载器开关而**废止**；验收对象改为仍生效的启动开关通道（`refine.port` / `refine.autosave` / `REFINE_EXTRA_OPTS` 透传 license 等）。发现并修复 `refine.bat` 缺 `REFINE_AUTOSAVE_PERIOD → -Drefine.autosave` 通道 | `SwitchChannelContractTest` 3（win/posix 通道齐备、装载器开关不得回流） | core 3/3 全绿 |
 | D3 既有失败测试修复 | ✔ 已完成（2026-10-17）：`HistoryEntry.sheetId` 加 `@JsonInclude(NON_NULL)`；`FilesImportingControllerTest` 修 Windows 路径 JSON 转义与 POSIX 权限断言 | — | core 215/215、FilesExtension 87/87 **全绿** |
-| D4 分支合入主工作区 | 主工作区 `OpenRefine` 尚无 `com/jiongche/refine/{loader,spi,data}` 与两个 engine 模块 | 迁移分支 → 主工作区；打包 + 两条入口（`jinrefine.exe` / `refine.bat`）回归 | 主工作区与 worktree 行为一致 |
+| D4 分支合入主工作区 | ✔ 已完成（2026-10-18）：`feat/platform-sdk-decoupling` 以 merge（`80bb2d7`）合入 `feat/batch-title-extraction`；唯一冲突 `ExtractionPageCache.load` 保留分支的 `fromJson` 抽取，并叠加主分支「`textLength<=0` 按未命中」防护 | — | core 230/230、files-engine 33/33、全 reactor `package` SUCCESS、`refine.bat` 启动 + golden 9/9 |
 
 ---
 
@@ -500,3 +500,30 @@ java -cp "$root\server\target\openrefine-3.11.0.01-server.jar;$root\server\targe
 ```
 
 **已知既有失败（非 A7 引入，未修）**：`main` 模块 1039 项中 38 项失败，全部来自多 Sheet 改造（`260002e8a`）：① `MassRowColumnChange` 等 change 对单 Sheet `new Project()` 取 `getActiveSheetData()` 为 null（26 项）；② `ExcelImporterTests` 列数与多 Sheet 导入预期不符（9 项）；③ 根 pom surefire 固定 `-Duser.language=fr`，`RowDuplicatesRemovalOperationTests` 断言英文（3 项）。A7 前即存在，建议单独立项修复。
+
+---
+
+## 16. D 包执行记录（2026-10-18，✔ 已完成）
+
+**D1 装载器/SPI 自动化测试**
+
+- 新增 `WiringsHandlerTest` 3：mount 映射按注册序输出、空注册表输出 `{}`、无挂载点模块被跳过；并用 Mockito 断言 `text/javascript` + UTF-8。
+- 新增 `BundleHandlerTest` 3：分隔注释 + 两行换行的逐字节拼接（含中文 UTF-8）、取不到的资源跳过、未知 bundle 输出空串。
+- 结果：core **230/230**（原 221 + D1 6 + D2 3）。
+
+**D2 开关通道**
+
+- 原口径（`refine.module.loader` init-param / 双装载器回退）已随 A7 删除开关而废止，验收对象改为**仍生效的启动开关通道**。
+- 发现并修复：`refine.bat` 缺少 `REFINE_AUTOSAVE_PERIOD → -Drefine.autosave`（POSIX 脚本有、Windows 缺）。
+- 新增 `SwitchChannelContractTest` 3：win/posix 两个入口的 `port` / `autosave` / extra-opts（license 等）透传齐备；`refine.module.loader` 不得回流到任何入口。
+
+**D4 合入与验收**
+
+- 合并：`git merge feat/platform-sdk-decoupling` → `80bb2d7`（保留 30 个提交历史）；主工作区未提交的打包脚本改动先 stash、合并后原样恢复。
+- 冲突（仅 1 处）：`ExtractionPageCache.load`——分支已把 JSON 解析抽成 `fromJson(JsonNode)`（并新增 `titleRegionCount`），主分支在 `load` 内联解析并加了「`textLength<=0` 按未命中」的历史空条目防护。解决：`load` 改为调用 `fromJson`，再对其结果应用同一防护；两边的意图都保留。
+- 构建：`mvn -DskipTests -Dmaven.javadoc.skip=true package` 全 reactor **17/17 SUCCESS**（javadoc 插件在 JDK 11 下对既有注释报错，属既有问题，沿用文档既定的 skip 参数）。
+- 测试：core **230/230**、files-engine **33/33**（含缓存往返用例）。
+- 入口冒烟：`refine.bat /p 3533 /m 2048M /d <temp> run` 启动成功；`get-version` revision=`80bb2d7`；`wirings.js` 的 9 个模块顺序仍为 `[core, database, jython, records-db, module, files, pc-axis, data-quality, records-assets]`；`/command/files/extraction-config` 返回 200。
+- Golden：**9/9 PASS**。`get-version.json` 原先做字节 SHA 比对，构建标识（`revision` / `full_version` / `full_name`）随提交变化必然漂移；已把该项改为 JSON 比较并忽略这三个字段，其余字段（版本、JVM、`module_names`）仍逐项比较。
+- 清理：`server/target/lib/butterfly-1.2.6.jar` 是 10-10 的旧构建残留（`copy-dependencies` 不删除已移除依赖）；删除后以 `mvn -pl server -am package` 重建未再出现，含 reactor 的 `dependency:tree` 也无 butterfly。
+- 未做：`jinrefine.exe` JRE 发行包重建（按决策本轮只做 `package` + `refine.bat`；发行包需要在打包链完整跑一遍后另行验证）。

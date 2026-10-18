@@ -1,4 +1,4 @@
-﻿# JinRefine kernel golden verification.
+# JinRefine kernel golden verification.
 # Usage: powershell -File .\scripts\verify_kernel_golden.ps1 -BaseUrl http://127.0.0.1:3533
 # Assumes a server is already running and the golden baseline exists under docs/ruyi/design/golden-release1.
 
@@ -16,7 +16,7 @@ $items = @(
     @{ Url = '/'; File = 'index.html'; Mode = 'bytes' },
     @{ Url = '/about.html'; File = 'about.html'; Mode = 'bytes' },
     @{ Url = '/command/core/get-languages'; File = 'get-languages.json'; Mode = 'bytes' },
-    @{ Url = '/command/core/get-version'; File = 'get-version.json'; Mode = 'bytes' },
+    @{ Url = '/command/core/get-version'; File = 'get-version.json'; Mode = 'version' },
     @{ Url = '/extension/files/scripts/index/import-from-local-dir.js'; File = 'files-import-from-local-dir.js'; Mode = 'bytes' },
     @{ Url = '/extension/data-quality/scripts/quality-alignment.js'; File = 'data-quality-alignment.js'; Mode = 'bytes' }
 )
@@ -53,6 +53,34 @@ foreach ($item in $items) {
         }
         if ($diff.Count -eq 0) {
             Write-Host ("PASS    {0} (JSON)" -f $item.File) -ForegroundColor Green
+        } else {
+            Write-Host ("FAIL    {0} (JSON): {1}" -f $item.File, ($diff -join '; ')) -ForegroundColor Red
+            $failed++
+        }
+    } elseif ($item.Mode -eq 'version') {
+        # 构建标识（revision / full_version / full_name）随提交变化，不进入 golden 判定；
+        # 其余字段（版本、JVM、模块清单等）逐一比较。
+        $ignore = @('revision', 'full_version', 'full_name')
+        $since = [string][char]1
+        $goldenJson = Get-Content $golden -Raw | ConvertFrom-Json
+        $actualJson = Get-Content $actual -Raw | ConvertFrom-Json
+        $diff = @()
+        foreach ($prop in $goldenJson.PSObject.Properties) {
+            if ($ignore -contains $prop.Name) {
+                continue
+            }
+            $actualValue = $actualJson.($prop.Name)
+            $goldenValue = $prop.Value
+            if ($goldenValue -is [array]) {
+                if (($actualValue -join $since) -ne ($goldenValue -join $since)) {
+                    $diff += ("{0}: {1} -> {2}" -f $prop.Name, ($goldenValue -join ','), ($actualValue -join ','))
+                }
+            } elseif ($actualValue -ne $goldenValue) {
+                $diff += ("{0}: {1} -> {2}" -f $prop.Name, $goldenValue, $actualValue)
+            }
+        }
+        if ($diff.Count -eq 0) {
+            Write-Host ("PASS    {0} (JSON, build id ignored)" -f $item.File) -ForegroundColor Green
         } else {
             Write-Host ("FAIL    {0} (JSON): {1}" -f $item.File, ($diff -join '; ')) -ForegroundColor Red
             $failed++
