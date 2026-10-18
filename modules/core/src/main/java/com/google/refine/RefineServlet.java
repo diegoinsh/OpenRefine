@@ -49,7 +49,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
+import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -57,8 +59,10 @@ import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import edu.mit.simile.butterfly.Butterfly;
-import edu.mit.simile.butterfly.ButterflyModule;
+import com.jiongche.refine.data.OrDataSource;
+import com.jiongche.refine.kernel.ModuleKernel;
+import com.jiongche.refine.kernel.ModuleView;
+import com.jiongche.refine.kernel.RefineModule;
 import org.apache.hc.core5.http.HttpStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,7 +73,7 @@ import com.google.refine.importing.ImportingManager;
 import com.google.refine.io.FileProjectManager;
 import com.google.refine.licensing.LicenseGuard;
 
-public class RefineServlet extends Butterfly {
+public class RefineServlet extends HttpServlet {
 
     static private String ASSIGNED_VERSION = "3.11.0.01";
 
@@ -105,10 +109,34 @@ public class RefineServlet extends Butterfly {
         }
     }
 
+    /** 自研模块内核：发现、装配、生命周期与请求分发。 */
+    private ModuleKernel _kernel;
+
+    public void configure() throws ServletException {
+        _kernel = new ModuleKernel(this);
+        _kernel.configure(getServletConfig());
+    }
+
+    public RefineModule getModule(String name) {
+        return _kernel == null ? null : _kernel.getModule(name);
+    }
+
+    /**
+     * Get a list of the names of currently loaded modules.
+     *
+     * @return an array of module names in alphabetical order
+     */
+    public String[] getModuleNames() {
+        return _kernel == null ? new String[0] : _kernel.getModuleNames();
+    }
+
+    @Override
+    public void init(ServletConfig config) throws ServletException {
+        super.init(config);
+    }
+
     @Override
     public void init() throws ServletException {
-        super.init();
-
         VERSION = getInitParameter("refine.version");
         REVISION = getInitParameter("refine.revision");
 
@@ -144,8 +172,14 @@ public class RefineServlet extends Butterfly {
         }
         logger.info("Initializing FileProjectManager with data dir: {}", data);
         s_dataDir = new File(data);
+        configure();
+
         FileProjectManager.initialize(s_dataDir);
         ImportingManager.initialize(this);
+
+        // 数据源 SPI registry：登记 OR 内建数据源（稳定名 "or"）与其两个变更操作（幂等），
+        // 供 SPI 能力面 / 外部（能力平台 3A）在进程内按名取用与枚举。须在 singleton 就绪后调用。
+        OrDataSource.register();
 
         // 模块级授权守卫（纵深防御）：在 POST 命令分发前按「命令 → 加密狗模块」校验，
         // 堵住绕过能力平台直连 OR 白用未授权模块。默认关闭（ruyi.license.enforce=off），
@@ -164,24 +198,28 @@ public class RefineServlet extends Butterfly {
     public void destroy() {
         logger.trace("> destroy");
 
-        // cancel automatic periodic saving and force a complete save.
-        if (_timer != null) {
-            _timer.cancel();
-            _timer = null;
-        }
         if (ProjectManager.singleton != null) {
             ProjectManager.singleton.dispose();
             ProjectManager.singleton = null;
         }
 
-        logger.trace("< destroy");
+        if (_kernel != null) {
+            _kernel.destroy();
+            _kernel = null;
+        }
 
+        logger.trace("< destroy");
         super.destroy();
     }
 
     @Override
     public void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
-        if (request.getPathInfo().startsWith("/command/")) {
+        String pathInfo = request.getPathInfo();
+        if (pathInfo == null || pathInfo.isEmpty()) {
+            pathInfo = "/";
+        }
+
+        if (pathInfo.startsWith("/command/")) {
             String commandKey = getCommandKey(request);
             Command command = commands.get(commandKey);
             if (command != null) {
@@ -231,22 +269,9 @@ public class RefineServlet extends Butterfly {
             } else {
                 response.sendError(HttpStatus.SC_NOT_FOUND);
             }
-        } else {
-            super.service(request, response);
+        } else if (_kernel == null || !_kernel.handle(request, response)) {
+            response.sendError(HttpStatus.SC_NOT_FOUND);
         }
-    }
-
-    public ButterflyModule getModule(String name) {
-        return _modulesByName.get(name);
-    }
-
-    /**
-     * Get a list of the names of currently loaded modules.
-     *
-     * @return an array of module names in alphabetical order
-     */
-    public String[] getModuleNames() {
-        return _modulesByName.keySet().stream().sorted().toArray(String[]::new);
     }
 
     protected String getCommandKey(HttpServletRequest request) {
@@ -267,7 +292,7 @@ public class RefineServlet extends Butterfly {
 
     public File getTempDir() {
         if (tempDir == null) {
-            tempDir = (File) _config.getServletContext().getAttribute(JAVAX_SERVLET_CONTEXT_TEMPDIR);
+            tempDir = (File) getServletConfig().getServletContext().getAttribute(JAVAX_SERVLET_CONTEXT_TEMPDIR);
             if (tempDir == null) {
                 throw new RuntimeException("This app server doesn't support temp directories");
             }
@@ -301,7 +326,7 @@ public class RefineServlet extends Butterfly {
      *            object implementing the command
      * @return true if command was loaded and registered successfully
      */
-    protected boolean registerOneCommand(ButterflyModule module, String name, Command commandObject) {
+    protected boolean registerOneCommand(ModuleView module, String name, Command commandObject) {
         return registerOneCommand(module.getName() + "/" + name, commandObject);
     }
 
@@ -342,8 +367,24 @@ public class RefineServlet extends Butterfly {
      *
      * @return true if command was loaded and registered successfully
      */
-    static public boolean registerCommand(ButterflyModule module, String commandName, Command commandObject) {
-        return s_singleton.registerOneCommand(module, commandName, commandObject);
+    static public boolean registerCommand(ModuleView module, String commandName, Command commandObject) {
+        return registerCommand(module.getName(), commandName, commandObject);
+    }
+
+    /**
+     * Register a single command, namespaced by module name (framework-agnostic overload).
+     * 供 SPI/装载器在拿不到 ButterflyModule 时只传模块名调用。
+     *
+     * @param moduleName
+     *            name of the module the command belongs to
+     * @param commandName
+     *            command verb for command
+     * @param commandObject
+     *            object implementing the command
+     * @return true if command was loaded and registered successfully
+     */
+    static public boolean registerCommand(String moduleName, String commandName, Command commandObject) {
+        return s_singleton.registerOneCommand(moduleName + "/" + commandName, commandObject);
     }
 
     // ---- Command guards: extensions may veto mutating POST commands ----

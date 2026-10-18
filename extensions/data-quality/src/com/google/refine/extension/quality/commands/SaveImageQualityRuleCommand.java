@@ -18,7 +18,7 @@ import org.slf4j.LoggerFactory;
 import com.google.refine.commands.Command;
 import com.google.refine.commands.HttpUtilities;
 import com.google.refine.extension.quality.model.ImageQualityRule;
-import com.google.refine.extension.quality.model.QualityRulesConfig;
+import com.google.refine.extension.quality.model.OverlayQualityRulesConfig;
 import com.google.refine.model.Project;
 
 public class SaveImageQualityRuleCommand extends Command {
@@ -64,9 +64,9 @@ public class SaveImageQualityRuleCommand extends Command {
 
             ImageQualityRule rule = mapper.readValue(jsonStr, ImageQualityRule.class);
 
-            QualityRulesConfig config = (QualityRulesConfig) project.overlayModels.get("qualityRulesConfig");
+            OverlayQualityRulesConfig config = (OverlayQualityRulesConfig) project.overlayModels.get("qualityRulesConfig");
             if (config == null) {
-                config = new QualityRulesConfig();
+                config = new OverlayQualityRulesConfig();
                 project.overlayModels.put("qualityRulesConfig", config);
             }
 

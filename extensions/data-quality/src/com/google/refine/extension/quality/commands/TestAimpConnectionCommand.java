@@ -4,13 +4,14 @@
 package com.google.refine.extension.quality.commands;
 
 import java.io.IOException;
-import java.net.HttpURLConnection;
-import java.net.URL;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import com.jiongche.sdk.aimp.AimpEndpoints;
+import com.jiongche.sdk.aimp.AimpTransport;
+import com.jiongche.sdk.aimp.HttpAimpTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -78,52 +79,34 @@ public class TestAimpConnectionCommand extends Command {
      * Returns true if either endpoint is accessible
      */
     private boolean testConnection(String serverUrl) {
-        HttpURLConnection connection = null;
         try {
             if (!serverUrl.startsWith("http://") && !serverUrl.startsWith("https://")) {
                 logger.warn("Invalid URL format: {}", serverUrl);
                 return false;
             }
 
-            String baseUrl = serverUrl.endsWith("/") ? serverUrl.substring(0, serverUrl.length() - 1) : serverUrl;
-
-            String[] endpoints = {"/health", "/docs"};
+            AimpTransport transport = new HttpAimpTransport(serverUrl);
+            String[] endpoints = {AimpEndpoints.HEALTH, AimpEndpoints.DOCS};
             for (String endpoint : endpoints) {
-                String testUrl = baseUrl + endpoint;
                 try {
-                    URL url = new URL(testUrl);
-                    connection = (HttpURLConnection) url.openConnection();
-                    connection.setRequestMethod("GET");
-                    connection.setConnectTimeout(CONNECTION_TIMEOUT);
-                    connection.setReadTimeout(CONNECTION_TIMEOUT);
+                    AimpTransport.Response response = transport.execute(
+                            AimpTransport.Request.get(endpoint, CONNECTION_TIMEOUT, CONNECTION_TIMEOUT));
+                    logger.debug("AIMP health check response ({}{}): {}", serverUrl, endpoint, response.status());
 
-                    int responseCode = connection.getResponseCode();
-                    logger.debug("AIMP health check response ({}): {}", testUrl, responseCode);
-
-                    if (responseCode == 200) {
+                    if (response.status() == 200) {
                         logger.info("AIMP connection successful via endpoint: {}", endpoint);
                         return true;
                     }
                 } catch (Exception e) {
                     logger.debug("Endpoint {} failed: {}", endpoint, e.getMessage());
-                } finally {
-                    if (connection != null) {
-                        connection.disconnect();
-                        connection = null;
-                    }
                 }
             }
 
             logger.warn("AIMP connection test failed for all endpoints");
             return false;
-
         } catch (Exception e) {
             logger.warn("AIMP connection test failed: {}", e.getMessage());
             return false;
-        } finally {
-            if (connection != null) {
-                connection.disconnect();
-            }
         }
     }
 

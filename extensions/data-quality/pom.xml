@@ -23,24 +23,25 @@
       </resource>
     </resources>
     <sourceDirectory>src</sourceDirectory>
-    <testSourceDirectory>tests/src</testSourceDirectory>
     <plugins>
+      <!-- 本模块没有 localizer 资源束，且 <resources> 把整个 src 作为资源目录。
+           localizer 会递归扫描资源目录下的 *.properties 并按**文件名**生成 Java 类
+           （jclass 缺省取 artifactId，本模块含 '-' 故非法），因此显式把 fileMask 限定为
+           一个不存在的名字：既不生成任何类，也避免 src 下新增的 META-INF/solon 插件
+           描述符被误当资源束处理。fileMask 为精确文件名匹配，不支持通配符。 -->
+      <plugin>
+        <groupId>org.jvnet.localizer</groupId>
+        <artifactId>localizer-maven-plugin</artifactId>
+        <configuration>
+          <fileMask>no-localizer-bundles.properties</fileMask>
+        </configuration>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-jar-plugin</artifactId>
         <version>3.4.2</version>
         <configuration>
           <outputDirectory>${project.basedir}/module/MOD-INF/lib</outputDirectory>
-        </configuration>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-surefire-plugin</artifactId>
-        <version>${surefire.version}</version>
-        <configuration>
-          <suiteXmlFiles>
-            <suiteXmlFile>tests/conf/tests.xml</suiteXmlFile>
-          </suiteXmlFiles>
         </configuration>
       </plugin>
       <plugin>
@@ -76,6 +77,20 @@
       <groupId>${project.groupId}</groupId>
       <artifactId>core</artifactId>
       <version>${project.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <!-- 数据质量内核（checker/model/util/task），经 TableView 取数；compile 以便 copy-dependencies 收进 MOD-INF/lib -->
+    <dependency>
+      <groupId>${project.groupId}</groupId>
+      <artifactId>data-quality-engine</artifactId>
+      <version>${project.version}</version>
+      <scope>compile</scope>
+    </dependency>
+    <!-- SDK 数据源契约（OR 壳的 viewFor / TableDriver 引用）与 AIMP 契约 -->
+    <dependency>
+      <groupId>com.jiongche</groupId>
+      <artifactId>ruyi-platform-sdk</artifactId>
+      <version>0.1.0</version>
       <scope>provided</scope>
     </dependency>
     <dependency>

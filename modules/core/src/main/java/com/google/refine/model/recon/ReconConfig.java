@@ -45,7 +45,7 @@ import java.util.Set;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.annotation.JsonTypeIdResolver;
-import edu.mit.simile.butterfly.ButterflyModule;
+import com.jiongche.refine.kernel.ModuleView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -65,8 +65,15 @@ abstract public class ReconConfig {
 
     static final public Map<Class<? extends ReconConfig>, String> s_opClassToName = new HashMap<Class<? extends ReconConfig>, String>();
 
-    static public void registerReconConfig(ButterflyModule module, String name, Class<? extends ReconConfig> klass) {
-        String key = module.getName() + "/" + name;
+    static public void registerReconConfig(ModuleView module, String name, Class<? extends ReconConfig> klass) {
+        registerReconConfig(module.getName(), name, klass);
+    }
+
+    /**
+     * 框架无关重载：只按模块名命名空间。
+     */
+    static public void registerReconConfig(String moduleName, String name, Class<? extends ReconConfig> klass) {
+        String key = moduleName + "/" + name;
 
         s_opClassToName.put(klass, key);
 

@@ -15,7 +15,7 @@ import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import edu.mit.simile.butterfly.ButterflyModule;
+import com.jiongche.refine.kernel.RefineModule;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -31,7 +31,7 @@ public class LoadLanguageCommandTests extends CommandTestBase {
     public void setUpCommand() throws IOException {
         FileProjectManager.initialize(TestUtils.createTempDirectory("openrefine-test-workspace-dir"));
         command = new LoadLanguageCommand();
-        ButterflyModule coreModule = mock(ButterflyModule.class);
+        RefineModule coreModule = mock(RefineModule.class);
 
         when(coreModule.getName()).thenReturn("core");
         when(coreModule.getPath()).thenReturn(new File("webapp/modules/core"));

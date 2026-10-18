@@ -24,7 +24,9 @@
 	    <module>records-db</module>
 	    <module>records-assets</module>
 	    <module>pc-axis</module>
-	    <module>data-quality</module>
+    <module>data-quality-engine</module>
+    <module>data-quality</module>
+    <module>files-engine</module>
 	    <module>FilesExtension</module>
 	  </modules>
 

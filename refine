@@ -659,10 +659,10 @@ if [ -z "$REFINE_MIN_MEMORY" ] ; then
 fi
 add_option "-Xms$REFINE_MIN_MEMORY" "-Xmx$REFINE_MEMORY" "-Drefine.memory=$REFINE_MEMORY"
 
-if [ -z "$REFINE_MAX_FORM_CONTENT_SIZE" ] ; then
-    REFINE_MAX_FORM_CONTENT_SIZE="1048576"
+if [ -z "$REFINE_CONTAINER_MAX_POST_SIZE" ] ; then
+    REFINE_CONTAINER_MAX_POST_SIZE="67108864"
 fi
-add_option "-Drefine.max_form_content_size=$REFINE_MAX_FORM_CONTENT_SIZE"
+add_option "-Drefine.container.max_post_size=$REFINE_CONTAINER_MAX_POST_SIZE"
 
 if [ -z "$REFINE_PORT" ] ; then
     REFINE_PORT="3333"

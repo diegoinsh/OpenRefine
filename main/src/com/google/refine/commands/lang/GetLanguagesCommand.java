@@ -46,7 +46,7 @@ import javax.servlet.http.HttpServletResponse;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import edu.mit.simile.butterfly.ButterflyModule;
+import com.jiongche.refine.kernel.ModuleView;
 import org.apache.commons.io.filefilter.WildcardFileFilter;
 
 import com.google.refine.commands.Command;
@@ -71,7 +71,7 @@ public class GetLanguagesCommand extends Command {
         @JsonProperty("languages")
         List<LanguageRecord> languages;
 
-        public LanguagesResponse(ButterflyModule module) throws UnsupportedEncodingException {
+        public LanguagesResponse(ModuleView module) throws UnsupportedEncodingException {
             languages = new ArrayList<>();
             languages.add(new LanguageRecord("en", "English"));
             FileFilter fileFilter = new WildcardFileFilter("translation-*.json");
@@ -101,7 +101,7 @@ public class GetLanguagesCommand extends Command {
             modname = "core";
         }
 
-        ButterflyModule module = this.servlet.getModule(modname);
+        ModuleView module = this.servlet.getModule(modname);
 
         respondJSON(response, new LanguagesResponse(module));
     }

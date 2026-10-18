@@ -58,7 +58,7 @@ import com.fasterxml.jackson.databind.node.BooleanNode;
 import com.fasterxml.jackson.databind.node.IntNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
-import edu.mit.simile.butterfly.ButterflyModule;
+import com.jiongche.refine.kernel.ModuleView;
 import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.testng.Assert;
@@ -378,8 +378,8 @@ public class RefineTest {
         bindings = null;
     }
 
-    protected ButterflyModule getCoreModule() {
-        ButterflyModule coreModule = mock(ButterflyModule.class);
+    protected ModuleView getCoreModule() {
+        ModuleView coreModule = mock(ModuleView.class);
         when(coreModule.getName()).thenReturn("core");
         return coreModule;
     }

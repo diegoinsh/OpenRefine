@@ -30,7 +30,7 @@ package com.google.refine.model;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import edu.mit.simile.butterfly.ButterflyModule;
+import com.jiongche.refine.kernel.ModuleView;
 import org.testng.annotations.Test;
 
 import com.google.refine.model.recon.ReconConfig;
@@ -41,7 +41,7 @@ public class ColumnTests {
 
     @Test
     public void serializeColumn() throws Exception {
-        ButterflyModule core = mock(ButterflyModule.class);
+        ModuleView core = mock(ModuleView.class);
         when(core.getName()).thenReturn("core");
         ReconConfig.registerReconConfig(core, "standard-service", StandardReconConfig.class);
         String json = "{\"cellIndex\":4,"

@@ -17,6 +17,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.jiongche.sdk.aimp.OcrCropResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -75,7 +76,7 @@ public class OcrCropCommand extends Command {
             // 负向的——框越大，章在"短边抬到 736"的送检图里占比越小、绝对像素越少，det 行框
             // 更弱、rec 行图更小，实测同一枚章外扩 8% 常由十余字崩到 0~3 字。鲁棒性已下沉到
             // AIMP 侧：印章链路内多尺度重试，印章空结果回落通用 OCR。
-            AimpClient.OcrCropResult ocr =
+            OcrCropResult ocr =
                     client.ocrCrop(FileImageRenderer.toPngBytes(crop), "crop_" + page + ".png", mode);
 
             if (!ocr.isSuccess()) {
