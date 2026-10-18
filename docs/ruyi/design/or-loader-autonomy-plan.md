@@ -309,8 +309,8 @@ Release-1 已完成**最小闭环**（`CapabilityGate` / `GuardedAimpClient`，�
 
 | 项 | 现状 | 做法 | 验收 |
 |---|---|---|---|
-| D1 装载器/SPI 自动化测试 | 部分完成（2026-10-17）：`ModuleDescriptorReaderTest` 2、`ModuleGraphTest` 3、`ModuleRegistryTest` 1、`ModuleLoaderRegistryTest` 2；golden 由 `scripts/verify_kernel_golden.ps1` 覆盖 | 补 `WiringRegistryTest` / `BundleHandlerTest`（纯函数字节断言） | core 新增用例全绿 |
-| D2 开关通道完整 | 部分完成：`RefineSolon.RefineServletConfig` 已补 `refine.module.loader` init-param；三通道行为一致 | `web.xml` 可选补 | init-param / `-D` / 环境变量一致 |
+| D1 装载器/SPI 自动化测试 | ✔ 已完成（2026-10-18）：补 `WiringsHandlerTest` 3（mount 映射/空表/无挂载点）、`BundleHandlerTest` 3（分隔注释+换行字节断言/缺资源跳过/未知 bundle）；golden 由 `scripts/verify_kernel_golden.ps1` 覆盖 | — | core 新增 6/6 全绿 |
+| D2 开关通道完整 | ✔ 已完成（2026-10-18）：原口径（`refine.module.loader` init-param）随 A7 删除装载器开关而**废止**；验收对象改为仍生效的启动开关通道（`refine.port` / `refine.autosave` / `REFINE_EXTRA_OPTS` 透传 license 等）。发现并修复 `refine.bat` 缺 `REFINE_AUTOSAVE_PERIOD → -Drefine.autosave` 通道 | `SwitchChannelContractTest` 3（win/posix 通道齐备、装载器开关不得回流） | core 3/3 全绿 |
 | D3 既有失败测试修复 | ✔ 已完成（2026-10-17）：`HistoryEntry.sheetId` 加 `@JsonInclude(NON_NULL)`；`FilesImportingControllerTest` 修 Windows 路径 JSON 转义与 POSIX 权限断言 | — | core 215/215、FilesExtension 87/87 **全绿** |
 | D4 分支合入主工作区 | 主工作区 `OpenRefine` 尚无 `com/jiongche/refine/{loader,spi,data}` 与两个 engine 模块 | 迁移分支 → 主工作区；打包 + 两条入口（`jinrefine.exe` / `refine.bat`）回归 | 主工作区与 worktree 行为一致 |
 

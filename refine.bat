@@ -172,6 +172,8 @@ set REFINE_CLASSES_DIR=server\classes
 
 if not "%REFINE_DATA_DIR%" == "" set OPTS=%OPTS% -Drefine.data_dir=%REFINE_DATA_DIR%
 
+if not "%REFINE_AUTOSAVE_PERIOD%" == "" set OPTS=%OPTS% -Drefine.autosave=%REFINE_AUTOSAVE_PERIOD%
+
 if not "%REFINE_LIB_DIR%" == "" goto gotLibDir
 set REFINE_LIB_DIR=server\target\lib
 :gotLibDir
