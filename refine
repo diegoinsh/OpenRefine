@@ -385,7 +385,6 @@ e2e_tests() {
 
     add_option "-Drefine.headless=true"
     add_option "-Drefine.autoreload=false"
-    add_option "-Dbutterfly.autoreload=false"
 
     check_running
 
@@ -488,7 +487,7 @@ run() {
     echo "-------------------------------------------------------------------------------------------------"
 
     if [ -d $REFINE_CLASSES_DIR ] ; then
-        add_option "-Drefine.autoreload=true" "-Dbutterfly.autoreload=true"
+        add_option "-Drefine.autoreload=true"
     fi
 
     if [ "$OS" = "macosx" ] ; then

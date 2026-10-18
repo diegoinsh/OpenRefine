@@ -38,6 +38,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
 import java.io.File;
@@ -77,6 +78,7 @@ import org.testng.annotations.BeforeTest;
 import org.testng.annotations.Test;
 
 import com.google.refine.model.Project;
+import com.google.refine.model.SheetData;
 import com.google.refine.util.JSONUtilities;
 import com.google.refine.util.ParsingUtilities;
 
@@ -325,37 +327,36 @@ public class ExcelImporterTests extends ImporterTest {
 
         parseOneFile(SUT, stream);
 
+        // 多 Sheet 导入：每个 sheet 保留独立列模型，活动 sheet 为第一个
+        assertEquals(project.sheetDataMap.size(), SHEETS);
         Project expectedProject = createProject(
                 new String[] { numberedColumn(1), numberedColumn(2), numberedColumn(3), numberedColumn(4), numberedColumn(5),
                         numberedColumn(6), numberedColumn(7), numberedColumn(8), numberedColumn(9), numberedColumn(10), numberedColumn(11),
-                        numberedColumn(12), numberedColumn(13), numberedColumn(14), numberedColumn(15) },
+                        numberedColumn(12), numberedColumn(13) },
                 new Serializable[][] {
                         { 0L, true, null, EXPECTED_DATE_TIME, " Row 0 Col 5", null, 0L, 0L, 0.0, "0000", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, null, null },
+                                1234.56 },
                         { 1.1, false, null, EXPECTED_DATE_TIME, " Row 1 Col 5", null, 1L, 1L, 1.0, "0001", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, null, null },
+                                1234.56 },
                         { 2.2, true, null, EXPECTED_DATE_TIME, " Row 2 Col 5", null, 2L, 2L, 2.0, "0002", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, null, null },
+                                1234.56 },
                         { 3.3, false, null, EXPECTED_DATE_TIME, " Row 3 Col 5", null, 3L, 3L, 3.0, "0003", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, null, null },
-                        { 0L, true, null, EXPECTED_DATE_TIME, " Row 0 Col 5", null, 0L, 0L, 0.0, "0000", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, 1L, null },
-                        { 1.1, false, null, EXPECTED_DATE_TIME, " Row 1 Col 5", null, 1L, 1L, 1.0, "0001", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, 1L, null },
-                        { 2.2, true, null, EXPECTED_DATE_TIME, " Row 2 Col 5", null, 2L, 2L, 2.0, "0002", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, 1L, null },
-                        { 3.3, false, null, EXPECTED_DATE_TIME, " Row 3 Col 5", null, 3L, 3L, 3.0, "0003", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, 1L, null },
-                        { 0L, true, null, EXPECTED_DATE_TIME, " Row 0 Col 5", null, 0L, 0L, 0.0, "0000", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, 2L, 3L },
-                        { 1.1, false, null, EXPECTED_DATE_TIME, " Row 1 Col 5", null, 1L, 1L, 1.0, "0001", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, 2L, 3L },
-                        { 2.2, true, null, EXPECTED_DATE_TIME, " Row 2 Col 5", null, 2L, 2L, 2.0, "0002", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, 2L, 3L },
-                        { 3.3, false, null, EXPECTED_DATE_TIME, " Row 3 Col 5", null, 3L, 3L, 3.0, "0003", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, 2L, 3L },
+                                1234.56 },
                 });
         assertProjectEquals(project, expectedProject);
+
+        // 其余 sheet 各自持有不同的额外列（sheet s 有 13+s 列，额外列值为 i+s）
+        SheetData sheet1 = project.sheetDataMap.get("file-source#Test Sheet 1");
+        SheetData sheet2 = project.sheetDataMap.get("file-source#Test Sheet 2");
+        assertNotNull(sheet1);
+        assertNotNull(sheet2);
+        assertEquals(sheet1.columnModel.columns.size(), 14);
+        assertEquals(sheet2.columnModel.columns.size(), 15);
+        assertEquals(sheet1.rows.size(), ROWS);
+        assertEquals(sheet2.rows.size(), ROWS);
+        assertEquals(sheet1.rows.get(0).getCell(sheet1.columnModel.columns.get(13).getCellIndex()).value, 1L);
+        assertEquals(sheet2.rows.get(0).getCell(sheet2.columnModel.columns.get(13).getCellIndex()).value, 2L);
+        assertEquals(sheet2.rows.get(0).getCell(sheet2.columnModel.columns.get(14).getCellIndex()).value, 3L);
 
         // We will read SHEETS sheets from created xls file.
         verify(options, times(SHEETS)).get("ignoreLines");
@@ -387,37 +388,36 @@ public class ExcelImporterTests extends ImporterTest {
 
         parseOneFile(SUT, stream);
 
+        // 多 Sheet 导入：每个 sheet 保留独立列模型，活动 sheet 为第一个
+        assertEquals(project.sheetDataMap.size(), SHEETS);
         Project expectedProject = createProject(
                 new String[] { numberedColumn(1), numberedColumn(2), numberedColumn(3), numberedColumn(4), numberedColumn(5),
                         numberedColumn(6), numberedColumn(7), numberedColumn(8), numberedColumn(9), numberedColumn(10), numberedColumn(11),
-                        numberedColumn(12), numberedColumn(13), numberedColumn(14), numberedColumn(15) },
+                        numberedColumn(12), numberedColumn(13) },
                 new Serializable[][] {
                         { 0L, true, null, EXPECTED_DATE_TIME, " Row 0 Col 5", null, 0L, 0L, 0.0, "0000", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, null, null },
+                                1234.56 },
                         { 1.1, false, null, EXPECTED_DATE_TIME, " Row 1 Col 5", null, 1L, 1L, 1.0, "0001", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, null, null },
+                                1234.56 },
                         { 2.2, true, null, EXPECTED_DATE_TIME, " Row 2 Col 5", null, 2L, 2L, 2.0, "0002", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, null, null },
+                                1234.56 },
                         { 3.3, false, null, EXPECTED_DATE_TIME, " Row 3 Col 5", null, 3L, 3L, 3.0, "0003", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, null, null },
-                        { 0L, true, null, EXPECTED_DATE_TIME, " Row 0 Col 5", null, 0L, 0L, 0.0, "0000", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, 1L, null },
-                        { 1.1, false, null, EXPECTED_DATE_TIME, " Row 1 Col 5", null, 1L, 1L, 1.0, "0001", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, 1L, null },
-                        { 2.2, true, null, EXPECTED_DATE_TIME, " Row 2 Col 5", null, 2L, 2L, 2.0, "0002", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, 1L, null },
-                        { 3.3, false, null, EXPECTED_DATE_TIME, " Row 3 Col 5", null, 3L, 3L, 3.0, "0003", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, 1L, null },
-                        { 0L, true, null, EXPECTED_DATE_TIME, " Row 0 Col 5", null, 0L, 0L, 0.0, "0000", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, 2L, 3L },
-                        { 1.1, false, null, EXPECTED_DATE_TIME, " Row 1 Col 5", null, 1L, 1L, 1.0, "0001", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, 2L, 3L },
-                        { 2.2, true, null, EXPECTED_DATE_TIME, " Row 2 Col 5", null, 2L, 2L, 2.0, "0002", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, 2L, 3L },
-                        { 3.3, false, null, EXPECTED_DATE_TIME, " Row 3 Col 5", null, 3L, 3L, 3.0, "0003", "(617) 235-1322", EXPECTED_DATE,
-                                1234.56, 2L, 3L },
+                                1234.56 },
                 });
         assertProjectEquals(project, expectedProject);
+
+        // 其余 sheet 各自持有不同的额外列（sheet s 有 13+s 列，额外列值为 i+s）
+        SheetData sheet1 = project.sheetDataMap.get("file-source#Test Sheet 1");
+        SheetData sheet2 = project.sheetDataMap.get("file-source#Test Sheet 2");
+        assertNotNull(sheet1);
+        assertNotNull(sheet2);
+        assertEquals(sheet1.columnModel.columns.size(), 14);
+        assertEquals(sheet2.columnModel.columns.size(), 15);
+        assertEquals(sheet1.rows.size(), ROWS);
+        assertEquals(sheet2.rows.size(), ROWS);
+        assertEquals(sheet1.rows.get(0).getCell(sheet1.columnModel.columns.get(13).getCellIndex()).value, 1L);
+        assertEquals(sheet2.rows.get(0).getCell(sheet2.columnModel.columns.get(13).getCellIndex()).value, 2L);
+        assertEquals(sheet2.rows.get(0).getCell(sheet2.columnModel.columns.get(14).getCellIndex()).value, 3L);
 
         // We will read SHEETS sheets from created xls file.
         verify(options, times(SHEETS)).get("ignoreLines");

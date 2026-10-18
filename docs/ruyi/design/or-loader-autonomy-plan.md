@@ -527,3 +527,58 @@ java -cp "$root\server\target\openrefine-3.11.0.01-server.jar;$root\server\targe
 - Golden：**9/9 PASS**。`get-version.json` 原先做字节 SHA 比对，构建标识（`revision` / `full_version` / `full_name`）随提交变化必然漂移；已把该项改为 JSON 比较并忽略这三个字段，其余字段（版本、JVM、`module_names`）仍逐项比较。
 - 清理：`server/target/lib/butterfly-1.2.6.jar` 是 10-10 的旧构建残留（`copy-dependencies` 不删除已移除依赖）；删除后以 `mvn -pl server -am package` 重建未再出现，含 reactor 的 `dependency:tree` 也无 butterfly。
 - 未做：`jinrefine.exe` JRE 发行包重建（按决策本轮只做 `package` + `refine.bat`；发行包需要在打包链完整跑一遍后另行验证）。
+
+---
+
+## 17. 清理轮执行记录（2026-10-18，✔ 已完成）
+
+承接 §15/§16，收掉 A/B/C 剩余的「差一点」项与可清理残留。决策（已确认）：A2 只做 jython + pc-axis；A1 只验证 `jinrefine.exe`；C6 直接删除 legacy 插件；C7 用配置项 + 键集分页。
+
+**B4 · `main` 38 项既有失败清零**
+
+- 26 项：`MassRowChange` / `MassRowColumnChange` / `ColumnRemovalChange` 的 apply/revert 误用 `project.getActiveSheetData()`（单 Sheet 项目返回 `null`），改为直接使用 `project.rows` / `project.columnModel`。
+- 9 项：`ExcelImporter` 多 Sheet 语义修正——`getNextRowOfCells()` 改为遍历物理 cell 取最大列索引（不再用 `firstCell + i` 推算，避免漏尾部列）；`readTable()` 的活动 sheet 只在 `activeSheetId == null` 时设置一次（多文件导入不被最后一个文件覆盖）；`getOrAllocateColumnForSheetData()` 删除递增改名循环，列名按 index 一一对应并走 `OpenRefineMessage.importer_utilities_column()` 本地化；`readTableToSheetData()` 复用 `sheetData` 既有导入参数。
+- 3 项：`RowDuplicatesRemovalOperationTests` 断言改用 `OperationHistoryEntry.row_removal(n)`（根 pom surefire 固定 `-Duser.language=fr`，不再硬编码英文）。
+- 结果：`main` **1039/1039 全绿**；`ExcelImporterTests` 补断言各 sheet 独立列模型（14/15 列、`sheetDataMap` 两表、尾部列取值）。
+
+**B5 · 去掉 `-Dmaven.javadoc.skip=true` 依赖**
+
+- `RefineModuleContext` 的失效 `{@link ButterflyModuleContext}` → `{@link com.jiongche.refine.spi.DefaultModuleContext}`。
+- `JsonFieldExtractor` 注释中的 JSON 示例加 `{@code}`，避免 javadoc 把 `{"user":...}` 当标签解析。
+- 验证：`mvn -DskipTests package`（**不带** javadoc skip）全 reactor **17/17 SUCCESS**，各模块 `*-javadoc.jar` 正常生成。
+
+**A2 · jython / pc-axis 插件化**
+
+- 各新增 `src/META-INF/solon/{jython,pc-axis}.properties`（`solon.plugin` + `priority=100`）与 `*SolonPlugin`（`start()` 调 `SolonPluginBridge.registerCurrentModule()`）。
+- 构建坑：两个模块的 `src` 同时作为资源目录，`localizer-maven-plugin` 会把 `META-INF/solon/*.properties` 当资源束并生成非法的 `META-INF/solon/jython.java`。用 `fileMask=no-localizer-bundles.properties`（写在 `<executions><execution><configuration>` 内）屏蔽。
+- 验收：模块 jar 内含 `META-INF/solon/*.properties` 与插件类；发行包启动日志 `module=jython ... plugins=1`、`module=pc-axis ... plugins=1`，`registry`/`wirings.js` 顺序不变（9 项）。
+- **wikibase 不插件化**，保持 `module.properties` 形态，列为**退役候选**（发行包 `butterfly.properties` 的 `ignore` 已含 `wikidata`，当前实际不装载）。
+
+**A1 · `jinrefine.exe` 发行包冒烟（只验证 exe）**
+
+- 解压 `packaging/target/jinrefine-win-with-java-3.11.0.01.zip`（281 MB）到临时目录，直接启动 `jinrefine.exe`（按决策不跑 Virbox 保护流程）。
+- 结果：内置 JRE **11.0.32.1** 启动；`Module loader: solon-kernel`；`/` 200；`/command/core/get-version` 返回 `revision=61e9f86`、`module_names` 9 项；`/wirings.js` 9 项顺序正常。
+
+**C6 · 平台 `compliance-plugin` legacy 清理**
+
+- `git rm -r plugins/compliance-plugin`（34 个文件）；平台构建不受影响（`mvn test` 13/13、`package` SUCCESS）。
+- `docs/deployment-layout.md` 新增「已归档模块」，记录删除范围与恢复方式。
+
+**C7 · 平台快照同步去掉 `LIMIT 200` 硬编码**
+
+- `ComplianceConfig` 增 `snapshotBatch`（4 参兼容构造 + `of` 重载 + `describe()`）；`app.yml` / `App` 读 `platform.compliance.snapshot-batch`（缺省 200）。
+- `ComplianceSnapshotSync.runOnce()` 改为**键集分页**（`updated_at DESC, project_id DESC` + 复合游标），循环取完为止，不再截断。
+- 新增 `ComplianceSnapshotSyncTest`（FakeSql 两页，断言第二页游标参数）。
+
+**残留清理**
+
+- `refine`：删除 `-Dbutterfly.autoreload=false/true` 两处。
+- `main/webapp/WEB-INF/butterfly.properties`：删除 `butterfly.modules.wirings` 行。
+- `packaging/butterfly.properties`：删除 `butterfly.modules.wirings` 行（保留 `modules.path` / `ignore`）。
+- 删除 `main/webapp/WEB-INF/modules.properties`（wirings 清单由 `ModuleRegistry` 生成）。
+- `docs/ruyi/release-notes-release-1.md`：`refine.module.loader` 行改为「已随 A7 删除」。
+- `packaging/pom.xml` 的 `butterfly.properties` replace **保留**：mac 打包布局仍需要该文件作为占位，不属 Butterfly 运行时。
+
+**A3 · 结论（设计取舍，不清理）**
+
+`ComplianceConfig.auto` 的「粗粒度回退」是既定语义：HTTP 探测失败即整体降级到 local，而非逐规则切换。已在 `docs/compliance-query.md` 记录其边界，保持现状。

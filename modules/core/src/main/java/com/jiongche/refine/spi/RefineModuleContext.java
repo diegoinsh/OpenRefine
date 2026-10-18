@@ -26,7 +26,7 @@ import com.google.refine.model.recon.ReconConfig;
 /**
  * 框架无关的注册门面，覆盖 OR 暴露给扩展的名注册面。
  *
- * <p>实现方（如 {@link ButterflyModuleContext}）负责把这些调用转投到底层静态注册表，
+ * <p>实现方（如 {@link com.jiongche.refine.spi.DefaultModuleContext}）负责把这些调用转投到底层静态注册表，
  * 业务扩展只依赖本接口，不直接触碰容器/装载器细节。</p>
  */
 public interface RefineModuleContext {

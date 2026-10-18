@@ -63,10 +63,10 @@ public class ColumnRemovalChange extends ColumnChange {
     @Override
     public void apply(Project project) {
         synchronized (project) {
-            int columnGroupCount = project.getActiveSheetData().columnModel.columnGroups.size();
+            int columnGroupCount = project.columnModel.columnGroups.size();
             _oldColumnGroups = new ArrayList<ColumnGroup>(columnGroupCount);
             for (int i = columnGroupCount - 1; i >= 0; i--) {
-                ColumnGroup columnGroup = project.getActiveSheetData().columnModel.columnGroups.get(i);
+                ColumnGroup columnGroup = project.columnModel.columnGroups.get(i);
 
                 _oldColumnGroups.add(columnGroup);
 
@@ -77,10 +77,10 @@ public class ColumnRemovalChange extends ColumnChange {
 
                         if (columnGroup.keyColumnIndex == _oldColumnIndex) {
                             // the key column is removed, so we remove the whole group
-                            project.getActiveSheetData().columnModel.columnGroups.remove(i);
+                            project.columnModel.columnGroups.remove(i);
                         } else {
                             // otherwise, the group's span has been reduced by 1
-                            project.getActiveSheetData().columnModel.columnGroups.set(i, new ColumnGroup(
+                            project.columnModel.columnGroups.set(i, new ColumnGroup(
                                     columnGroup.startColumnIndex,
                                     columnGroup.columnSpan - 1,
                                     columnGroup.keyColumnIndex < _oldColumnIndex ? columnGroup.keyColumnIndex
@@ -89,18 +89,18 @@ public class ColumnRemovalChange extends ColumnChange {
                     }
                 } else {
                     // the column removed precedes this whole group
-                    project.getActiveSheetData().columnModel.columnGroups.set(i, new ColumnGroup(
+                    project.columnModel.columnGroups.set(i, new ColumnGroup(
                             columnGroup.startColumnIndex - 1,
                             columnGroup.columnSpan,
                             columnGroup.keyColumnIndex - 1));
                 }
             }
 
-            _oldColumn = project.getActiveSheetData().columnModel.columns.remove(_oldColumnIndex);
-            _oldCells = new CellAtRow[project.getActiveSheetData().rows.size()];
+            _oldColumn = project.columnModel.columns.remove(_oldColumnIndex);
+            _oldCells = new CellAtRow[project.rows.size()];
             int cellIndex = _oldColumn.getCellIndex();
             for (int i = 0; i < _oldCells.length; i++) {
-                Row row = project.getActiveSheetData().rows.get(i);
+                Row row = project.rows.get(i);
 
                 Cell oldCell = null;
                 if (cellIndex < row.cells.size()) {
@@ -118,15 +118,15 @@ public class ColumnRemovalChange extends ColumnChange {
     @Override
     public void revert(Project project) {
         synchronized (project) {
-            project.getActiveSheetData().columnModel.columns.add(_oldColumnIndex, _oldColumn);
+            project.columnModel.columns.add(_oldColumnIndex, _oldColumn);
 
             int cellIndex = _oldColumn.getCellIndex();
             for (CellAtRow cell : _oldCells) {
-                project.getActiveSheetData().rows.get(cell.row).cells.set(cellIndex, cell.cell);
+                project.rows.get(cell.row).cells.set(cellIndex, cell.cell);
             }
 
-            project.getActiveSheetData().columnModel.columnGroups.clear();
-            project.getActiveSheetData().columnModel.columnGroups.addAll(_oldColumnGroups);
+            project.columnModel.columnGroups.clear();
+            project.columnModel.columnGroups.addAll(_oldColumnGroups);
 
             project.update();
         }

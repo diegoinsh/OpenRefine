@@ -48,7 +48,7 @@
 
 | 开关 | 缺省 | 说明 |
 |---|---|---|
-| `refine.module.loader` | `butterfly` | Release-1 冻结，不切换 Solon 插件装载 |
+| `refine.module.loader` | — | 已随 A7 删除（装载器固定为自研内核 `solon-kernel`，无 Butterfly 回退） |
 | `ruyi.license.enforce` | `off` | `off` / `log` / `block` |
 | `ruyi.platform.capability.gate` | `off` | 平台能力入口授权门，`off` 不读狗 |
 | `ruyi.data-quality.view` | `live` | `live` / `snapshot` |
