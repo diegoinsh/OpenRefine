@@ -288,9 +288,20 @@ Release-1 已完成**最小闭环**（`CapabilityGate` / `GuardedAimpClient`，�
 
 | 项 | 现状 | 做法 |
 |---|---|---|
-| C1 合规任务/结果查询进程内化 | 仍走 HTTP 适配 | 以共享存储或进程内服务替代；保留 HTTP 作为 `off` 回退路径 |
-| C2 `off/on` 等价性门禁自动化 | R1-3 为冒烟验证 | 补 A/B 对照测试（同一请求经 `off` 与 `on` 返回等价） |
+| C1 合规任务/结果查询进程内化 | ✔ 已完成（2026-10-18）：平台新增 `ComplianceQuery` 端口与 `http/local/auto` 三模式；`auto`＝共享落盘 → 平台快照 → HTTP；快照表 `compliance_snapshot` + 后台轮询；`getTasks`/`reportInfo` 读路径切换，写与 PDF 导出仍走 HTTP | 共享落盘读 OR `{id}.project/quality/tasks/*.json`（OR 零改动，另补原子写）；`or-data-dir` 显式配置；进度按粗粒度接受 |
+| C2 `off/on` 等价性门禁自动化 | ✔ 已完成（2026-10-18）：平台引入 JUnit5；`GuardedAimpClientTest` 5 项（off/log/block-已授权/缺模块/读不到狗）；`scripts/verify_capability_gate.ps1` 双启动 A/B（探针插件 + AIMP 桩） | 单测 + A/B 双启动 |
 | C3 AI harness | 无代码，Release-1 明确后置 | 按 baseline §6 定位（可选层）单独立项，不在本计划范围 |
+
+**C 包验收（2026-10-18 实测）**：
+
+- 平台 `mvn test` **12/12**（C1 查询层 7 + C2 门禁 5）。
+- C2 脚本：`off` 与 `block+已授权` 对同一 `/blank` 请求返回**完全一致**；`block` 对未授权的 `/api/llm/analyze` 在能力入口拒绝。
+- C1 端到端（OR 在线 → 落盘 → 停 OR）：
+  - `absolutePathExcel` 建立 OR 项目后，写入一条真实格式的 `quality/tasks/c1-task.json` 并绑定 `last_task_id`；
+  - **停掉 OR** 后 `getTasks` 仍返回 `status=COMPLETED, progress=100`（共享落盘）；
+  - `reportInfo` 仍返回 `hasResult=true, result.totalErrors=10`（共享落盘），证明请求期零 HTTP。
+- OR `data-quality` 扩展 `package` SUCCESS（`TaskPersistence` 原子写）。
+- 平台文档：`docs/compliance-query.md`（模式、落盘契约、快照表、一致性边界）。
 
 ---
 
