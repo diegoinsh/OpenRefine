@@ -277,8 +277,8 @@ Release-1 已完成 B 包主体（传输、平台语义、授权门）；剩余�
 
 | 项 | 现状 | 做法 | 验收 |
 |---|---|---|---|
-| B1 SSO 转发下沉 SDK | SDK 无 `sso` 包；转发在平台 `web/sso/*`，命令常量已用 `OrContract` | 抽 `com.jiongche.sdk.sso`：SSO 端点契约 + 请求/响应 DTO；平台 `SsoComplianceController` 与 `OrDataQualityClient` 改为引用 | SDK 契约测试；平台编译通过；SSO 端点行为等价 |
-| B2 部署布局归属 | `BridgeLocator` 已收敛三布局；桥产物仍在平台 `deploy/bridge` | 明确归属：布局知识在 SDK，产物由平台发布；文档写清 | 文档一致 |
+| B1 SSO 转发下沉 SDK | ✔ 已完成（2026-10-18）：SDK 新增 `com.jiongche.sdk.sso`（12 端点契约、任务状态、任务/导入/报告 DTO、`SsoDataQualityClient` 原始 JSON 客户端）与 `com.jiongche.sdk.web.RestModel`；模板 JSON 随 SDK 发布；平台 `SsoComplianceController` 直接引用 SDK，`OrDataQualityClient` 与平台 `spi/RestModel` 已删除 | 平台仅保留映射策略、Solon 适配与 SQLite 任务表 | SDK test 44/44；平台 package + 启动 + SSO 冒烟通过（模板 200、取或建、真实 Excel→OR 项目 READY、错误路径 400） |
+| B2 部署布局归属 | ✔ 已完成（2026-10-18）：`docs/deployment-layout.md` 明确「布局知识在 SDK、产物由平台发布」，`BridgeLocator` javadoc 同步 | 不改 `deploy/bridge` 产物归属 | 文档一致 |
 
 ---
 
