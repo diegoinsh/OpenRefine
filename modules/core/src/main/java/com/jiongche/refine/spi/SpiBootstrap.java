@@ -16,9 +16,7 @@ import java.io.InputStream;
 import java.util.Properties;
 import java.util.ServiceLoader;
 
-import com.jiongche.refine.kernel.ButterflyModuleView;
 import com.jiongche.refine.kernel.ModuleView;
-import edu.mit.simile.butterfly.ButterflyModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,22 +42,10 @@ public final class SpiBootstrap {
     }
 
     /**
-     * 以 {@link ButterflyModule} 为门面，实例化并注册其 SPI 实现。
-     *
-     * @param module       被装载的 Butterfly 模块
-     * @param spiClassName 业务扩展的 {@link RefineModuleSpi} 实现类全限定名；
-     *                     传 {@code null}/空则从 {@code refine.spi} 描述符取，再回退 ServiceLoader
-     * @return 传给 SPI 的注册门面（供装载器后续复用）
-     */
-    public static RefineModuleContext register(ButterflyModule module, String spiClassName) {
-        return register(new ButterflyModuleView(module), spiClassName);
-    }
-
-    /**
-     * 框架无关版本：以 {@link ModuleView} 为门面注册 SPI。
+     * 以 {@link ModuleView} 为门面注册 SPI。
      */
     public static RefineModuleContext register(ModuleView module, String spiClassName) {
-        RefineModuleContext ctx = new ButterflyModuleContext(module);
+        RefineModuleContext ctx = new DefaultModuleContext(module);
         try {
             // 插件形态：该模块的注册已交由 Solon 插件的 Plugin.start 驱动，
             // 此处忽略 controller.js 那次调用（保证单一注册路径，避免命令重复注册）。

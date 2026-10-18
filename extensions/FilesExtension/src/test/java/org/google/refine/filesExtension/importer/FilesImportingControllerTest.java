@@ -12,7 +12,6 @@ import com.google.refine.model.ModelException;
 import com.google.refine.model.Project;
 import com.google.refine.model.Row;
 import com.google.refine.util.ParsingUtilities;
-import edu.mit.simile.butterfly.ButterflyModule;
 import org.apache.commons.io.FileUtils;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
@@ -66,12 +65,6 @@ public class FilesImportingControllerTest {
         dir.delete();
         dir.mkdir();
         return dir;
-    }
-
-    protected ButterflyModule getCoreModule() {
-        ButterflyModule coreModule = mock(ButterflyModule.class);
-        when(coreModule.getName()).thenReturn("core");
-        return coreModule;
     }
 
     @BeforeTest

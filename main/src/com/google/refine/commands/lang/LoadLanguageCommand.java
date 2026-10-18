@@ -46,7 +46,7 @@ import javax.servlet.http.HttpServletResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
-import edu.mit.simile.butterfly.ButterflyModule;
+import com.jiongche.refine.kernel.ModuleView;
 
 import com.google.refine.ProjectManager;
 import com.google.refine.RefineServlet;
@@ -146,7 +146,7 @@ public class LoadLanguageCommand extends Command {
 
     static ObjectNode loadLanguage(RefineServlet servlet, String strModule, String strLang)
             throws UnsupportedEncodingException {
-        ButterflyModule module = servlet.getModule(strModule);
+        ModuleView module = servlet.getModule(strModule);
         String strLangFile = "translation-" + strLang + ".json";
         String strMessage = "[" + strModule + ":" + strLangFile + "]";
         File langsDir = new File(module.getPath(), "langs");

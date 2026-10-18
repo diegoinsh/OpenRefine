@@ -1,8 +1,8 @@
 /*
- * JinRefine SPI · Butterfly 装载器适配器
+ * JinRefine SPI · 模块上下文实现
  *
- * 把 RefineModuleContext 的调用转投到 OR 现有的静态注册表，
- * 以及 Butterfly 的 ButterflyModule（命名空间/资源）。
+ * 把 RefineModuleContext 的调用转投 OR 现有静态注册表；
+ * 只依赖框架无关的 ModuleView，不再绑定 Butterfly。
  */
 
 package com.jiongche.refine.spi;
@@ -11,10 +11,8 @@ import java.io.File;
 import java.net.URL;
 
 import com.jiongche.refine.data.DataSourceRegistry;
-import com.jiongche.refine.kernel.ButterflyModuleView;
 import com.jiongche.refine.kernel.ModuleView;
 import com.jiongche.sdk.data.DataSource;
-import edu.mit.simile.butterfly.ButterflyModule;
 
 import com.google.refine.ClientSideResourceManager;
 import com.google.refine.RefineServlet;
@@ -38,35 +36,20 @@ import com.google.refine.model.Project;
 import com.google.refine.model.recon.ReconConfig;
 import com.google.refine.operations.OperationRegistry;
 
-/**
- * {@link RefineModuleContext} 的 Butterfly 实现：包装一个 {@link ButterflyModule}，
- * 各注册面转投现有静态注册表（key = module.getName() + "/" + name）。
- */
-public class ButterflyModuleContext implements RefineModuleContext {
+public class DefaultModuleContext implements RefineModuleContext {
 
-    private final ModuleView _module;
+    private final ModuleView module;
 
-    public ButterflyModuleContext(ButterflyModule module) {
-        this(new ButterflyModuleView(module));
-    }
-
-    public ButterflyModuleContext(ModuleView module) {
+    public DefaultModuleContext(ModuleView module) {
         if (module == null) {
             throw new IllegalArgumentException("module must not be null");
         }
-        _module = module;
-    }
-
-    /** 底层 ButterflyModule（仅过渡期使用；A7 后移除）。 */
-    public ButterflyModule getModule() {
-        return _module instanceof ButterflyModuleView
-                ? ((ButterflyModuleView) _module).unwrap()
-                : null;
+        this.module = module;
     }
 
     @Override
     public String name() {
-        return _module.getName();
+        return module.getName();
     }
 
     @Override
@@ -91,7 +74,7 @@ public class ButterflyModuleContext implements RefineModuleContext {
 
     @Override
     public void registerOperation(String name, Class<? extends AbstractOperation> klass) {
-        OperationRegistry.registerOperation(name(), name, klass);
+        OperationRegistry.registerOperation(module, name, klass);
     }
 
     @Override
@@ -116,7 +99,7 @@ public class ButterflyModuleContext implements RefineModuleContext {
 
     @Override
     public void registerImporterController(String name, ImportingController controller) {
-        ImportingManager.registerController(name(), name, controller);
+        ImportingManager.registerController(module, name, controller);
     }
 
     @Override
@@ -131,7 +114,7 @@ public class ButterflyModuleContext implements RefineModuleContext {
 
     @Override
     public void registerReconConfig(String name, Class<? extends ReconConfig> klass) {
-        ReconConfig.registerReconConfig(name(), name, klass);
+        ReconConfig.registerReconConfig(module, name, klass);
     }
 
     @Override
@@ -157,7 +140,7 @@ public class ButterflyModuleContext implements RefineModuleContext {
 
     @Override
     public void addClientSidePaths(String bundleName, String... paths) {
-        ClientSideResourceManager.addPaths(bundleName, _module, paths);
+        ClientSideResourceManager.addPaths(bundleName, module, paths);
     }
 
     @Override
@@ -167,11 +150,11 @@ public class ButterflyModuleContext implements RefineModuleContext {
 
     @Override
     public URL openResource(String path) {
-        return _module.getResource(path);
+        return module.getResource(path);
     }
 
     @Override
     public File getModulePath() {
-        return _module.getPath();
+        return module.getPath();
     }
 }

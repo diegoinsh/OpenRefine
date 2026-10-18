@@ -6,11 +6,11 @@ package com.google.refine.extension.records.db;
 
 import javax.servlet.ServletConfig;
 
-import edu.mit.simile.butterfly.ButterflyModuleImpl;
+import com.jiongche.refine.kernel.AbstractRefineModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class RecordsDBModuleImpl extends ButterflyModuleImpl {
+public class RecordsDBModuleImpl extends AbstractRefineModule {
 
     private static final Logger logger = LoggerFactory.getLogger("RecordsDBModuleImpl");
 

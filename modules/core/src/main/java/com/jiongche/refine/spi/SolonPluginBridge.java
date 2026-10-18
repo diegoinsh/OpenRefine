@@ -12,9 +12,7 @@ package com.jiongche.refine.spi;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import com.jiongche.refine.kernel.ButterflyModuleView;
 import com.jiongche.refine.kernel.ModuleView;
-import edu.mit.simile.butterfly.ButterflyModule;
 
 public final class SolonPluginBridge {
 
@@ -47,19 +45,11 @@ public final class SolonPluginBridge {
      * 仅在「模块已被插件接管」且「当前不在插件生命周期窗口内」时为 true ——
      * 即忽略 JS 侧那次调用，留给 {@link #registerCurrentModule()}。
      */
-    public static boolean isDelegated(ButterflyModule module) {
-        return isDelegated(new ButterflyModuleView(module));
-    }
-
     public static boolean isDelegated(ModuleView module) {
         return module != null && OWNED.contains(module.getName()) && CURRENT.get() != module;
     }
 
     /** 装载器在驱动插件生命周期前置入当前模块。 */
-    public static void bindCurrent(ButterflyModule module) {
-        bindCurrent(new ButterflyModuleView(module));
-    }
-
     public static void bindCurrent(ModuleView module) {
         CURRENT.set(module);
     }

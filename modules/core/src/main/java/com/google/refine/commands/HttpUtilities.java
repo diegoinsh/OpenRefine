@@ -205,8 +205,8 @@ abstract public class HttpUtilities {
         try {
             response.setStatus(status);
 
-            servlet.getModule("core").sendTextFromTemplate(
-                    request, response, context, "error.vt", "UTF-8", "text/html", true);
+            com.jiongche.refine.kernel.RefineModule core = servlet.getModule("core");
+            com.jiongche.refine.web.TemplateService.render(core, "error.vt", context, response);
 
         } catch (Exception e1) {
             logger.error("Error processing Velocity template", e1);

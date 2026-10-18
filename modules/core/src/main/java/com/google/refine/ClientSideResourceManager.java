@@ -40,9 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import com.jiongche.refine.kernel.ButterflyModuleView;
 import com.jiongche.refine.kernel.ModuleView;
-import edu.mit.simile.butterfly.ButterflyModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,13 +62,6 @@ public class ClientSideResourceManager {
     }
 
     final static protected Map<String, ClientSideResourceBundle> s_bundles = new HashMap<String, ClientSideResourceBundle>();
-
-    static public void addPaths(
-            String bundleName,
-            ButterflyModule module,
-            String[] paths) {
-        addPaths(bundleName, new ButterflyModuleView(module), paths);
-    }
 
     static public void addPaths(
             String bundleName,

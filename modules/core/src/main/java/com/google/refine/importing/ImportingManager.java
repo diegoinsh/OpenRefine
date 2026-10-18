@@ -50,7 +50,7 @@ import java.util.concurrent.TimeUnit;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import edu.mit.simile.butterfly.ButterflyModule;
+import com.jiongche.refine.kernel.ModuleView;
 import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -170,7 +170,7 @@ public class ImportingManager {
         urlRewriters.add(urlRewriter);
     }
 
-    static public void registerController(ButterflyModule module, String name, ImportingController controller) {
+    static public void registerController(ModuleView module, String name, ImportingController controller) {
         registerController(module.getName(), name, controller);
     }
 

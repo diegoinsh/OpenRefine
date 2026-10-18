@@ -92,7 +92,7 @@
 	<version>${exec-maven-plugin.version}</version>
         <configuration>
           <mainClass>com.google.refine.Refine</mainClass>
-          <commandlineArgs>-Drefine.headless=true -Drefine.autoreload=true -Dbutterfly.autoreload=true -Drefine.memory=1400M -Drefine.port=3333 -Drefine.host=127.0.0.1</commandlineArgs>
+          <commandlineArgs>-Drefine.headless=true -Drefine.autoreload=true -Drefine.memory=1400M -Drefine.port=3333 -Drefine.host=127.0.0.1</commandlineArgs>
           <skip>false</skip>
         </configuration>
       </plugin>
@@ -184,11 +184,6 @@
       <groupId>javax.servlet</groupId>
       <artifactId>javax.servlet-api</artifactId>
       <version>${servlet-api.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.openrefine.dependencies</groupId>
-      <artifactId>butterfly</artifactId>
-      <version>${butterfly.version}</version>
     </dependency>
     <dependency>
       <groupId>org.apache.logging.log4j</groupId>

@@ -444,3 +444,48 @@ powershell -ExecutionPolicy Bypass -File .\scripts\verify_kernel_golden.ps1 -Bas
 # 回退：
 java '-Drefine.port=3534' '-Drefine.module.loader=butterfly' ... com.google.refine.Refine
 ```
+
+> 上面的 `refine.module.loader` 回退在 A7 后已不存在（见 §15）。
+
+---
+
+## 15. A7 执行记录（2026-10-18，✔ 已完成）
+
+**目标**：彻底删除 Butterfly 依赖，模块发现/装配/`controller.js` 宿主/请求分发全部由自研内核承担。
+
+**代码**：
+
+1. **新增内核**
+   - `kernel/AbstractRefineModule`：`RefineModule` 默认实现（描述符/目录/类加载器/挂载前缀/extends 回退/`getResource` 越界校验）。
+   - `kernel/RhinoControllerHost`：Rhino 1.7.14 执行 `MOD-INF/controller.js`，注入 `module` / `butterfly` / `logger`，预置 `String.prototype.trim/startsWith/endsWith`；`butterfly` shim 只保留 `getWirings/sendString/sendTextFromTemplate/responded`。
+   - `kernel/ModuleKernel`：`butterfly.properties` + init-param 多根发现、`MOD-INF` 递归、ignore（取首个逗号前 token，保持旧语义）、稳定 Kahn、每模块 `PluginClassLoader`、`module-impl` 反射装配（缺失时回退默认实现）、Solon 插件生命周期、TCCL 切换、反序销毁。
+   - `spi/DefaultModuleContext`：框架无关的 `RefineModuleContext` 实现。
+2. **`RefineServlet`** 改为 `extends HttpServlet`，删除 loader 接缝与 Butterfly 状态访问器；`service()` 非 `/command` 走 `ModuleKernel`；`getModule()` 返回 `RefineModule`。
+3. **类型迁移**：`SpiBootstrap` / `SolonPluginBridge` / `ClientSideResourceManager` / `OperationRegistry` / `ImportingManager` / `ReconConfig` / `LoadLanguageCommand` / `GetLanguagesCommand` / `HttpUtilities` 全部去 Butterfly 类型；`records-db` / `records-assets` / `database` 的 module-impl 改继承 `AbstractRefineModule`。
+4. **删除**：`ButterflyModuleLoader`、`StandaloneModuleLoader`、`SolonPluginModuleLoader`、`RefineModuleLoader`、`ModuleLoaderRegistry`、`ModuleAssembly`、`ButterflyModuleView`、`ButterflyModuleContext`、`ModuleLoaderRegistryTest`。
+5. **依赖**：core/main/server/database 删除 `org.openrefine.dependencies:butterfly`；新增 `org.mozilla:rhino:1.7.14`；显式声明 `commons-lang:2.6`（历史 `Validate.notNull` 抛 `IllegalArgumentException` 的语义不能变）。
+6. **运行期清理**：`refine.bat` / `refine` / `refine.ini` 删除 `REFINE_MODULE_LOADER` 透传；`RefineSolon` 删除 `refine.module.loader` init-param；服务启动日志固定为 `Module loader: solon-kernel`。
+
+**字节一致性关键点**：Butterfly 用 `HashMap<String, Module>` 存模块并按 `keySet()` 迭代初始化，bundle 顺序即该顺序。`ModuleGraph` 的稳定 Kahn 以同样的 `HashMap` 迭代序作 tie-breaker（`requires`/`extends` 仍优先），实测初始化序恢复为
+`[core, database, jython, records-db, module, files, pc-axis, data-quality, records-assets]`，`index-bundle.js` / `project-bundle.js` / `index.html` 恢复 SHA256 一致。
+
+**验收（2026-10-18 实测）**：
+
+- `modules/core` **221/221**；FilesExtension **87/87**；files-engine **33/33**；data-quality-engine **3/3**。
+- `server` / `main` / `core` / `grel` 及 6 个扩展 `package` SUCCESS。
+- 启动冒烟（`solon-kernel`）：9 个模块全部装载，`registry` 与 `order` 均为上述顺序；`/command/files/extraction-config` 返回 200，证明扩展 SPI 已注册。
+- Golden **9/9 PASS**（含三项字节 SHA256 与 `get-version.json`）。
+- `server/target/lib`、`main/webapp/WEB-INF/lib` 均无 `butterfly-*.jar`，Rhino 仅 1.7.14。
+
+**启动冒烟命令**（先 `package` 扩展，使各自 `module/MOD-INF/lib` 就绪；**勿**把扩展 `target/classes` 直接塞进 app classpath，否则 Solon 会在模块初始化窗口外启动其 `META-INF/solon` 插件）：
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Java\jdk-11.0.17'
+mvn -o -pl extensions/FilesExtension,extensions/data-quality,extensions/records-db,extensions/records-assets,extensions/jython,extensions/pc-axis -am -DskipTests package
+$root='G:\workshop\RUYI\build\or-solon-poc'
+java -cp "$root\server\target\openrefine-3.11.0.01-server.jar;$root\server\target\lib\*" `
+  "-Drefine.webapp=$root\main\webapp" "-Drefine.data_dir=$env:TEMP\jinrefine-a7-data" `
+  -Drefine.port=3533 -Drefine.autosave=5 -Drefine.headless=true com.google.refine.Refine
+```
+
+**已知既有失败（非 A7 引入，未修）**：`main` 模块 1039 项中 38 项失败，全部来自多 Sheet 改造（`260002e8a`）：① `MassRowColumnChange` 等 change 对单 Sheet `new Project()` 取 `getActiveSheetData()` 为 null（26 项）；② `ExcelImporterTests` 列数与多 Sheet 导入预期不符（9 项）；③ 根 pom surefire 固定 `-Duser.language=fr`，`RowDuplicatesRemovalOperationTests` 断言英文（3 项）。A7 前即存在，建议单独立项修复。

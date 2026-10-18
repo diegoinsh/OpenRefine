@@ -36,11 +36,11 @@ import java.util.Properties;
 
 import javax.servlet.ServletConfig;
 
-import edu.mit.simile.butterfly.ButterflyModuleImpl;
+import com.jiongche.refine.kernel.AbstractRefineModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class DatabaseModuleImpl extends ButterflyModuleImpl {
+public class DatabaseModuleImpl extends AbstractRefineModule {
 
     private static final Logger logger = LoggerFactory.getLogger("DatabaseModuleImpl");
 

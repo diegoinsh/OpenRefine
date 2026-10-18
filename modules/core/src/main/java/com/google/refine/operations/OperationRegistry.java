@@ -38,7 +38,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
-import edu.mit.simile.butterfly.ButterflyModule;
+import com.jiongche.refine.kernel.ModuleView;
 
 import com.google.refine.model.AbstractOperation;
 
@@ -48,7 +48,7 @@ public abstract class OperationRegistry {
 
     static final public Map<Class<? extends AbstractOperation>, String> s_opClassToName = new HashMap<Class<? extends AbstractOperation>, String>();
 
-    static public void registerOperation(ButterflyModule module, String name, Class<? extends AbstractOperation> klass) {
+    static public void registerOperation(ModuleView module, String name, Class<? extends AbstractOperation> klass) {
         registerOperation(module.getName(), name, klass);
     }
 

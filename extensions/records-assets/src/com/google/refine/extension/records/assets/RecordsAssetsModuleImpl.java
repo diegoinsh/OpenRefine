@@ -6,14 +6,14 @@ package com.google.refine.extension.records.assets;
 
 import javax.servlet.ServletConfig;
 
-import edu.mit.simile.butterfly.ButterflyModuleImpl;
+import com.jiongche.refine.kernel.AbstractRefineModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Module implementation for Records Assets extension
  */
-public class RecordsAssetsModuleImpl extends ButterflyModuleImpl {
+public class RecordsAssetsModuleImpl extends AbstractRefineModule {
 
     private static final Logger logger = LoggerFactory.getLogger("RecordsAssetsModuleImpl");
 

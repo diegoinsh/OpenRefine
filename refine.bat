@@ -182,9 +182,6 @@ set OPTS=%OPTS% -Drefine.verbosity=%REFINE_VERBOSITY%
 
 if not "%REFINE_EXTRA_OPTS%" == "" set OPTS=%OPTS% -D%REFINE_EXTRA_OPTS%
 
-rem 模块装载器形态：butterfly（缺省，逐字节不变）| solon（自研独立 CL）| solon-plugin（Solon 插件形态·H-Spi）
-if not "%REFINE_MODULE_LOADER%" == "" set OPTS=%OPTS% -Drefine.module.loader=%REFINE_MODULE_LOADER%
-
 rem ----- Respond to the action ----------------------------------------------------------
 
 set ACTION=%1

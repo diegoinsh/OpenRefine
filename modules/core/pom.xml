@@ -16,8 +16,7 @@
   </parent>
 
   <!-- We need to create the .jar at compilation stage because
-       other artifacts (such as "main") need to copy it to a
-       subdirectory for Butterfly -->
+       other artifacts (such as "main") need to copy it into the webapp lib dir -->
   <build>
     <finalName>openrefine-core</finalName>
     <plugins>
@@ -73,24 +72,18 @@
       <version>${servlet-api.version}</version>
       <scope>provided</scope>
     </dependency>
+    <!-- 自研模块内核：用 Rhino 执行 MOD-INF/controller.js（替代 Butterfly 的 JS 宿主） -->
     <dependency>
-      <groupId>org.openrefine.dependencies</groupId>
-      <artifactId>butterfly</artifactId>
-      <version>${butterfly.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.logging.log4j</groupId>
-          <artifactId>log4j-1.2-api</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.logging.log4j</groupId>
-          <artifactId>log4j-slf4j2-impl</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.logging.log4j</groupId>
-          <artifactId>log4j-core</artifactId>
-        </exclusion>
-      </exclusions>
+      <groupId>org.mozilla</groupId>
+      <artifactId>rhino</artifactId>
+      <version>${rhino.version}</version>
+    </dependency>
+    <!-- 历史代码沿用 commons-lang 2 的 Validate（notNull 抛 IllegalArgumentException）。
+         原由 Butterfly 传递引入，去 Butterfly 后显式声明以保持行为不变。 -->
+    <dependency>
+      <groupId>commons-lang</groupId>
+      <artifactId>commons-lang</artifactId>
+      <version>${commons-lang.version}</version>
     </dependency>
     <!-- Phase 3 插件装载形态（H-Spi）：Solon 插件契约 + per-plugin 隔离
          （PluginClassLoader / PluginPackage / PluginUtil）。版本与 server 模块的

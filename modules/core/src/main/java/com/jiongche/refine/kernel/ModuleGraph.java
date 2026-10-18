@@ -7,13 +7,13 @@
 
 package com.jiongche.refine.kernel;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Deque;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.Set;
 
 import org.slf4j.Logger;
@@ -55,7 +55,20 @@ public final class ModuleGraph {
             }
         }
 
-        Deque<String> ready = new ArrayDeque<>();
+        // 同层优先级沿用 Butterfly 的模块初始化顺序：Butterfly 以 HashMap<String,...>
+        // 存放模块并按 keySet() 迭代初始化，故这里用同样的 HashMap 复刻该顺序，
+        // 再以它为 Kahn 的稳定 tie-breaker（仍保证 requires/extends 先于依赖方）。
+        Map<String, Boolean> hashOrder = new HashMap<>();
+        for (String name : byName.keySet()) {
+            hashOrder.put(name, Boolean.TRUE);
+        }
+        Map<String, Integer> discoveryIndex = new LinkedHashMap<>();
+        int index = 0;
+        for (String name : hashOrder.keySet()) {
+            discoveryIndex.put(name, index++);
+        }
+
+        PriorityQueue<String> ready = new PriorityQueue<>((a, b) -> Integer.compare(discoveryIndex.get(a), discoveryIndex.get(b)));
         for (Map.Entry<String, Integer> entry : indegree.entrySet()) {
             if (entry.getValue() == 0) {
                 ready.add(entry.getKey());
@@ -64,13 +77,13 @@ public final class ModuleGraph {
 
         List<String> ordered = new ArrayList<>(byName.size());
         while (!ready.isEmpty()) {
-            String name = ready.removeFirst();
+            String name = ready.poll();
             ordered.add(name);
             for (String dependent : outgoing.get(name)) {
                 int remaining = indegree.get(dependent) - 1;
                 indegree.put(dependent, remaining);
                 if (remaining == 0) {
-                    ready.addLast(dependent);
+                    ready.add(dependent);
                 }
             }
         }

@@ -52,6 +52,12 @@ public final class ModuleRegistry {
         return modules.isEmpty();
     }
 
+    public void clear() {
+        modules.clear();
+        byMountLength.clear();
+        order = Collections.emptyList();
+    }
+
     /** 按最长挂载前缀匹配；core 的 "/" 作为最终兜底。 */
     public RefineModule findByPath(String path) {
         for (RefineModule module : byMountLength) {
