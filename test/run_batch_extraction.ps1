@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+﻿﻿# -*- coding: utf-8 -*-
 <#
 批量提取「系统测试」驱动（HTTP 直驱 OpenRefine FilesExtension，不依赖界面点击）。
 
@@ -10,6 +10,11 @@
     & .\test\run_batch_extraction.ps1 -Preset court -ProjectName 'REG-法院-1015'
     & .\test\run_batch_extraction.ps1 -Preset keji
     & .\test\run_batch_extraction.ps1 -RootPath 'D:\xx' -ArchiveCategory '科技档案' -ProjectName 'REG-xx'
+
+端点：
+    默认经**能力平台（RCP，:8090）**的 OR 代理通道（/command/**），先读狗登录取
+    X-Auth-Token，再驱动 OR —— 与产品真实调用栈一致（平台授权门 -> OR）。
+    -DirectOr 时直连 JinRefine(OR) :3333（仅排障用，绕过平台授权门）。
 
 预设（目录与门类取自 BASELINE 文档的同款语料）：
     ws    → D:\00_toubiao\自动著录\WS                                   文书档案
@@ -27,7 +32,11 @@
 param(
     [ValidateSet('ws', 'court', 'keji')]
     [string]$Preset,
-    [string]$Base = 'http://127.0.0.1:3333',
+    # 默认走能力平台（RCP）的 OR 代理通道；-DirectOr 时直连 JinRefine(OR) :3333
+    [string]$Base = 'http://127.0.0.1:8090',
+    [switch]$DirectOr,
+    [string]$PlatformUser = '',
+    [string]$PlatformPassword = '',
     [string]$RootPath,
     [string]$ProjectName,
     [string]$ArchiveCategory,
@@ -35,7 +44,7 @@ param(
     [string]$FixedElements = '["title","responsible_party","document_number","date"]',
     [string]$CustomElements = '[]',
     [bool]$DisableCache = $true,
-    [int]$TimeoutMinutes = 9,
+    [int]$TimeoutMinutes = 60,
     [int]$PollSeconds = 5
 )
 
@@ -109,10 +118,46 @@ $customKeyList = if ($customKeyList) { $customKeyList -join ',' } else { '（无
 Write-Output "  customKeys  : $customKeyList"
 Write-Output "  disableCache: $DisableCache"
 
+# 0) 平台鉴权（默认经能力平台；-DirectOr 时直连 OR，不登录）
+$headers = @{}
+if (-not $DirectOr) {
+    Write-Output "  endpoint    : platform ($Base -> OR proxy)"
+    $login = $null
+    try {
+        $lr = Invoke-WebRequest -Uri "$Base/api/auth/dog" -Method POST -UseBasicParsing -TimeoutSec 20
+        $login = $lr.Content | ConvertFrom-Json
+    } catch {
+        $code = -1
+        if ($_.Exception.Response) { try { $code = [int]$_.Exception.Response.StatusCode } catch { } }
+        Write-Output ("  dog login   : FAILED (code={0})" -f $code)
+    }
+    $token = $null
+    if ($login -and $login.data) { $token = $login.data.token }
+    if (-not $token -and $PlatformUser -and $PlatformPassword) {
+        $body = @{ username = $PlatformUser; password = $PlatformPassword } | ConvertTo-Json -Compress
+        $lr = Invoke-WebRequest -Uri "$Base/api/auth/login" -Method POST -Body $body `
+                -ContentType 'application/json' -UseBasicParsing -TimeoutSec 20
+        $login = $lr.Content | ConvertFrom-Json
+        if ($login -and $login.data) { $token = $login.data.token }
+    }
+    if (-not $token) {
+        throw '平台登录失败：无可用令牌（请插入加密狗，或提供 -PlatformUser/-PlatformPassword）'
+    }
+    $headers['X-Auth-Token'] = $token
+    $uname = ''; $lok = ''; $left = ''
+    if ($login -and $login.data) {
+        $uname = [string]$login.data.username
+        if ($login.data.license) { $lok = [string]$login.data.license.ok; $left = [string]$login.data.license.leftDays }
+    }
+    Write-Output ("  login       : user={0} license.ok={1} leftDays={2}" -f $uname, $lok, $left)
+} else {
+    Write-Output "  endpoint    : direct OR ($Base)"
+}
+
 # 1) CSRF + 运行期配置（并发开关/并发度）
-$r = Invoke-WebRequest -Uri "$Base/command/core/get-csrf-token" -SessionVariable s7 -UseBasicParsing
+$r = Invoke-WebRequest -Uri "$Base/command/core/get-csrf-token" -SessionVariable s7 -UseBasicParsing -Headers $headers
 $tok = ($r.Content | ConvertFrom-Json).token
-$cfg = (Invoke-WebRequest -Uri "$Base/command/files/extraction-config" -UseBasicParsing -TimeoutSec 30).Content | ConvertFrom-Json
+$cfg = (Invoke-WebRequest -Uri "$Base/command/files/extraction-config" -UseBasicParsing -Headers $headers -TimeoutSec 30).Content | ConvertFrom-Json
 Write-Output ("config documentPagesIndependent={0} pageConcurrency={1}" -f `
     $cfg.config.'extraction.documentPagesIndependent', $cfg.config.'extraction.pageConcurrency')
 
@@ -130,7 +175,7 @@ $body = @{
     csrf_token         = $tok
 }
 $t0 = Get-Date
-$rs = Invoke-WebRequest -Uri "$Base/command/files/batch-extraction" -Method POST -Body $body -WebSession $s7 -UseBasicParsing -TimeoutSec 120
+$rs = Invoke-WebRequest -Uri "$Base/command/files/batch-extraction" -Method POST -Body $body -WebSession $s7 -Headers $headers -UseBasicParsing -TimeoutSec 120
 $j = $rs.Content | ConvertFrom-Json
 Write-Output ("start: code={0} projectId={1} units={2} pages={3}" -f $j.code, $j.projectId, $j.unitCount, $j.totalPages)
 if ($j.code -ne 'ok') { Write-Output "MESSAGE: $($j.message)"; exit 1 }
@@ -143,7 +188,7 @@ while ((Get-Date) -lt $deadline) {
     Start-Sleep -Seconds $PollSeconds
     $p = (Invoke-WebRequest -Uri "$Base/command/files/batch-extraction" -Method POST `
             -Body @{ subCommand = 'progress'; project = $proj; csrf_token = $tok } `
-            -WebSession $s7 -UseBasicParsing -TimeoutSec 60).Content | ConvertFrom-Json
+            -WebSession $s7 -Headers $headers -UseBasicParsing -TimeoutSec 60).Content | ConvertFrom-Json
     $final = $p
     Write-Output ("[{0}s] status={1} pages={2}/{3} conc={4} avgMs={5} files={6}/{7} msg={8}" -f `
         [int]((Get-Date) - $t0).TotalSeconds, $p.status, $p.processedPages, $p.totalPages, `
