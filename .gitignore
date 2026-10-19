@@ -94,3 +94,7 @@ ruyi-refine.code-workspace
 
 docs/em.py
 docs/data.txt
+
+# 本地回归测试临时产物（脚本可复现，不入库）
+.tmp-*
+__pycache__/
