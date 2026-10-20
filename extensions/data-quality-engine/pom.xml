@@ -49,7 +49,7 @@
     <dependency>
       <groupId>com.jiongche</groupId>
       <artifactId>ruyi-platform-sdk</artifactId>
-      <version>0.1.0</version>
+      <version>0.1.1</version>
       <scope>provided</scope>
     </dependency>
     <!-- Jackson（DTO 序列化）。provided 的传递依赖不参与编译，故 databind/core/annotations 均显式声明 -->

@@ -67,6 +67,7 @@ import org.apache.hc.core5.http.HttpStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.refine.auth.RefineAuthGate;
 import com.google.refine.commands.Command;
 import com.google.refine.commands.CommandGuard;
 import com.google.refine.importing.ImportingManager;
@@ -111,6 +112,9 @@ public class RefineServlet extends HttpServlet {
 
     /** 自研模块内核：发现、装配、生命周期与请求分发。 */
     private ModuleKernel _kernel;
+
+    /** 直连登录闸门：必须先经能力平台（RCP）登录才允许使用 OR。 */
+    private RefineAuthGate authGate;
 
     public void configure() throws ServletException {
         _kernel = new ModuleKernel(this);
@@ -186,6 +190,12 @@ public class RefineServlet extends HttpServlet {
         // 由 JVM 系统属性开关；关闭时零影响、可回退。
         LicenseGuard.register(this);
 
+        // 直连登录闸门：OR 页面必须先在能力平台（RCP）登录才允许使用。
+        // 三态开关 refine.auth.enforce = off / log / block（缺省 block），
+        // 关闭时零影响、可回退；详见 RefineAuthGate。
+        authGate = RefineAuthGate.fromConfiguration();
+        logger.info("{}", authGate.describe());
+
         long AUTOSAVE_PERIOD = Long.parseLong(getInitParameter("refine.autosave"));
 
         service.scheduleWithFixedDelay(new AutoSaveTimerTask(), AUTOSAVE_PERIOD,
@@ -217,6 +227,21 @@ public class RefineServlet extends HttpServlet {
         String pathInfo = request.getPathInfo();
         if (pathInfo == null || pathInfo.isEmpty()) {
             pathInfo = "/";
+        }
+
+        // 健康检查：免登录（打包管理器据此判定 OR 存活，不能被登录闸门拦成 302）
+        if ("/health".equals(pathInfo)) {
+            respondHealth(response);
+            return;
+        }
+
+        // 直连登录闸门：未在能力平台（RCP）登录一律拒绝（页面跳登录，接口返 401）
+        if (authGate != null) {
+            RefineAuthGate.Decision decision = authGate.decide(request);
+            if (decision != RefineAuthGate.Decision.ALLOW) {
+                authGate.respondDenied(request, response, decision);
+                return;
+            }
         }
 
         if (pathInfo.startsWith("/command/")) {
@@ -440,6 +465,20 @@ public class RefineServlet extends HttpServlet {
         writerObj.writeEndObject();
         writerObj.flush();
         writerObj.close();
+        writer.flush();
+    }
+
+    /** 健康检查响应（免登录）：打包管理器 / 托盘据此判定 OR 存活。 */
+    protected void respondHealth(HttpServletResponse response) throws IOException {
+        response.setCharacterEncoding("UTF-8");
+        response.setContentType("application/json");
+        response.setStatus(HttpServletResponse.SC_OK);
+        PrintWriter writer = response.getWriter();
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode node = mapper.createObjectNode();
+        node.put("status", "ok");
+        node.put("version", FULLNAME);
+        writer.write(mapper.writeValueAsString(node));
         writer.flush();
     }
 

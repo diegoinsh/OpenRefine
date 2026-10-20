@@ -5,7 +5,8 @@ JinRefine 2.0 系统回归测试（安装态，HTTP 黑盒）。
 覆盖范围（与 test\run_batch_extraction.ps1 互补）：
   1) 安装产物静态检查：关键文件、版本号、加密/加壳、平台 jar 包名归位（com.jiongche）
   2) 端口与进程：3333 OR / 7998 AIMP / 8090 平台 / 11434 Ollama
-  3) OR 命令面：get-version / csrf / files 抽取配置 / data-quality / languages / wirings.js
+  3) OR 命令面：登录闸门（未登录 401/302、带凭据放行）、/health 免登录、get-version / csrf /
+     files 抽取配置 / data-quality / languages / wirings.js
   4) AIMP：/health、授权门（block 下未授权返回 403）、AIMP 日志里的 license-id=80,3
   5) 平台：/api/auth/dog 登录、/api/auth/me、/api/shell/config、/v2/api/public/*、OR 代理通道
   6) Ollama：/api/tags 含随包模型 qwen3:4b
@@ -29,6 +30,7 @@ param(
     [string]$OllamaBase = 'http://127.0.0.1:11434',
     [string]$PlatformUser = '',
     [string]$PlatformPassword = '',
+    [string]$AimpLogDir = '',
     [int]$HttpTimeoutSec = 20,
     [switch]$SkipInstallChecks
 )
@@ -56,9 +58,10 @@ function Invoke-Http {
         $Body = $null,
         $Headers = $null,
         [string]$ContentType = '',
-        [int]$Timeout = $HttpTimeoutSec
+        [int]$Timeout = $HttpTimeoutSec,
+        [switch]$NoRedirect
     )
-    $out = [pscustomobject]@{ Code = 0; Body = ''; Error = $null }
+    $out = [pscustomobject]@{ Code = 0; Body = ''; Error = $null; Location = '' }
     try {
         $p = @{
             Uri             = $Url
@@ -70,6 +73,7 @@ function Invoke-Http {
         if ($null -ne $Headers) { $p.Headers = $Headers }
         if ($null -ne $Body) { $p.Body = $Body }
         if ($ContentType) { $p.ContentType = $ContentType }
+        if ($NoRedirect) { $p.MaximumRedirection = 0 }
         $resp = Invoke-WebRequest @p
         $out.Code = [int]$resp.StatusCode
         $out.Body = [string]$resp.Content
@@ -77,6 +81,13 @@ function Invoke-Http {
         $ex = $_.Exception
         if ($ex.Response) {
             try { $out.Code = [int]$ex.Response.StatusCode } catch { $out.Code = -1 }
+            try {
+                # PS 5.1 的响应头是 WebHeaderCollection（索引器可用）；
+                # PS 7 的 HttpResponseHeaders 索引器返回空串，须走强类型属性。
+                $loc = $ex.Response.Headers['Location']
+                if (-not $loc) { $loc = $ex.Response.Headers.Location }
+                if ($loc) { $out.Location = [string]$loc }
+            } catch { }
             try {
                 if ($ex.Response.PSObject.Methods['GetResponseStream']) {
                     $sr = New-Object System.IO.StreamReader($ex.Response.GetResponseStream())
@@ -120,6 +131,34 @@ function Get-Prop {
     if ($null -eq $Obj) { return $null }
     $p = $Obj.PSObject.Properties[$Name]
     if ($p) { return $p.Value }
+    return $null
+}
+
+# 平台登录：读狗免密优先，其次账号密码。成功后返回 @{ token; user; license }
+function Get-PlatformSession {
+    $r = Invoke-Http -Method POST -Url ($PlatformBase + '/api/auth/dog')
+    $login = Convert-JsonSafe $r.Body
+    if ($login) {
+        $d = Get-Prop $login 'data'
+        $tk = Get-Prop $d 'token'
+        if (-not $tk) { $tk = Get-Prop $login 'token' }
+        if ($tk) {
+            return @{ token = [string]$tk; user = [string](Get-Prop $d 'username'); license = (Get-Prop $d 'license'); via = 'dog' }
+        }
+    }
+    if ($PlatformUser -and $PlatformPassword) {
+        $body = @{ username = $PlatformUser; password = $PlatformPassword } | ConvertTo-Json -Compress
+        $r = Invoke-Http -Method POST -Url ($PlatformBase + '/api/auth/login') -Body $body -ContentType 'application/json'
+        $login = Convert-JsonSafe $r.Body
+        if ($login) {
+            $d = Get-Prop $login 'data'
+            $tk = Get-Prop $d 'token'
+            if (-not $tk) { $tk = Get-Prop $login 'token' }
+            if ($tk) {
+                return @{ token = [string]$tk; user = [string](Get-Prop $d 'username'); license = (Get-Prop $d 'license'); via = 'account' }
+            }
+        }
+    }
     return $null
 }
 
@@ -285,10 +324,57 @@ Write-Host ''
 # ============================================================
 Write-Host '--- 3. OR / JinRefine ---' -ForegroundColor Cyan
 
-$r = Invoke-Http -Url ($OrBase + '/')
+# OR 已启用「直连登录闸门」：命令面需带平台会话凭据。先取平台会话。
+$platformSession = Get-PlatformSession
+if ($platformSession) {
+    $script:token = $platformSession.token
+    Add-Result '平台会话（供 OR 闸门）' 'PASS' ("user={0}, via={1}" -f $platformSession.user, $platformSession.via)
+} else {
+    Add-Result '平台会话（供 OR 闸门）' 'WARN' '未取得平台会话，OR 命令面将因闸门被拒'
+}
+
+$orHdr = $null
+if ($script:token) { $orHdr = @{ 'X-Auth-Token' = $script:token } }
+
+# 3.1 登录闸门：未带凭据访问 OR 应被拒绝
+#     接口类请求（Accept: application/json）→ 401
+$r = Invoke-Http -Url ($OrBase + '/command/core/get-version') -Headers @{ 'Accept' = 'application/json' } -NoRedirect
+if ($r.Code -eq 401) {
+    Add-Result 'OR 未登录拦截（接口）' 'PASS' '401'
+} elseif ($r.Code -eq 302) {
+    Add-Result 'OR 未登录拦截（接口）' 'WARN' '返回 302（未按接口语义返回 401）'
+} elseif ($r.Code -eq 200) {
+    Add-Result 'OR 未登录拦截（接口）' 'FAIL' '未带凭据竟返回 200（闸门未生效）'
+} else {
+    Add-Result 'OR 未登录拦截（接口）' 'WARN' ("code={0} {1}" -f $r.Code, $r.Error)
+}
+
+#     浏览器导航（Accept: text/html）→ 302 跳平台登录页并带 redirect 回跳参数
+$r = Invoke-Http -Url ($OrBase + '/') -Headers @{ 'Accept' = 'text/html' } -NoRedirect
+if ($r.Code -eq 302 -and $r.Location -match 'redirect=') {
+    Add-Result 'OR 未登录跳转登录页' 'PASS' ('Location=' + $r.Location)
+} elseif ($r.Code -eq 302) {
+    Add-Result 'OR 未登录跳转登录页' 'WARN' ('302 但无 redirect 参数：' + $r.Location)
+} elseif ($r.Code -eq 200) {
+    Add-Result 'OR 未登录跳转登录页' 'FAIL' '未带凭据竟返回 200（闸门未生效）'
+} else {
+    Add-Result 'OR 未登录跳转登录页' 'WARN' ("code={0} {1}" -f $r.Code, $r.Error)
+}
+
+# 3.2 免登录健康检查端点（打包管理器据此判定 OR 存活）
+$r = Invoke-Http -Url ($OrBase + '/health')
+$hj = Convert-JsonSafe $r.Body
+if ($r.Code -eq 200 -and $hj -and (Get-Prop $hj 'status') -eq 'ok') {
+    Add-Result 'OR /health（免登录）' 'PASS' ('version=' + (Get-Prop $hj 'version'))
+} else {
+    Add-Result 'OR /health（免登录）' 'FAIL' ("code={0}" -f $r.Code)
+}
+
+# 3.3 带凭据访问 OR 页面应放行
+$r = Invoke-Http -Url ($OrBase + '/') -Headers $orHdr
 if ($r.Code -eq 200) { Add-Result 'OR 首页' 'PASS' '/' } else { Add-Result 'OR 首页' 'FAIL' ("code={0} {1}" -f $r.Code, $r.Error) }
 
-$r = Invoke-Http -Url ($OrBase + '/command/core/get-version')
+$r = Invoke-Http -Url ($OrBase + '/command/core/get-version') -Headers $orHdr
 $ver = Convert-JsonSafe $r.Body
 if ($r.Code -eq 200 -and $ver) {
     Add-Result 'OR get-version' 'PASS' ([string]$ver.version)
@@ -296,7 +382,7 @@ if ($r.Code -eq 200 -and $ver) {
     Add-Result 'OR get-version' 'FAIL' ("code={0}" -f $r.Code)
 }
 
-$r = Invoke-Http -Url ($OrBase + '/command/core/get-csrf-token')
+$r = Invoke-Http -Url ($OrBase + '/command/core/get-csrf-token') -Headers $orHdr
 $csrf = Convert-JsonSafe $r.Body
 $csrfToken = Get-Prop $csrf 'token'
 if ($r.Code -eq 200 -and $csrfToken) {
@@ -305,7 +391,7 @@ if ($r.Code -eq 200 -and $csrfToken) {
     Add-Result 'OR CSRF' 'FAIL' ("code={0}" -f $r.Code)
 }
 
-$r = Invoke-Http -Url ($OrBase + '/command/files/extraction-config')
+$r = Invoke-Http -Url ($OrBase + '/command/files/extraction-config') -Headers $orHdr
 $ec = Convert-JsonSafe $r.Body
 if ($r.Code -eq 200 -and $ec) {
     $cfg = Get-Prop $ec 'config'
@@ -316,17 +402,17 @@ if ($r.Code -eq 200 -and $ec) {
     Add-Result 'OR 抽取配置' 'FAIL' ("code={0}" -f $r.Code)
 }
 
-$r = Invoke-Http -Url ($OrBase + '/command/data-quality/get-config')
+$r = Invoke-Http -Url ($OrBase + '/command/data-quality/get-config') -Headers $orHdr
 if ($r.Code -eq 200) { Add-Result 'OR data-quality 配置' 'PASS' '200' } else { Add-Result 'OR data-quality 配置' 'FAIL' ("code={0}" -f $r.Code) }
 
-$r = Invoke-Http -Url ($OrBase + '/command/data-quality/get-quality-rules')
+$r = Invoke-Http -Url ($OrBase + '/command/data-quality/get-quality-rules') -Headers $orHdr
 if ($r.Code -eq 200) { Add-Result 'OR 质量规则' 'PASS' '200' } else { Add-Result 'OR 质量规则' 'FAIL' ("code={0}" -f $r.Code) }
 
-$r = Invoke-Http -Url ($OrBase + '/command/core/get-languages')
+$r = Invoke-Http -Url ($OrBase + '/command/core/get-languages') -Headers $orHdr
 if ($r.Code -eq 200) { Add-Result 'OR get-languages' 'PASS' '200' } else { Add-Result 'OR get-languages' 'FAIL' ("code={0}" -f $r.Code) }
 
 # 自研内核接管 wirings/bundle：这两个资源必须仍可下发
-$r = Invoke-Http -Url ($OrBase + '/wirings.js')
+$r = Invoke-Http -Url ($OrBase + '/wirings.js') -Headers $orHdr
 if ($r.Code -eq 200 -and $r.Body.Length -gt 10) {
     Add-Result 'OR wirings.js' 'PASS' ("{0} bytes" -f $r.Body.Length)
 } else {
@@ -334,7 +420,7 @@ if ($r.Code -eq 200 -and $r.Body.Length -gt 10) {
 }
 
 # OR -> AIMP 连接测试（SDK 传输收口后的端到端探针）
-$r = Invoke-Http -Url ($OrBase + '/command/data-quality/test-aimp-connection')
+$r = Invoke-Http -Url ($OrBase + '/command/data-quality/test-aimp-connection') -Headers $orHdr
 $tc = Convert-JsonSafe $r.Body
 if ($r.Code -eq 200 -and $tc -and $tc.connected -eq $true) {
     Add-Result 'OR -> AIMP 连接' 'PASS' ([string]$tc.message)
@@ -375,21 +461,30 @@ if ($r.Code -eq 403) {
 }
 
 # AIMP 日志：确认授权模式与 license-id 并集
+# 注意：OR 的 Java 侧 LicenseGuard 用同一措辞（「模块授权校验：关闭（ruyi.license.enforce=off）」），
+# 故排除含 ruyi.license.enforce 的行，只认 AIMP 自己的格式（带 license-id=）。
 $logDirs = @(
     (Join-Path $InstallDir 'aimp\logs'),
     (Join-Path $InstallDir 'logs')
 )
-$licLine = $null
+if ($AimpLogDir) { $logDirs = @($AimpLogDir) + $logDirs }
+$licCands = New-Object System.Collections.ArrayList
 foreach ($d in $logDirs) {
     if (Test-Path -LiteralPath $d) {
         $lf = Get-ChildItem -LiteralPath $d -Filter '*.log' -File -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
         if ($lf) {
-            $hit = Select-String -LiteralPath $lf.FullName -Pattern '模块授权校验' -ErrorAction SilentlyContinue |
-                Select-Object -Last 1
-            if ($hit) { $licLine = $hit.Line }
+            Select-String -LiteralPath $lf.FullName -Pattern '模块授权校验' -ErrorAction SilentlyContinue |
+                Where-Object { $_.Line -notmatch 'ruyi\.license\.enforce' } |
+                ForEach-Object { [void]$licCands.Add($_.Line) }
         }
     }
+}
+$licLine = $null
+if ($licCands.Count -gt 0) {
+    # 优先取带 license-id 的行（能证明并集配置）；否则退回最后一条（如「关闭」模式）
+    $withId = @($licCands | Where-Object { $_ -match 'license-id=' })
+    if ($withId.Count -gt 0) { $licLine = $withId[-1] } else { $licLine = $licCands[-1] }
 }
 if ($licLine) {
     if ($licLine -match '80,3') {
@@ -418,42 +513,16 @@ if ($r.Code -eq 401) {
     Add-Result '平台未登录拦截' 'FAIL' ("期望 401，实际 {0}" -f $r.Code)
 }
 
-# 读狗免密登录（首选）
-$r = Invoke-Http -Method POST -Url ($PlatformBase + '/api/auth/dog')
-$login = Convert-JsonSafe $r.Body
-$token = $null
-if ($login) {
-    $data = Get-Prop $login 'data'
-    $token = Get-Prop $data 'token'
-    if (-not $token) { $token = Get-Prop $login 'token' }
-}
-if ($token) {
-    $script:token = $token
-    $lic = Get-Prop $data 'license'
-    Add-Result '平台狗登录' 'PASS' ("user={0}, license.ok={1}" -f (Get-Prop $data 'username'), (Get-Prop $lic 'ok'))
-} else {
-    $msg = ''
-    if ($login) { $msg = [string](Get-Prop $login 'message') }
-    Add-Result '平台狗登录' 'WARN' ("失败：{0}（尝试账号密码）" -f $msg)
-
-    if ($PlatformUser -and $PlatformPassword) {
-        $body = @{ username = $PlatformUser; password = $PlatformPassword } | ConvertTo-Json -Compress
-        $r = Invoke-Http -Method POST -Url ($PlatformBase + '/api/auth/login') -Body $body -ContentType 'application/json'
-        $login = Convert-JsonSafe $r.Body
-        if ($login) {
-            $data = Get-Prop $login 'data'
-            $token = Get-Prop $data 'token'
-            if (-not $token) { $token = Get-Prop $login 'token' }
-        }
-        if ($token) {
-            $script:token = $token
-            Add-Result '平台账号登录' 'PASS' ("user={0}" -f (Get-Prop $data 'username'))
-        } else {
-            Add-Result '平台账号登录' 'FAIL' ("code={0}" -f $r.Code)
-        }
+# 平台会话（第 3 节已取；此处复用，避免重复读狗）
+if ($script:token) {
+    if ($platformSession) {
+        $lic = $platformSession.license
+        Add-Result '平台登录' 'PASS' ("user={0}, via={1}, license.ok={2}" -f $platformSession.user, $platformSession.via, (Get-Prop $lic 'ok'))
     } else {
-        Add-Result '平台账号登录' 'SKIP' '未提供 -PlatformUser/-PlatformPassword'
+        Add-Result '平台登录' 'PASS' '已取得会话令牌'
     }
+} else {
+    Add-Result '平台登录' 'FAIL' '未取得会话令牌（读狗与账号密码均失败）'
 }
 
 if ($script:token) {
@@ -496,12 +565,12 @@ if ($script:token) {
         Add-Result '平台 SSO getTasks' 'FAIL' ("code={0}" -f $r.Code)
     }
 
-    # OR 代理通道（两条前缀）
-    $r = Invoke-Http -Url ($PlatformBase + '/or-proxy/command/core/get-version') -Headers $hdr
+    # OR 代理通道（两条前缀）：/app/**（页面外壳）与 /command/**（根相对命令）
+    $r = Invoke-Http -Url ($PlatformBase + '/app/command/core/get-version') -Headers $hdr
     if ($r.Code -eq 200) {
-        Add-Result '平台 -> OR（/or-proxy）' 'PASS' '200'
+        Add-Result '平台 -> OR（/app）' 'PASS' '200'
     } else {
-        Add-Result '平台 -> OR（/or-proxy）' 'FAIL' ("code={0}" -f $r.Code)
+        Add-Result '平台 -> OR（/app）' 'FAIL' ("code={0}" -f $r.Code)
     }
 
     $r = Invoke-Http -Url ($PlatformBase + '/command/core/get-version') -Headers $hdr
