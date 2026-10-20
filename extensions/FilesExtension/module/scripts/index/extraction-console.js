@@ -9,6 +9,9 @@
  * 因此不复用「项目质量任务」的检查语义：这里的一行 = 一个项目的抽取任务。
  */
 
+// 项目页也会加载本文件以复用「抽取参数」表单；项目页没有 actionAreas 注册表，这里兜底。
+Refine.actionAreas = Refine.actionAreas || [];
+
 Refine.ExtractionConsoleUI = function(elmt) {
   this._elmt = elmt;
   this._elmts = null;

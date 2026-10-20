@@ -10,6 +10,7 @@ public class FileStatistics {
     private int otherFiles;
     private int blankPages;
     private int emptyFolders;
+    private long totalSizeBytes;
     private Map<String, Integer> pageSizeDistribution;
 
     public FileStatistics() {
@@ -19,6 +20,7 @@ public class FileStatistics {
         this.otherFiles = 0;
         this.blankPages = 0;
         this.emptyFolders = 0;
+        this.totalSizeBytes = 0;
         this.pageSizeDistribution = new HashMap<>();
     }
 
@@ -92,6 +94,21 @@ public class FileStatistics {
 
     public void incrementEmptyFolders(int count) {
         this.emptyFolders += count;
+    }
+
+    /** 文件总字节数（供汇总报告「数据体积」使用）。 */
+    public long getTotalSizeBytes() {
+        return totalSizeBytes;
+    }
+
+    public void setTotalSizeBytes(long totalSizeBytes) {
+        this.totalSizeBytes = totalSizeBytes;
+    }
+
+    public void addSize(long bytes) {
+        if (bytes > 0) {
+            this.totalSizeBytes += bytes;
+        }
     }
 
     public Map<String, Integer> getPageSizeDistribution() {

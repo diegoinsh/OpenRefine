@@ -154,24 +154,64 @@ ManageRulesDialog.prototype._clearRules = function() {
 };
 
 ManageRulesDialog.prototype._exportRules = function() {
-  var rules = {
-    formatRules: QualityAlignment._formatRules,
-    resourceConfig: QualityAlignment._resourceConfig,
-    contentRules: QualityAlignment._contentRules,
-    aimpConfig: QualityAlignment._aimpConfig
+  var buildTemplate = function(imageRule) {
+    // 资源根路径属于项目现场配置，模板不携带；否则跨项目引用会串路径
+    var resourceConfig = $.extend(true, {}, QualityAlignment._resourceConfig || {});
+    delete resourceConfig.basePath;
+
+    var payload = {
+      formatRules: QualityAlignment._formatRules || {},
+      resourceConfig: resourceConfig,
+      contentRules: QualityAlignment._contentRules || [],
+      aimpConfig: QualityAlignment._aimpConfig || {}
+    };
+    if (imageRule) {
+      payload.imageQualityRule = imageRule;
+    }
+
+    var projectName = (theProject.metadata && theProject.metadata.name)
+        ? theProject.metadata.name : ('project-' + theProject.id);
+
+    // 结构与 RCP 的 saveQualityTemplate 请求体一致：文件可直接作为模板导入
+    var template = {
+      schema: 'rcp.quality-template/v1',
+      templateId: 'quality-rules-' + theProject.id,
+      type: 'compliance',
+      name: projectName + ' 合规规则',
+      description: '从 JinRefine 导出（项目 ' + theProject.id + '）',
+      version: 1,
+      payload: payload
+    };
+
+    var jsonStr = JSON.stringify(template, null, 2);
+    var blob = new Blob([jsonStr], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'quality-template-' + theProject.id + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
-  var jsonStr = JSON.stringify(rules, null, 2);
-  var blob = new Blob([jsonStr], { type: 'application/json' });
-  var url = URL.createObjectURL(blob);
-
-  var a = document.createElement('a');
-  a.href = url;
-  a.download = 'quality-rules-' + theProject.id + '.json';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  // 图像规则优先取当前界面；未打开图像标签时向引擎读取，保证导出完整
+  if (typeof ImageQualityTab !== 'undefined' && ImageQualityTab._currentRule) {
+    var currentRule = ImageQualityTab._isSetUp
+        ? ImageQualityTab._collectRuleFromUI() : ImageQualityTab._currentRule;
+    buildTemplate(currentRule);
+    return;
+  }
+  Refine.wrapCSRF(function(csrfToken) {
+    var url = 'command/data-quality/get-image-quality-rule?' +
+        $.param({ project: theProject.id, csrf_token: csrfToken });
+    $.getJSON(url, function(data) {
+      buildTemplate(data && data.rule ? data.rule : null);
+    }).fail(function() {
+      buildTemplate(null);
+    });
+  });
 };
 
 ManageRulesDialog.prototype._importRules = function() {
@@ -188,31 +228,51 @@ ManageRulesDialog.prototype._importRules = function() {
     var reader = new FileReader();
     reader.onload = function(e) {
       try {
-        var rules = JSON.parse(e.target.result);
+        var doc = JSON.parse(e.target.result);
+        // 兼容 RCP 模板文件（{payload:{...}}）与历史裸规则文件
+        var rules = doc.payload ? doc.payload : doc;
 
         if (rules.formatRules) QualityAlignment._formatRules = rules.formatRules;
-        if (rules.resourceConfig) QualityAlignment._resourceConfig = rules.resourceConfig;
+        if (rules.resourceConfig) {
+          // 导出的模板不含现场路径，导入时保留当前项目已登记的资源根路径
+          var currentBasePath = QualityAlignment._resourceConfig && QualityAlignment._resourceConfig.basePath;
+          QualityAlignment._resourceConfig = rules.resourceConfig;
+          if (currentBasePath) {
+            QualityAlignment._resourceConfig.basePath = currentBasePath;
+          }
+        }
         if (rules.contentRules) QualityAlignment._contentRules = rules.contentRules;
         if (rules.aimpConfig) QualityAlignment._aimpConfig = rules.aimpConfig;
 
-        // Close dialog first
+        var imageRule = rules.imageQualityRule || null;
+        var uiReady = typeof ImageQualityTab !== 'undefined' && ImageQualityTab._isSetUp;
+        if (imageRule && uiReady) {
+          ImageQualityTab._currentRule = imageRule;
+          ImageQualityTab._applyRuleToUI(imageRule);
+        }
+
         DialogSystem.dismissUntil(self._level - 1);
 
-        // Auto save to backend (silent=true to avoid double alert)
         QualityAlignment._saveRules(function(success) {
           if (success) {
-            // After save, launch or refresh quality tabs
+            if (imageRule && !uiReady) {
+              // 图像标签未初始化时 _saveRules 不会保存图像规则，这里单独补写
+              Refine.postCSRF(
+                "command/data-quality/save-image-quality-rule",
+                { project: theProject.id, rule: JSON.stringify(imageRule) },
+                function() {},
+                "json"
+              );
+            }
+
             if (QualityAlignment._isSetUp) {
-              // Already set up, just refresh
               QualityAlignment._refreshFormatRulesTable();
               QualityAlignment._renderResourceCheckTab();
               QualityAlignment._refreshContentRulesTable();
             } else {
-              // Not set up, launch tabs
               QualityAlignment.launch();
             }
 
-            // Test AIMP connection if configured
             if (QualityAlignment._aimpConfig && QualityAlignment._aimpConfig.serviceUrl) {
               QualityAlignment._testAndUpdateAimpConnection(QualityAlignment._aimpConfig.serviceUrl);
             }
@@ -229,4 +289,3 @@ ManageRulesDialog.prototype._importRules = function() {
 
   input.click();
 };
-

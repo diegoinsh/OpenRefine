@@ -109,6 +109,7 @@ public class QuantityImageChecker implements ImageChecker {
             } else if (item.isFile()) {
                 folderFileCount++;
                 statistics.incrementFiles(1);
+                statistics.addSize(item.length());
                 if (isImageFile(item)) {
                     folderImageCount++;
                     statistics.incrementImageFiles(1);

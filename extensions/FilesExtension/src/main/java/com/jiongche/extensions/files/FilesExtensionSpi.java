@@ -13,6 +13,7 @@ import com.jiongche.refine.spi.RefineModuleContext;
 import com.jiongche.refine.spi.RefineModuleSpi;
 import org.openrefine.extensions.files.importer.BatchExtractionCommand;
 import org.openrefine.extensions.files.importer.ExtractionConfigCommand;
+import org.openrefine.extensions.files.importer.ExtractionResultCommand;
 import org.openrefine.extensions.files.importer.FilesImportingController;
 import org.openrefine.extensions.files.importer.WorkspacePaths;
 
@@ -46,6 +47,9 @@ public class FilesExtensionSpi implements RefineModuleSpi {
         // 批量著录命令
         ctx.registerCommand("batch-extraction", new BatchExtractionCommand());
 
+        // 抽取结果分页读取（平台对外结果接口使用，只读）
+        ctx.registerCommand("extraction-result", new ExtractionResultCommand());
+
         // 抽取控制台系统级配置命令（get/save）
         ctx.registerCommand("extraction-config", new ExtractionConfigCommand());
 
@@ -63,14 +67,22 @@ public class FilesExtensionSpi implements RefineModuleSpi {
                 "styles/files-importing-controller.css",
                 "styles/index/extraction-console.css");
 
-        // 注入 /project 页的脚本
+        // 注入 /project 页的脚本（抽取参数 tab、管理抽取规则弹窗、扩展栏菜单）
         ctx.addClientSidePaths(
                 "project/scripts",
-                "scripts/project-injection.js");
+                "scripts/project-injection.js",
+                "scripts/vendor/tiny-pinyin.js",
+                "scripts/index/import-from-local-dir.js",
+                "scripts/index/extraction-console.js",
+                "scripts/extraction-project-panel.js",
+                "scripts/dialogs/extraction-rules-dialog.js",
+                "scripts/menu-bar-extension.js");
 
         // 注入 /project 页的样式
         ctx.addClientSidePaths(
                 "project/styles",
-                "styles/files-importing-controller.css");
+                "styles/files-importing-controller.css",
+                "styles/index/extraction-console.css",
+                "styles/extraction-project-panel.css");
     }
 }

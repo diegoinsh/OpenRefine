@@ -380,21 +380,21 @@ public class ImageQualityChecker {
         
         logger.info("=== 开始执行数量统计 ===");
         QuantityImageChecker quantityChecker = new QuantityImageChecker();
-        if (quantityChecker.isEnabled(imageRule)) {
-            logger.info("数量统计已启用");
-            FileStatistics quantityStatistics = quantityChecker.checkStatistics(view, TableViews.allRowIndexes(view), imageRule, resourceConfig);
-            statistics.setTotalFolders(quantityStatistics.getTotalFolders());
-            statistics.setTotalFiles(quantityStatistics.getTotalFiles());
-            statistics.setImageFiles(quantityStatistics.getImageFiles());
-            statistics.setOtherFiles(quantityStatistics.getOtherFiles());
-            statistics.setEmptyFolders(quantityStatistics.getEmptyFolders());
-            logger.info("数量统计完成 - 文件夹: {}, 总文件: {}, 图片文件: {}, 其他文件: {}, 空白页: {}, 空文件夹: {}", 
-                       statistics.getTotalFolders(), statistics.getTotalFiles(), 
-                       statistics.getImageFiles(), statistics.getOtherFiles(),
-                       statistics.getBlankPages(), statistics.getEmptyFolders());
-        } else {
-            logger.info("数量统计未启用");
-        }
+        // 数量统计默认执行（含文件总体积）：汇总报告需要文件夹/文件/图像数与数据体积，
+        // 与「数量统计」检查项是否启用无关；启用与否只影响是否产生该类错误。
+        logger.info("数量统计已启用: {}", quantityChecker.isEnabled(imageRule));
+        FileStatistics quantityStatistics = quantityChecker.checkStatistics(view, TableViews.allRowIndexes(view), imageRule, resourceConfig);
+        statistics.setTotalFolders(quantityStatistics.getTotalFolders());
+        statistics.setTotalFiles(quantityStatistics.getTotalFiles());
+        statistics.setImageFiles(quantityStatistics.getImageFiles());
+        statistics.setOtherFiles(quantityStatistics.getOtherFiles());
+        statistics.setEmptyFolders(quantityStatistics.getEmptyFolders());
+        statistics.setTotalSizeBytes(quantityStatistics.getTotalSizeBytes());
+        logger.info("数量统计完成 - 文件夹: {}, 总文件: {}, 图片文件: {}, 其他文件: {}, 空白页: {}, 空文件夹: {}, 总字节: {}",
+                   statistics.getTotalFolders(), statistics.getTotalFiles(),
+                   statistics.getImageFiles(), statistics.getOtherFiles(),
+                   statistics.getBlankPages(), statistics.getEmptyFolders(),
+                   statistics.getTotalSizeBytes());
         logger.info("=== 数量统计结束 ===");
         
         logger.info("=== 开始执行重复图片审查 ===");
