@@ -847,9 +847,15 @@ public class BatchExtractionManager {
          * <p>结案方式只能由结案文书承载：随案（在办）卷在审理阶段截断，卷内没有这类文书，
          * 整卷尚无结案方式。此时若仍保留页级抽取到的「判决」「调解」等值（程序性文书正文里
          * 偶见的措辞被误抽），就会把「未结案」错误地表达成「已判决」。
+         *
+         * <p>「原审法院判决书」是二审卷收录的下级法院裁判（上诉材料），不是本卷结案文书，
+         * 不能据此认定本卷已结案。
          */
         boolean hasClosingDocument() {
             for (String title : pieceTitles) {
+                if (title.contains("原审")) {
+                    continue;
+                }
                 if (title.contains("判决书") || title.contains("裁定书")
                         || title.contains("调解书") || title.contains("结案登记表")) {
                     return true;
@@ -2387,6 +2393,7 @@ public class BatchExtractionManager {
             n.put("name", ce.getName());
         }
         project.getMetadata().setCustomMetadata(VOLUME_FIELDS_KEY, fields.toString());
+        ProjectManager.singleton.ensureProjectSaved(task.projectId);
     }
 
     /**

@@ -209,6 +209,54 @@ public class VolumeSummaryTest {
                 "卷内有判决书时结案方式照常保留");
     }
 
+    /**
+     * 二审随案卷收录的「原审法院判决书」是下级法院裁判（上诉材料），不是本卷结案文书：
+     * 不能据此保留结案方式；本卷自己的二审判决书才算。
+     */
+    @Test
+    public void ignoresOriginalInstanceJudgmentWhenDecidingClosingDocument() throws Exception {
+        List<CustomElementType> elements = Arrays.asList(
+                new CustomElementType("结案方式", "jiean_fangshi", CustomElementType.ACTION_INCLUDE, ""));
+
+        BatchExtractionManager.Task task = new BatchExtractionManager.Task(
+                5L, "n/a", ExtractionTemplate.BATCH_TITLE_VOLUME,
+                elements, null, null, Collections.emptyList(),
+                Collections.emptyList(), false, false, null);
+
+        List<String> columns = ExtractionTemplate.volumeSummaryColumns();
+        columns.add(columns.size() - 1, "结案方式");
+        SheetData summarySheet = new SheetData(BatchExtractionCommand.SUMMARY_SHEET_ID,
+                BatchExtractionCommand.SUMMARY_SHEET_NAME, "");
+        for (int i = 0; i < columns.size(); i++) {
+            summarySheet.columnModel.addColumn(i, new Column(i, columns.get(i)), false);
+        }
+        summarySheet.columnModel.update();
+        task.summarySheet = summarySheet;
+
+        // 卷1（二审在办）：卷内只有上诉材料「原审法院判决书」，「判决」是正文误抽
+        BatchExtractionManager.VolumeSummary ongoing =
+                new BatchExtractionManager.VolumeSummary("卷1", "D:\\cases\\卷1");
+        ongoing.add("苏州市中级人民法院", "20250510", 8, "原审法院判决书", mapOf(
+                "jiean_fangshi", "判决"));
+        ongoing.add("苏州市中级人民法院", "20250602", 2, "上诉状", mapOf(
+                "jiean_fangshi", "判决"));
+        task.volumeSummaries.put("卷1", ongoing);
+
+        // 卷2（二审已结案）：本卷自己的判决书
+        BatchExtractionManager.VolumeSummary closed =
+                new BatchExtractionManager.VolumeSummary("卷2", "D:\\cases\\卷2");
+        closed.add("苏州市中级人民法院", "20250618", 4, "民事判决书（二审）", mapOf(
+                "jiean_fangshi", "判决"));
+        task.volumeSummaries.put("卷2", closed);
+
+        BatchExtractionManager.get().rebuildVolumeSummary(task);
+
+        Assert.assertEquals(cellText(summarySheet.rows.get(0), summarySheet, "结案方式"), "",
+                "原审法院判决书不是本卷结案文书，结案方式必须为空");
+        Assert.assertEquals(cellText(summarySheet.rows.get(1), summarySheet, "结案方式"), "判决",
+                "本卷二审判决书照常保留结案方式");
+    }
+
     /** 当事人值的规范化属件级策略：剥离称谓、空白也作分隔、件内去重、统一全角逗号 */
     @Test
     public void normalizesPartyValueAtPieceLevel() {

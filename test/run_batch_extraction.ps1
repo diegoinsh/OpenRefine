@@ -8,6 +8,7 @@
 用法：
     & .\test\run_batch_extraction.ps1 -Preset ws
     & .\test\run_batch_extraction.ps1 -Preset court -ProjectName 'REG-法院-1015'
+    & .\test\run_batch_extraction.ps1 -Preset court-casual -ProjectName 'REG-法院-随案-1022'
     & .\test\run_batch_extraction.ps1 -Preset keji
     & .\test\run_batch_extraction.ps1 -RootPath 'D:\xx' -ArchiveCategory '科技档案' -ProjectName 'REG-xx'
 
@@ -19,6 +20,7 @@
 预设（目录与门类取自 BASELINE 文档的同款语料）：
     ws    → D:\00_toubiao\自动著录\WS                                   文书档案
     court → D:\00_toubiao\自动著录\法院诉讼\ZY-FYSS\JZ07\2024            专业档案 / 人民法院诉讼档案
+    court-casual → D:\00_toubiao\自动著录\法院诉讼\ZY-FYSS\REG\2026      同上（随案/在办卷，先跑 copy_casual_volumes.ps1 拷贝）
     keji  → D:\00_toubiao\自动著录\KJ                                   科技档案（PDF 类型）
 
 要点：
@@ -30,7 +32,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('ws', 'court', 'keji')]
+    [ValidateSet('ws', 'court', 'court-casual', 'keji')]
     [string]$Preset,
     # 默认走能力平台（RCP）的 OR 代理通道；-DirectOr 时直连 JinRefine(OR) :3333
     [string]$Base = 'http://127.0.0.1:8090',
@@ -76,29 +78,38 @@ $CourtCustomElements = @'
 ]
 '@
 
+$hasRootPath = $PSBoundParameters.ContainsKey('RootPath')
 switch ($Preset) {
     'ws' {
-        $RootPath = 'D:\00_toubiao\自动著录\WS'
+        if (-not $hasRootPath) { $RootPath = 'D:\00_toubiao\自动著录\WS' }
         $ArchiveCategory = '文书档案'
         $ArchiveSubCategory = ''
         if (-not $PSBoundParameters.ContainsKey('CustomElements')) { $CustomElements = $OptionalElements }
     }
     'court' {
-        $RootPath = 'D:\00_toubiao\自动著录\法院诉讼\ZY-FYSS\JZ07\2024'
+        if (-not $hasRootPath) { $RootPath = 'D:\00_toubiao\自动著录\法院诉讼\ZY-FYSS\JZ07\2024' }
         $ArchiveCategory = '专业档案'
         $ArchiveSubCategory = '人民法院诉讼档案'
         # 法院侧必须「配齐 7 要素」：非必选项不配全会导致卷级 7 列缺失/空值
         if (-not $PSBoundParameters.ContainsKey('CustomElements')) { $CustomElements = $CourtCustomElements }
     }
+    'court-casual' {
+        # 随案（在办）卷：源投放目录只读，评测前由 copy_casual_volumes.ps1 拷到 REG\2026
+        # 传 -RootPath 可只跑其中几卷（如临时拷到 REG\_smoke 做小样本验证）
+        if (-not $hasRootPath) { $RootPath = 'D:\00_toubiao\自动著录\法院诉讼\ZY-FYSS\REG\2026' }
+        $ArchiveCategory = '专业档案'
+        $ArchiveSubCategory = '人民法院诉讼档案'
+        if (-not $PSBoundParameters.ContainsKey('CustomElements')) { $CustomElements = $CourtCustomElements }
+    }
     'keji' {
-        $RootPath = 'D:\00_toubiao\自动著录\KJ'
+        if (-not $hasRootPath) { $RootPath = 'D:\00_toubiao\自动著录\KJ' }
         $ArchiveCategory = '科技档案'
         $ArchiveSubCategory = ''
         if (-not $PSBoundParameters.ContainsKey('CustomElements')) { $CustomElements = $OptionalElements }
     }
 }
 
-if (-not $RootPath) { throw '缺少 -RootPath（或指定 -Preset ws|court|keji）' }
+if (-not $RootPath) { throw '缺少 -RootPath（或指定 -Preset ws|court|court-casual|keji）' }
 if (-not $ArchiveCategory) { throw '缺少 -ArchiveCategory（或指定 -Preset）' }
 if (-not (Test-Path -LiteralPath $RootPath)) { throw "目录不存在：$RootPath" }
 if (-not $ProjectName) {
