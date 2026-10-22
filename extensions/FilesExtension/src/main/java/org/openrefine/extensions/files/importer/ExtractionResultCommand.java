@@ -1,5 +1,6 @@
 package org.openrefine.extensions.files.importer;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -106,6 +107,10 @@ public class ExtractionResultCommand extends Command {
         }
 
         ArrayNode rowArr = result.putArray("rows");
+        // 卷级表：每行按项目登记的卷级要素列清单补 missingFields（缺值要素），
+        // 随案（在办）卷据此表达「卷级要素尚未形成」，与「抽取没抽到」区分开
+        boolean volumeSheet = BatchExtractionCommand.SUMMARY_SHEET_ID.equals(sheet.sheetId);
+        List<VolumeField> volumeFields = volumeSheet ? volumeFieldSpecs(project) : List.of();
         for (int i = start; i < end; i++) {
             Row row = sheet.rows.get(i);
             ObjectNode obj = rowArr.addObject();
@@ -119,9 +124,78 @@ public class ExtractionResultCommand extends Command {
                     obj.set(c.getName(), mapper.valueToTree(value));
                 }
             }
+            if (!volumeFields.isEmpty()) {
+                appendMissingFields(obj, row, sheet.columnModel, volumeFields);
+            }
         }
 
         respondJSON(response, result);
+    }
+
+    /** 卷级要素列：{@code key} 为要素键（如 jiean_fangshi），{@code name} 为结果列名 */
+    private static final class VolumeField {
+        final String key;
+        final String name;
+
+        VolumeField(String key, String name) {
+            this.key = key;
+            this.name = name;
+        }
+    }
+
+    /**
+     * 从项目 metadata 读卷级要素列清单（抽取启动时写入，见
+     * {@link BatchExtractionManager#VOLUME_FIELDS_KEY}）；没有登记过（旧项目）返回空。
+     */
+    private static List<VolumeField> volumeFieldSpecs(Project project) {
+        List<VolumeField> out = new ArrayList<>();
+        if (project.getMetadata() == null) {
+            return out;
+        }
+        Object stored = project.getMetadata().getCustomMetadata(BatchExtractionManager.VOLUME_FIELDS_KEY);
+        if (!(stored instanceof String) || ((String) stored).isEmpty()) {
+            return out;
+        }
+        try {
+            JsonNode node = mapper.readTree((String) stored);
+            if (!node.isArray()) {
+                return out;
+            }
+            for (JsonNode n : node) {
+                String key = n.path("key").asText("");
+                String name = n.path("name").asText("");
+                if (!key.isEmpty() && !name.isEmpty()) {
+                    out.add(new VolumeField(key, name));
+                }
+            }
+        } catch (Exception e) {
+            // metadata 损坏时按「无登记」处理，不影响结果分页
+        }
+        return out;
+    }
+
+    /** 把本行缺值的卷级要素写成 {@code missingFields}；全部有值时不动该行 */
+    private static void appendMissingFields(ObjectNode rowObj, Row row,
+                                            com.google.refine.model.ColumnModel columnModel,
+                                            List<VolumeField> volumeFields) {
+        ArrayNode missing = null;
+        for (VolumeField field : volumeFields) {
+            Column column = columnModel.getColumnByName(field.name);
+            if (column == null) {
+                continue;
+            }
+            Cell cell = row.getCell(column.getCellIndex());
+            Object value = cell == null ? null : cell.value;
+            if (value != null && !String.valueOf(value).trim().isEmpty()) {
+                continue;
+            }
+            if (missing == null) {
+                missing = rowObj.putArray("missingFields");
+            }
+            ObjectNode n = missing.addObject();
+            n.put("key", field.key);
+            n.put("name", field.name);
+        }
     }
 
     /** {@code inner}/{@code volume} 别名 → 实际 SheetData；单表项目回退到主表。 */

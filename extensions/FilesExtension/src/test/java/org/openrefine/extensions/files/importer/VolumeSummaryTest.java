@@ -163,6 +163,52 @@ public class VolumeSummaryTest {
         Assert.assertEquals(summary.volumeElements.get("anyou"), "买卖合同纠纷");
     }
 
+    /**
+     * 随案（在办）卷：卷内没有判决书/裁定书/调解书/结案登记表时，页级误抽的结案方式必须清空；
+     * 卷内已有结案文书的完整卷照常保留「判决」。
+     */
+    @Test
+    public void dropsClosingMethodWhenVolumeHasNoClosingDocument() throws Exception {
+        List<CustomElementType> elements = Arrays.asList(
+                new CustomElementType("结案方式", "jiean_fangshi", CustomElementType.ACTION_INCLUDE, ""));
+
+        BatchExtractionManager.Task task = new BatchExtractionManager.Task(
+                4L, "n/a", ExtractionTemplate.BATCH_TITLE_VOLUME,
+                elements, null, null, Collections.emptyList(),
+                Collections.emptyList(), false, false, null);
+
+        List<String> columns = ExtractionTemplate.volumeSummaryColumns();
+        columns.add(columns.size() - 1, "结案方式");
+        SheetData summarySheet = new SheetData(BatchExtractionCommand.SUMMARY_SHEET_ID,
+                BatchExtractionCommand.SUMMARY_SHEET_NAME, "");
+        for (int i = 0; i < columns.size(); i++) {
+            summarySheet.columnModel.addColumn(i, new Column(i, columns.get(i)), false);
+        }
+        summarySheet.columnModel.update();
+        task.summarySheet = summarySheet;
+
+        // 卷1（在办）：止于受理/应诉阶段，没有结案文书；「判决」是程序性文书正文被误抽
+        BatchExtractionManager.VolumeSummary ongoing =
+                new BatchExtractionManager.VolumeSummary("卷1", "D:\\cases\\卷1");
+        ongoing.add("张家口市中级人民法院", "20250110", 2, "受理案件通知书", mapOf(
+                "jiean_fangshi", "判决"));
+        task.volumeSummaries.put("卷1", ongoing);
+
+        // 卷2（已结案）：卷内有判决书，结案方式保留
+        BatchExtractionManager.VolumeSummary closed =
+                new BatchExtractionManager.VolumeSummary("卷2", "D:\\cases\\卷2");
+        closed.add("张家口市中级人民法院", "20250320", 6, "民事判决书", mapOf(
+                "jiean_fangshi", "判决"));
+        task.volumeSummaries.put("卷2", closed);
+
+        BatchExtractionManager.get().rebuildVolumeSummary(task);
+
+        Assert.assertEquals(cellText(summarySheet.rows.get(0), summarySheet, "结案方式"), "",
+                "卷内无结案文书时结案方式必须为空");
+        Assert.assertEquals(cellText(summarySheet.rows.get(1), summarySheet, "结案方式"), "判决",
+                "卷内有判决书时结案方式照常保留");
+    }
+
     /** 当事人值的规范化属件级策略：剥离称谓、空白也作分隔、件内去重、统一全角逗号 */
     @Test
     public void normalizesPartyValueAtPieceLevel() {

@@ -88,6 +88,14 @@ public class BatchExtractionManager {
     public static final String PAGE_MAP_KEY = "aimpElementPageMap";
 
     /**
+     * 卷级要素列清单（项目 metadata）：值为 JSON 数组 {@code [{"key","name"}, ...]}，
+     * 只含本模板实际生成列的卷级要素。结果接口据此判断「卷级行上哪些要素列缺值」，
+     * 以 {@code missingFields} 随结果返回——随案（在办）卷的卷级要素尚未形成，
+     * 需要显式告知调用方「是缺项，不是没抽到」。
+     */
+    public static final String VOLUME_FIELDS_KEY = "aimpVolumeLevelFields";
+
+    /**
      * 页映射的行级键「件首页」：值为 {v,c,p,f}，p 为件起始页、f 为该页文件名。
      * 前端点击「要素以外的行」时按它定位到该件第一页；与列名区分开，不会与要素候选混淆。
      */
@@ -399,6 +407,12 @@ public class BatchExtractionManager {
         /** 卷内出现过的法院名及件数：诉讼档案卷级题名要取本卷立卷法院，而非原审法院 */
         final Map<String, Integer> courtCounts = new LinkedHashMap<>();
         /**
+         * 卷内各件的题名原文：判定本卷是否已形成结案文书。
+         * 随案（在办）卷止于审理阶段锚点，卷内没有判决书/裁定书/调解书/结案登记表，
+         * 结案方式也就没有来源；此前从程序性文书上抽到的「判决」「调解」等按无依据处理。
+         */
+        final List<String> pieceTitles = new ArrayList<>();
+        /**
          * 卷级要素汇总结果：key → 取值，写入「卷级」表对应列。
          * 各要素的汇总规则见 add / resolveElements：当事人并集去重、结案方式取最晚一件、
          * 密级与开放状态取最严一档、案由/审级/保管期限取众数。
@@ -481,6 +495,7 @@ public class BatchExtractionManager {
                 collectDatePages(d, candidates);
             }
             if (title != null && !title.trim().isEmpty()) {
+                pieceTitles.add(title.trim());
                 String[] causeAndDocType = TitleSplitter.splitCauseAndDocType(title);
                 if (!causeAndDocType[0].isEmpty()) {
                     causes.add(causeAndDocType[0]);
@@ -824,6 +839,23 @@ public class BatchExtractionManager {
                 }
             }
             return court;
+        }
+
+        /**
+         * 本卷是否已形成结案文书（判决书／裁定书／调解书／结案登记表）。
+         *
+         * <p>结案方式只能由结案文书承载：随案（在办）卷在审理阶段截断，卷内没有这类文书，
+         * 整卷尚无结案方式。此时若仍保留页级抽取到的「判决」「调解」等值（程序性文书正文里
+         * 偶见的措辞被误抽），就会把「未结案」错误地表达成「已判决」。
+         */
+        boolean hasClosingDocument() {
+            for (String title : pieceTitles) {
+                if (title.contains("判决书") || title.contains("裁定书")
+                        || title.contains("调解书") || title.contains("结案登记表")) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         /** 案卷题名要求简练（GB/T 9705—2008 3.1.3.3）：当事人列前 3 位，第 4 位起以「等」概称 */
@@ -1197,6 +1229,7 @@ public class BatchExtractionManager {
             project.setActiveSheet(BatchExtractionCommand.INNER_SHEET_ID);
         }
         restorePageMap(task, project);
+        persistVolumeFieldList(task, project);
         try {
             int consecutiveFailures = 0;
             for (UnitScanner.Volume unit : task.units) {
@@ -2339,6 +2372,24 @@ public class BatchExtractionManager {
     }
 
     /**
+     * 把本项目的卷级要素列（key + 显示名）写入项目 metadata，供结果接口给卷级行补
+     * {@code missingFields}。只记「本模板实际生成了列」的卷级要素；单表项目（无卷级表）不记。
+     */
+    private void persistVolumeFieldList(Task task, Project project) {
+        if (task.summarySheet == null || project.getMetadata() == null) return;
+        ArrayNode fields = mapper.createArrayNode();
+        for (CustomElementType ce : task.customElements) {
+            if (ce == null || !ce.isInclude() || !ExtractionTemplate.isVolumeLevelElement(ce.getKey())) {
+                continue;
+            }
+            ObjectNode n = fields.addObject();
+            n.put("key", ce.getKey());
+            n.put("name", ce.getName());
+        }
+        project.getMetadata().setCustomMetadata(VOLUME_FIELDS_KEY, fields.toString());
+    }
+
+    /**
      * 续跑时把项目里已有的页映射载入本次任务的内存页映射。
      *
      * <p>页映射（要素取值所在页 + 页型）以「表内行号」为键：续跑不清行，行号与上次一致，故历史卷
@@ -2463,6 +2514,11 @@ public class BatchExtractionManager {
         for (VolumeSummary summary : task.volumeSummaries.values()) {
             // 先按件级汇总落定卷级要素，卷级题名依赖其中的当事人、案由、审级
             summary.resolveElements();
+            // 结案方式须由结案文书承载：卷内没有判决书/裁定书/调解书/结案登记表时，
+            // 整卷尚未结案（随案/在办卷），页级误抽的「判决」「调解」等按无依据处理
+            if (!summary.hasClosingDocument()) {
+                summary.volumeElements.remove("jiean_fangshi");
+            }
             Row row = new Row(columnModel.getMaxCellIndex() + 1);
             put(columnModel, row, "案卷号", summary.caseNo);
             put(columnModel, row, "题名", summary.volumeTitle());
