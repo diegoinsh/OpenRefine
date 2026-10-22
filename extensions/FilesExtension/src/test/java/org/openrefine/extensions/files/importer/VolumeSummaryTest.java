@@ -257,6 +257,22 @@ public class VolumeSummaryTest {
                 "本卷二审判决书照常保留结案方式");
     }
 
+    /** 只有二审法院制作的程序文书（题名含「二审」）才能判定审级，上诉状/移送存根不算 */
+    @Test
+    public void prefersSecondInstanceOnlyWhenAppellateCourtDocumentsPresent() {
+        Assert.assertNull(BatchExtractionManager.proceduralTrialLevel(
+                Arrays.asList("受理案件通知书", "开庭传票")), "一审卷无二审程序文书");
+        Assert.assertEquals(BatchExtractionManager.proceduralTrialLevel(
+                Arrays.asList("原审法院判决书", "民事上诉状", "二审应诉通知书")), "二审");
+        Assert.assertNull(BatchExtractionManager.proceduralTrialLevel(
+                Arrays.asList("原审法院判决书", "开庭传票")), "原审判决书不是二审证据");
+        // 完整一审卷含上诉移送存根/上诉状（当事人已上诉，但卷仍是本案一审卷），不得翻成二审
+        Assert.assertNull(BatchExtractionManager.proceduralTrialLevel(
+                Arrays.asList("上诉案件移送函存根", "开庭传票")), "移送函存根不判定审级");
+        Assert.assertNull(BatchExtractionManager.proceduralTrialLevel(
+                Arrays.asList("民事上诉状", "上诉案件受理费缴费凭证")), "上诉状不判定审级");
+    }
+
     /** 当事人值的规范化属件级策略：剥离称谓、空白也作分隔、件内去重、统一全角逗号 */
     @Test
     public void normalizesPartyValueAtPieceLevel() {

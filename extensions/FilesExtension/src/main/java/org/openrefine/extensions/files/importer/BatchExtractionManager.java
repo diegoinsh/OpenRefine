@@ -1589,6 +1589,14 @@ public class BatchExtractionManager {
                         // 审级取卷级多数票：上诉需附一审判决书、上诉案件移送函等前审材料，
                         // 卷内会同时出现两类案号，逐页推断会被前审材料拉成"一审"
                         String volumeTrialLevel = litigationArchive ? majorityTrialLevel(pageValues) : null;
+                        // 卷内出现二审法院程序文书（题名含「二审」）时，本案审级只能是二审
+                        // ——前审材料再多也不改变；上诉状/移送书一审卷也可能有，不作证据
+                        if (litigationArchive) {
+                            String proceduralLevel = proceduralTrialLevel(pieceTitles(pieces));
+                            if (proceduralLevel != null) {
+                                volumeTrialLevel = proceduralLevel;
+                            }
+                        }
                         if (logger.isInfoEnabled()) {
                             StringBuilder sb = new StringBuilder();
                             for (TitleSplitter.Piece p : pieces) {
@@ -2083,6 +2091,35 @@ public class BatchExtractionManager {
     private static Integer pageNoAt(UnitScanner.Volume unit, int index) {
         if (!unit.numberedPages || index < 0 || index >= unit.pageNos.size()) return null;
         return unit.pageNos.get(index);
+    }
+
+    /** 分件题名清单（跳过空题名），供卷级裁决类规则使用 */
+    private static List<String> pieceTitles(List<TitleSplitter.Piece> pieces) {
+        List<String> titles = new ArrayList<>();
+        for (TitleSplitter.Piece p : pieces) {
+            if (p.title != null && !p.title.trim().isEmpty()) {
+                titles.add(p.title.trim());
+            }
+        }
+        return titles;
+    }
+
+    /**
+     * 卷级审级的程序性证据：卷内出现**二审法院制作**的程序文书（题名含「二审」，
+     * 如二审受理案件通知书、二审应诉通知书）时，本案审级只能是二审。原审法院
+     * 判决书等前审材料会使页级多数票偏向"一审"，故程序性证据优先。
+     * 民事上诉状、上诉案件移送书（存根）只说明发生过上诉/移送，一审卷同样可能有，
+     * 不足以判定本案审级，不能单独作为证据；题名含「原审」的件也不算。
+     *
+     * @return "二审" 存在二审法院程序文书；null 无该证据（调用方回落多数票）
+     */
+    static String proceduralTrialLevel(List<String> pieceTitles) {
+        if (pieceTitles == null) return null;
+        for (String title : pieceTitles) {
+            if (title == null || title.contains("原审")) continue;
+            if (title.contains("二审")) return "二审";
+        }
+        return null;
     }
 
     /**
