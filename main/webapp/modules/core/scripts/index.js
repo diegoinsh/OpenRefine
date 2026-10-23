@@ -106,9 +106,13 @@ $(function() {
 
           // $("#openrefine-extensions").text($.i18n('core-index/refine-extensions', OpenRefineVersion.module_names.join(", ")));
           $("#java-runtime-version").text(OpenRefineVersion.java_runtime_name + " " + OpenRefineVersion.java_runtime_version);
-          if (OpenRefineVersion.display_new_version_notice === "true") {
-            showNotifications();
-          }
+          // 本产品暂不做在线版本升级：客户界面不出现任何升级/订阅提示，也不请求
+          // 外部 versions.json（离线客户机上那只是一次必失败的请求）。
+          // 后端 display_new_version_notice 已在 GetVersionCommand 里默认 "false"，
+          // 这里再显式短路，避免将来有人把该属性改回 true 把提示带回客户界面。
+          // if (OpenRefineVersion.display_new_version_notice === "true") {
+          //   showNotifications();
+          // }
           buildClipBoardInformation(OpenRefineVersion);
         }
     );
