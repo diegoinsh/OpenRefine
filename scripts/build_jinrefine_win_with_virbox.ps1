@@ -26,11 +26,17 @@ NOTE: This script intentionally uses only ASCII characters to avoid encoding
 param(
 	[string]$VirboxCliPath    = 'C:\Program Files (x86)\senseshield\sdk\Tool\VirboxProtect\bin64\VirboxProtector_con.exe',
 	[string]$JavaPassword,
+	# License passphrase (ssp <license><password>). Falls back to the credential
+	# file key license_password. Distinct from the Java encryption passphrase.
+	[string]$LicensePassword,
 	[string]$Platforms        = 'windows-x64',
 	# Virbox Java project directory (where jars will be copied and .ssp must exist)
 	[string]$VirboxJavaDir    = 'G:\workshop\RUYI\build\jinrefine\java_source',
 	# Virbox output directory (protected jars and sjt_agent.jar will be written here)
 	[string]$VirboxOutputDir  = 'G:\workshop\RUYI\build\jinrefine\java_bce_output',
+	# Fast iteration switch: reuse the existing packaging\target zip instead of
+	# running Maven again. Only useful when re-protecting jars (e.g. ssp changes).
+	[switch]$SkipMaven,
 	[string]$VirboxSSPPath  = 'G:\workshop\RUYI\packaging\jinrefine\config\java_source.ssp',
 	[string]$VirboxOutputSSPDir  = 'G:\workshop\RUYI\build\jinrefine\',
 	# Stable jar file name used inside Virbox project (.ssp must refer to this name)
@@ -46,25 +52,35 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# R-05: fall back to the local credential file when -JavaPassword was not
-# passed. The ssp template no longer contains any plaintext password; the DS
-# password is injected via --java-pass only (values never echoed / not logged).
+# R-05: fall back to the local credential file when the passwords were not
+# passed on the command line. The ssp template no longer contains any plaintext
+# password: two placeholders are injected into a throwaway copy at build time.
+#   __JAVA_DS_PWD__    -> Virbox API password (slm_init), key java_password
+#   __LICENSE_DS_PWD__ -> license passphrase, key license_password
+# Values are never echoed / never written to the repository or the logs.
 if (-not $VirboxCredFile) {
 	$VirboxCredFile = Join-Path $env:USERPROFILE '.config\sense_key'
 }
-if (-not $JavaPassword -and (Test-Path $VirboxCredFile)) {
+if ((-not $JavaPassword -or -not $LicensePassword) -and (Test-Path $VirboxCredFile)) {
 	foreach ($ln in (Get-Content $VirboxCredFile -ErrorAction SilentlyContinue)) {
 		$line = "$ln".Trim()
 		if (-not $line -or $line.StartsWith('#')) { continue }
 		if ($line -match '^\s*([^=:]+?)\s*[=:]\s*(.+)$') {
 			$k = $matches[1].Trim().ToLower()
-			if ($k -match '^(java_password|java_pwd|java_pass|ds_password|ds_pwd)$') {
-				$JavaPassword = $matches[2].Trim()
+			$v = $matches[2].Trim()
+			if (-not $JavaPassword -and $k -match '^(java_password|java_pwd|java_pass|ds_password|ds_pwd)$') {
+				$JavaPassword = $v
+			}
+			if (-not $LicensePassword -and $k -match '^(license_password|license_pwd|lic_password|lic_pwd)$') {
+				$LicensePassword = $v
 			}
 		}
 	}
 	if (-not $JavaPassword) {
 		Write-Host '[WARN] no java_password found in credential file; Virbox java BCE may fail.' -ForegroundColor Yellow
+	}
+	if (-not $LicensePassword) {
+		Write-Host '[WARN] no license_password found in credential file; sjt_agent may fail with 0x13000038.' -ForegroundColor Yellow
 	}
 }
 
@@ -74,17 +90,21 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot  = Split-Path -Parent $ScriptDir
 Set-Location $RepoRoot
 
-Write-Host '[1/6] Running Maven packaging for Windows...' -ForegroundColor Cyan
+if ($SkipMaven) {
+	Write-Host '[1/6] Skipping Maven (reuse existing packaging\target zip)' -ForegroundColor Yellow
+} else {
+	Write-Host '[1/6] Running Maven packaging for Windows...' -ForegroundColor Cyan
 
-# Build ALL modules first (including extensions like records-assets) so that
-# their jars are copied into module/MOD-INF/lib before assembly packaging.
-# Release build: also skip test compilation. -DskipTests only skips test *execution*;
-# a temporarily inconsistent test case (e.g. new case calling a not-yet-implemented
-# method) still fails testCompile and blocks the release build.
-$mvnCmd = 'mvn package -Dmaven.test.skip=true -P windows'
-& cmd /c $mvnCmd
-if ($LASTEXITCODE -ne 0) {
-    throw 'Maven packaging failed.'
+	# Build ALL modules first (including extensions like records-assets) so that
+	# their jars are copied into module/MOD-INF/lib before assembly packaging.
+	# Release build: also skip test compilation. -DskipTests only skips test *execution*;
+	# a temporarily inconsistent test case (e.g. new case calling a not-yet-implemented
+	# method) still fails testCompile and blocks the release build.
+	$mvnCmd = 'mvn package -Dmaven.test.skip=true -P windows'
+	& cmd /c $mvnCmd
+	if ($LASTEXITCODE -ne 0) {
+	    throw 'Maven packaging failed.'
+	}
 }
 
 Write-Host '[2/6] Locating latest Windows zip artifact...' -ForegroundColor Cyan
@@ -216,12 +236,15 @@ if (-not (Test-Path $VirboxOutputSSPDir)) {
     New-Item -ItemType Directory -Path $VirboxOutputSSPDir -Force | Out-Null
 }
 if (Test-Path $VirboxSSPPath) {
-    # The template keeps a __JAVA_DS_PWD__ placeholder instead of the real password.
-    # That node is what sjt_agent embeds as the Virbox API password used by slm_init;
-    # --java-pass only carries the Java encryption passphrase, so leaving the node
-    # empty makes the shipped jars fail at runtime with 0x13000038 (wrong API
-    # password) and the app hangs on the licence dialog. Inject the real value into
-    # the throwaway copy under $VirboxOutputSSPDir - never into the template itself.
+    # The template holds two placeholders instead of real passwords; both are
+    # injected into a throwaway copy under $VirboxOutputSSPDir - never into the
+    # template itself:
+    #   __JAVA_DS_PWD__    Virbox API password used by slm_init. An empty value
+    #                      makes the shipped jars fail at runtime with 0x13000038
+    #                      and the app hangs on the licence dialog.
+    #   __LICENSE_DS_PWD__ License passphrase. Leaving it empty also triggers
+    #                      slm_init failures because sjt_agent cannot bind the
+    #                      licence before decrypting bytecode.
     $sspDest = Join-Path $VirboxOutputSSPDir (Split-Path $VirboxSSPPath -Leaf)
     $sspText = Get-Content $VirboxSSPPath -Raw -Encoding UTF8
     if ($JavaPassword) {
@@ -231,8 +254,17 @@ if (Test-Path $VirboxSSPPath) {
         $sspText = $sspText -replace '<password>__JAVA_DS_PWD__</password>', '<password></password>'
         Write-Host '[WARN] -JavaPassword not supplied: ssp java password left EMPTY. Jars will protect fine but will fail at runtime with 0x13000038.' -ForegroundColor DarkYellow
     }
-    if ($sspText -match '__JAVA_DS_PWD__') {
-        throw 'SSP still contains the __JAVA_DS_PWD__ placeholder after injection; refusing to protect with a blank API password.'
+    if ($LicensePassword) {
+        $sspText = $sspText -replace '__LICENSE_DS_PWD__', $LicensePassword
+        Write-Host 'SSP: license password injected into temporary copy (value not echoed).' -ForegroundColor Gray
+    } else {
+        $sspText = $sspText -replace '<password>__LICENSE_DS_PWD__</password>', '<password></password>'
+        Write-Host '[WARN] -LicensePassword not supplied: ssp license password left EMPTY.' -ForegroundColor DarkYellow
+    }
+    foreach ($ph in @('__JAVA_DS_PWD__', '__LICENSE_DS_PWD__')) {
+        if ($sspText -match [regex]::Escape($ph)) {
+            throw "SSP still contains $ph after injection; refusing to protect with a blank credential."
+        }
     }
     [System.IO.File]::WriteAllText($sspDest, $sspText, (New-Object System.Text.UTF8Encoding($true)))
     Write-Host "SSP file copied to: $VirboxOutputSSPDir" -ForegroundColor Green
