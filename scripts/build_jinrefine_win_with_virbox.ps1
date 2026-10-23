@@ -216,7 +216,25 @@ if (-not (Test-Path $VirboxOutputSSPDir)) {
     New-Item -ItemType Directory -Path $VirboxOutputSSPDir -Force | Out-Null
 }
 if (Test-Path $VirboxSSPPath) {
-    Copy-Item $VirboxSSPPath -Destination $VirboxOutputSSPDir -Force
+    # The template keeps a __JAVA_DS_PWD__ placeholder instead of the real password.
+    # That node is what sjt_agent embeds as the Virbox API password used by slm_init;
+    # --java-pass only carries the Java encryption passphrase, so leaving the node
+    # empty makes the shipped jars fail at runtime with 0x13000038 (wrong API
+    # password) and the app hangs on the licence dialog. Inject the real value into
+    # the throwaway copy under $VirboxOutputSSPDir - never into the template itself.
+    $sspDest = Join-Path $VirboxOutputSSPDir (Split-Path $VirboxSSPPath -Leaf)
+    $sspText = Get-Content $VirboxSSPPath -Raw -Encoding UTF8
+    if ($JavaPassword) {
+        $sspText = $sspText -replace '__JAVA_DS_PWD__', $JavaPassword
+        Write-Host 'SSP: java password injected into temporary copy (value not echoed).' -ForegroundColor Gray
+    } else {
+        $sspText = $sspText -replace '<password>__JAVA_DS_PWD__</password>', '<password></password>'
+        Write-Host '[WARN] -JavaPassword not supplied: ssp java password left EMPTY. Jars will protect fine but will fail at runtime with 0x13000038.' -ForegroundColor DarkYellow
+    }
+    if ($sspText -match '__JAVA_DS_PWD__') {
+        throw 'SSP still contains the __JAVA_DS_PWD__ placeholder after injection; refusing to protect with a blank API password.'
+    }
+    [System.IO.File]::WriteAllText($sspDest, $sspText, (New-Object System.Text.UTF8Encoding($true)))
     Write-Host "SSP file copied to: $VirboxOutputSSPDir" -ForegroundColor Green
 } else {
     Write-Host "[ERROR] SSP file not exist: $VirboxSSPPath" -ForegroundColor Red
