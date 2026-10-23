@@ -836,7 +836,7 @@
     "core-views/cell-content": "单元格内容",
     "core-views/hide": "隐藏",
     "core-dialogs/help/grelreference": "查看用户手册中的 GREL 参考文档以获取更多详情",
-    "core-dialogs/record-fields": "通过将一行或多行数据组合形成一条记录；该对象包含更多字段，详情参见 <a href=\"https://www.jinshuai.com/docs/manual/expressions#record\">记录</a>",
+    "core-dialogs/record-fields": "通过将一行或多行数据组合形成一条记录；该对象包含更多字段，详情参见 <a href=\"https://www.jinlian-data.com/docs/manual/expressions#record\">记录</a>",
     "core-views/how-split-cells": "如何拆分多值单元格",
     "core-views/by-case": "按小写到大写转换拆分",
     "core-views/by-number": "按数字到字母转换拆分",

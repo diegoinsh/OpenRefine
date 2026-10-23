@@ -169,7 +169,7 @@ $(function() {
             .text('(')
             .appendTo(notification);
           $('<a>')
-            .attr('href', 'https://jinshuai.com/jinrefine/privacy')
+            .attr('href', 'https://jinlian-data.com/jinrefine/privacy')
             .attr('target', '_blank')
             .text($.i18n('core-index/notification-privacy-info'))
             .appendTo(privacySpan);
@@ -177,7 +177,7 @@ $(function() {
           container
             .appendTo(document.body);
         } else if (notificationStatus == "enabled") {
-            $.getJSON("https://jinshuai.com/jinrefine/versions.json",
+            $.getJSON("https://jinlian-data.com/jinrefine/versions.json",
                 function (data) {
                   if (data.events && data.events.length > 0) {
                     var latestEvent = data.events[0];
@@ -213,7 +213,7 @@ $(function() {
                         .appendTo(container);
                     $('<a>')
                         .addClass('notification-action')
-                        .attr("href", "https://jinshuai.com/jinrefine.org/download")
+                        .attr("href", "https://jinlian-data.com/jinrefine.org/download")
                         .attr("target", "_blank")
                         .text($.i18n('core-index/new-version-available', latestVersion))
                         .appendTo(notification);
