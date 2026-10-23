@@ -208,7 +208,7 @@ build_prepare() {
     fi
     NPM_VERSION=`npm -v`
     if [ $? -ne 0 ] ; then
-        error "NPM not found. We need it in the PATH to download frontend dependencies. See https://jinshuai.com/refine/docs/technical-reference/build-test-run#nodejs"
+        error "NPM not found. We need it in the PATH to download frontend dependencies. See https://jinlian-data.com/refine/docs/technical-reference/build-test-run#nodejs"
     else
         echo "Using NPM version $NPM_VERSION"
     fi
@@ -483,7 +483,7 @@ run() {
     echo You have "$freeRam"M of free memory.
     echo Your current configuration is set to use $REFINE_MEMORY of memory.
     echo JinRefine can run better when given more memory. Read our FAQ on how to allocate more memory here:
-    echo https://jinshuai.com/refine/docs/manual/installing\#increasing-memory-allocation
+    echo https://jinlian-data.com/refine/docs/manual/installing\#increasing-memory-allocation
     echo "-------------------------------------------------------------------------------------------------"
 
     if [ -d $REFINE_CLASSES_DIR ] ; then
