@@ -38,10 +38,35 @@ param(
 	# Virbox license / cloud parameters (optional, but required in cloud mode)
 	[string]$VirboxCloudMode  = 'cloud',
 	[string]$VirboxCloudUser,
-	[string]$VirboxPin
+	[string]$VirboxPin,
+	# R-05: local credential file holding java_password (Java BCE DS password).
+	# Only consulted when -JavaPassword is not passed; values are never echoed.
+	[string]$VirboxCredFile   = ''
 )
 
 $ErrorActionPreference = 'Stop'
+
+# R-05: fall back to the local credential file when -JavaPassword was not
+# passed. The ssp template no longer contains any plaintext password; the DS
+# password is injected via --java-pass only (values never echoed / not logged).
+if (-not $VirboxCredFile) {
+	$VirboxCredFile = Join-Path $env:USERPROFILE '.config\sense_key'
+}
+if (-not $JavaPassword -and (Test-Path $VirboxCredFile)) {
+	foreach ($ln in (Get-Content $VirboxCredFile -ErrorAction SilentlyContinue)) {
+		$line = "$ln".Trim()
+		if (-not $line -or $line.StartsWith('#')) { continue }
+		if ($line -match '^\s*([^=:]+?)\s*[=:]\s*(.+)$') {
+			$k = $matches[1].Trim().ToLower()
+			if ($k -match '^(java_password|java_pwd|java_pass|ds_password|ds_pwd)$') {
+				$JavaPassword = $matches[2].Trim()
+			}
+		}
+	}
+	if (-not $JavaPassword) {
+		Write-Host '[WARN] no java_password found in credential file; Virbox java BCE may fail.' -ForegroundColor Yellow
+	}
+}
 
 # Script directory = the directory containing this script
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
