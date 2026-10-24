@@ -74,6 +74,7 @@ function registerCommands() {
   RS.registerCommand(module, "set-project-tags", new Packages.com.google.refine.commands.project.SetProjectTagsCommand());
 
   RS.registerCommand(module, "delete-project", new Packages.com.google.refine.commands.project.DeleteProjectCommand());
+  RS.registerCommand(module, "register-project", new Packages.com.google.refine.commands.project.RegisterProjectCommand());
   RS.registerCommand(module, "rename-project", new Packages.com.google.refine.commands.project.RenameProjectCommand());
   
   RS.registerCommand(module, "get-models", new Packages.com.google.refine.commands.project.GetModelsCommand());
