@@ -78,6 +78,30 @@ var ResourceExplorer = {};
       }
     }
   };
+  /**
+   * 案卷著录场景下「文件夹路径」是标配列。若该项目尚无任何文件路径列配置，
+   * 则把名称含「路径」的列默认标记为文件路径列，使单元格开箱即可点击查看原图，
+   * 无需先在列头菜单手动勾选；已有配置的项目不受影响。
+   */
+  ResourceExplorer._applyDefaultColumns = function() {
+    if (Object.keys(ResourceExplorer._filePathColumns).length > 0) {
+      return;
+    }
+    if (typeof theProject === 'undefined' || !theProject.columnModel) {
+      return;
+    }
+    var columns = theProject.columnModel.columns || [];
+    var changed = false;
+    columns.forEach(function(column) {
+      if (column && column.name && column.name.indexOf('路径') >= 0) {
+        ResourceExplorer._filePathColumns[column.name] = { enabled: true, rootPath: '' };
+        changed = true;
+      }
+    });
+    if (changed) {
+      ResourceExplorer._saveConfig();
+    }
+  };
 
   /**
    * Save configuration to localStorage
@@ -173,8 +197,8 @@ var ResourceExplorer = {};
    * Wait for theProject and ui.dataTableView to be available, then initialize
    */
   ResourceExplorer._waitAndInit = function() {
-    // Check if theProject is available
-    if (typeof theProject === 'undefined' || !theProject.id) {
+    // Check if theProject is available（需列模型就绪后才能判定默认文件路径列）
+    if (typeof theProject === 'undefined' || !theProject.id || !theProject.columnModel) {
       setTimeout(ResourceExplorer._waitAndInit, 200);
       return;
     }
@@ -182,6 +206,7 @@ var ResourceExplorer = {};
     // Initialize config
     ResourceExplorer.initI18n();
     ResourceExplorer._loadConfig();
+    ResourceExplorer._applyDefaultColumns();
 
     // Check if we have file path columns to restore
     var hasFilePathColumns = Object.keys(ResourceExplorer._filePathColumns).some(function(name) {

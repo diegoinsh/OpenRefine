@@ -4,7 +4,7 @@
 #define MyAppName "JinRefine"
 ;#define MyAppVersion "3.8-SNAPSHOT"
 #define MyAppPublisher "JinRefine"
-#define MyAppURL "https://jinshuai.com/"
+#define MyAppURL "https://jinlian-data.com/"
 #define MyAppExeName "jinrefine.exe"
 
 ;#define MyProgramFiles ".\packaging\target\openrefine-win-with-java-3.8-SNAPSHOT"

@@ -6,4 +6,747 @@ All rights reserved.
 
 // This file is added to the /project page
 
-var SampleExtension = {};
+// Batch title extraction monitor: while an extraction task is running for the
+// currently opened project, show a progress banner (with progress bar) and
+// auto-refresh the data table as new rows are appended.
+
+var BatchTitleExtractionMonitor = (function () {
+  var POLL_INTERVAL = 2000;
+  var FINAL_BANNER_MS = 10000;
+
+  var pollTimer = null;
+  var lastRowsAppended = -1;
+  var $banner = null;
+  var bannerHideTimer = null;
+  var runningDismissed = null;
+  var i18nReady = false;
+
+  // localStorage记录按项目持久化"用户已关闭的终态横幅"：
+  // 终态（完成/取消/失败）横幅一旦被用户关闭，刷新或重进项目页均不再出现；
+  // 运行中关闭仅静默到下一次进度更新。
+  function dismissedStorageKey(pid) {
+    return 'files-batch-banner-dismissed-' + pid;
+  }
+
+  function isFinalStatus(status) {
+    return status === 'completed' || status === 'cancelled' || status === 'failed';
+  }
+
+  function readDismissedFinal(pid) {
+    try {
+      return window.localStorage.getItem(dismissedStorageKey(pid));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeDismissedFinal(pid, status) {
+    try {
+      window.localStorage.setItem(dismissedStorageKey(pid), status);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function clearDismissedFinal(pid) {
+    try {
+      window.localStorage.removeItem(dismissedStorageKey(pid));
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function loadExtensionMessages() {
+    try {
+      if (window.I18NUtil && typeof I18NUtil.init === 'function') {
+        I18NUtil.init('files');
+      }
+      i18nReady = true;
+    } catch (e) {
+      i18nReady = true;
+    }
+  }
+
+  function getProjectId() {
+    try {
+      if (typeof theProject !== 'undefined' && theProject && typeof theProject.id !== 'undefined') {
+        return theProject.id;
+      }
+      if (typeof project !== 'undefined' && project && typeof project.id !== 'undefined') {
+        return project.id;
+      }
+    } catch (e) {
+      // ignore
+    }
+    return null;
+  }
+
+  /** 表格「跟随最新」的容差（px）：距底不超过该值即视为用户正在看最新数据 */
+  var FOLLOW_BOTTOM_TOLERANCE_PX = 80;
+
+  /**
+   * 用户本来就在底部附近时，把表格滚到最新一行；否则不动，尊重用户当前的浏览位置。
+   */
+  function followTableBottom() {
+    var el = document.querySelector('.data-table-container');
+    if (!el) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_BOTTOM_TOLERANCE_PX) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }
+
+  /**
+   * 已展示条目的上限（与后端页级预览容量一致）：本卷已抽页全部保留，换卷时清空。
+   * 此前与后端同为 40，导致重新进入项目页只剩最近 40 条、看不到本卷抽过的页；
+   * 容器本身有竖向滚动，保留整卷不会撑破界面。
+   */
+  var PAGE_PREVIEW_MAX = 2000;
+  /** 待揭示队列的上限：只作兜底，揭示节奏与抽取节奏大体匹配，正常不会触发 */
+  var PAGE_PENDING_LIMIT = 2000;
+  /** 后端还没测出平均耗时时的兜底揭示间隔 */
+  var PAGE_REVEAL_FALLBACK_MS = 3000;
+  /** 揭示间隔的上下限：太快等于一次性蹦出，太慢会一直追不上抽取进度 */
+  var PAGE_REVEAL_MIN_MS = 800;
+  var PAGE_REVEAL_MAX_MS = 8000;
+  /**
+   * 逐条揭示间隔（毫秒）：0 表示「到达即显示」。
+   * 后端每批并发抽 4 页、同时返回，一次性弹出 4 条过于突兀，故按实测的平均每页耗时逐条揭示；
+   * 逐页串行调用的门类（每页本身就是一条，3 秒左右一页）不需要这个节奏，直接显示即可。
+   */
+  var previewIntervalMs = 0;
+  /** 已展示的页（按页号升序，最新在最下方）与待揭示队列 */
+  var previewShown = [];
+  var previewPending = [];
+  /**
+   * 已见过的页号。**必须独立于「已展示/待揭示」两个列表**：后端每轮返回的是最近 40 页的
+   * 滚动窗口，而这两个列表都有 40 条上限（会从最旧一端淘汰），一旦靠它们去重，被淘汰过的页
+   * 下一轮就会被当成新页重新塞回来——表现是清单乱序、同一页冒出来两次（跑过 40 页才现形）。
+   * 页号在卷内单调递增，故这里只增不减，换卷时清空。
+   */
+  var previewKnown = {};
+  var previewTimer = null;
+  /** 预览所属的卷序号：换卷后页号会重新从 1 开始，必须重置队列，否则新旧卷的页会混在一起 */
+  var previewVolumeIndex = -1;
+
+  function resetPagePreview() {
+    previewShown = [];
+    previewPending = [];
+    previewKnown = {};
+    previewIntervalMs = 0;
+    previewVolumeIndex = -1;
+    if (previewTimer) {
+      window.clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+  }
+
+  /**
+   * 按后端给的口径更新揭示间隔：并发批调用用实测的平均每页耗时，逐页串行用 0（到达即显示）。
+   *
+   * **只更新目标间隔，不动正在跑的定时器**：轮询每 2s 刷新一次平均每页耗时，若那点微小变化
+   * 就重建定时器，会把当前这一轮的等待相位整段丢掉（间隔 800ms、轮询 2s 时每次轮询白丢
+   * 近一轮等待），揭示速率掉到设计值的 1/2.5，观感就是「追不上」。相位改由
+   * schedulePreviewTick 在**下一次排程**时读取新值。
+   */
+  function updatePreviewInterval(pageConcurrency, avgPageMillis) {
+    if (pageConcurrency > 1) {
+      previewIntervalMs = (typeof avgPageMillis === 'number' && avgPageMillis > 0)
+          ? avgPageMillis : PAGE_REVEAL_FALLBACK_MS;
+      previewIntervalMs = Math.max(PAGE_REVEAL_MIN_MS,
+          Math.min(PAGE_REVEAL_MAX_MS, previewIntervalMs));
+    } else {
+      previewIntervalMs = 0;
+    }
+  }
+
+  /**
+   * 把一条按页号升序插入已展示列表。
+   *
+   * 并发批调用（后端 4 页同时返回）下"后到的页"页号可能比已展示的更小：被跳过的页
+   * （分类器判跳/短文本短路）秒级返回，需走 LLM 的页要数秒——完成顺序与页号顺序不一致。
+   * 只往末尾压就会出现「第 4 页、第 3 页、第 6 页、第 1 页…」这类乱序，故这里按页号就位。
+   */
+  function insertShown(p) {
+    var i = previewShown.length;
+    while (i > 0 && previewShown[i - 1].page > p.page) {
+      i--;
+    }
+    previewShown.splice(i, 0, p);
+  }
+
+  /** 把积压队列按当前间隔揭示若干条；all 为真或间隔为 0 时一次揭完 */
+  function revealPending(all) {
+    var count = 1;
+    if (all || previewIntervalMs <= 0) {
+      count = previewPending.length;
+    } else if (previewPending.length > 20) {
+      // 积压追赶：队列越长一次揭示越多，避免预览永远追不上顶部的进度文案
+      count = 4;
+    } else if (previewPending.length > 8) {
+      count = 2;
+    }
+    while (count-- > 0 && previewPending.length > 0) {
+      insertShown(previewPending.shift());
+      while (previewShown.length > PAGE_PREVIEW_MAX) {
+        previewShown.shift();
+      }
+    }
+  }
+
+  /**
+   * 自调度排一次揭示（setTimeout 链，不是 setInterval）。每次 tick 结束后按**当时**的
+   * 目标间隔排下一次，因此轮询刷新间隔不会打断正在等待的这一轮。
+   */
+  function schedulePreviewTick($banner) {
+    previewTimer = window.setTimeout(function () {
+      previewTimer = null;
+      if (previewPending.length === 0) {
+        return;
+      }
+      revealPending(false);
+      renderPagePreview($banner);
+      if (previewPending.length > 0) {
+        schedulePreviewTick($banner);
+      }
+    }, Math.max(1, previewIntervalMs));
+  }
+
+  /**
+   * 把积压全部揭示出来，只在**转终态**时调用：终态横幅马上会被结果页（reinitializeProjectData
+   * 重建项目 UI）顶掉，再按节奏逐条放就来不及了，最后那几条会永远看不到。故这里一次放完——
+   * 是兜底，不是常规路径：页抽完进入 LLM 分件后没有新页到达，剩余几条按原节奏（0.8s/条）
+   * 放得完，不必抢。
+   */
+  function flushPagePreview($banner) {
+    if (previewTimer) {
+      window.clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+    if (previewPending.length === 0) {
+      return;
+    }
+    revealPending(true);
+    renderPagePreview($banner);
+  }
+
+  /**
+   * 接收后端页级预览并逐条揭示。
+   *
+   * 件级行要等整卷抽完、分件矫正后才写入，2-300 页的长卷会让界面长时间空白，故页级每抽完
+   * 一页就回传一条。并发批调用（4 页同时返回）时排入队列、按实测的平均每页耗时逐条揭示，
+   * 并**按页号就位**（不是压到末尾）：被跳过的页秒级返回、需走 LLM 的页要数秒，完成顺序与
+   * 页号顺序并不一致，只往末尾压就会出现乱序。
+   *
+   * **首次到达的一批不重放**：进入项目时后端往往已经抽了几十页，那是「历史」而非"刚发生"。
+   * 逐条重放会永远落后于实际进度（界面停在几十页前，看不到当下正在抽的页），故只接上
+   * 最新一条，从那里往下长。
+   */
+  function feedPagePreview($banner, pages, volumeIndex) {
+    if (volumeIndex !== previewVolumeIndex) {
+      previewVolumeIndex = volumeIndex;
+      previewShown = [];
+      previewPending = [];
+      previewKnown = {};
+      $banner.find('.batch-extraction-banner-preview').remove();
+    }
+    var insertedHistorical = false;
+    if (pages && pages.length > 0) {
+      pages.forEach(function (p) {
+        if (previewKnown[p.page]) return;
+        previewKnown[p.page] = true;
+        if (p.cached) {
+          // 复用上次识别结果的历史页（续跑时前面若干页）：直接铺进已展示列表，不进揭示队列。
+          // 它们毫秒级成批到达，若还按新页节奏（0.8-8s/条）揭示，几十上百页历史会一条条回放，
+          // 界面永远追不上真实进度——这正是「重启后重进界面像在回放」的根因。
+          insertShown(p);
+          insertedHistorical = true;
+        } else {
+          previewPending.push(p);
+        }
+      });
+      previewPending.sort(function (a, b) {
+        return a.page - b.page;
+      });
+      while (previewPending.length > PAGE_PENDING_LIMIT) {
+        previewPending.shift();
+      }
+      while (previewShown.length > PAGE_PREVIEW_MAX) {
+        previewShown.shift();
+      }
+    }
+    if (insertedHistorical) {
+      // 历史页已整批铺好：立刻渲染，等队列节奏只会把它们也拖成「逐条揭示」
+      renderPagePreview($banner);
+    }
+    // 首次（含换卷后第一次）：列表还空着，此刻到达的都是「进项目之前就抽完」的历史。
+    // 一次性铺开、**不逐条重放**——重放会让预览永远落后于实际进度；但**也不能丢**：
+    // 列表可往上翻，用户回头能看见这段时间认出了什么。只有后续新页才逐条揭示。
+    if (previewShown.length === 0 && previewPending.length > 0 && previewIntervalMs > 0) {
+      revealPending(true);
+      renderPagePreview($banner);
+      return;
+    }
+    // 逐页串行调用（间隔为 0）：每页到达本身就是一条，直接显示，不必排队等定时器
+    if (previewIntervalMs <= 0) {
+      if (previewPending.length > 0) {
+        revealPending(true);
+        renderPagePreview($banner);
+      }
+      return;
+    }
+    // 间隔变化后若那一轮恰好没有新页到达，这里负责把积压的队列重新驱动起来，
+    // 否则预览会停在原地等下一页（长卷单页可达 20s，观感就是「卡住不动」）
+    if (!previewTimer && previewPending.length > 0) {
+      schedulePreviewTick($banner);
+    }
+  }
+
+  /**
+   * 预览列名兜底：key → i18n 键。列名正常由后端随 fields 一并返回；这里只在后端为
+   * 旧版本（fields 仍是 {key: value}、没带列名）时把键译成中文，与导入对话框
+   * （import-from-local-dir.js 的 FIXED/OPTIONAL/EXTRA_ELEMENTS）保持一致。
+   */
+  var PREVIEW_FIELD_I18N = {
+    title: 'files-import/el-title',
+    responsible_party: 'files-import/el-responsible',
+    document_number: 'files-import/el-docno',
+    date: 'files-import/el-date',
+    miji: 'files-import/el-security',
+    kaifang_zhuangtai: 'files-import/el-open-status',
+    anyou: 'files-import/el-case-cause',
+    dangshiren: 'files-import/el-party',
+    shenji: 'files-import/el-trial-level',
+    jiean_fangshi: 'files-import/el-closing-method',
+    baoguan_qixian: 'files-import/el-retention'
+  };
+
+  function previewFieldLabel(key) {
+    var i18nKey = PREVIEW_FIELD_I18N[key];
+    if (i18nKey) {
+      var label = $.i18n(i18nKey);
+      if (label && label !== i18nKey) return label;
+    }
+    return key;
+  }
+
+  /**
+   * 预览要素列表：后端返回 [{name, value}]；旧后端返回 {key: value}，一并兼容，
+   * 避免前后端版本错配时整条预览抛异常。旧结构下列名未知的键不展示——AIMP 会随页级
+   * 结果返回 party_roles 这类内部辅助数据（供分件用，不是著录项），显示出来只是原始 JSON。
+   */
+  function previewFieldList(fields) {
+    if (!fields) return [];
+    if (Array.isArray(fields)) return fields;
+    if (typeof fields !== 'object') return [];
+    var list = [];
+    Object.keys(fields).forEach(function (key) {
+      var value = fields[key];
+      if (!value || !PREVIEW_FIELD_I18N[key]) return;
+      list.push({ name: previewFieldLabel(key), value: value });
+    });
+    return list;
+  }
+
+  /** 一条预览的文本：「第 N 页 · 列名：取值 · …」（要素按列顺序，过长由 CSS 截断） */
+  function buildPreviewText(p) {
+    var parts = [$.i18n('files-import/batch-preview-page', p.page)];
+    previewFieldList(p.fields).forEach(function (f) {
+      if (f && f.value) {
+        parts.push(f.name ? f.name + '：' + f.value : f.value);
+      }
+    });
+    return parts.join(' · ');
+  }
+
+  /**
+   * 渲染已展示的页。**增量插入**，不整块重建——重建会丢失滚动位置、内容跳动（像跑马灯）。
+   * 新条目按页号插到正确位置（并发下后到的页页号可能更小），仍只对单条增删。
+   * 一条为「第 N 页 · 各要素值」；容器固定可视高度约 6 行，超过即出竖向滚动条。
+   */
+  function renderPagePreview($banner) {
+    if (previewShown.length === 0) return;
+    var $box = $banner.find('.batch-extraction-banner-preview');
+    if ($box.length === 0) {
+      // 下行：标签行（右端为折叠箭头）+ 列表。折叠只切 class，不重建本块，
+      // 因此进度轮询刷新时用户选定的折叠状态不会被重置
+      $box = $('<div class="batch-extraction-banner-preview"></div>')
+          .append($('<div class="batch-preview-header">')
+              .append($('<span class="batch-preview-label">')
+                  .text($.i18n('files-import/batch-preview-title')))
+              .append($('<span class="batch-preview-latest">'))
+              .append($('<button type="button" class="batch-preview-toggle">&#9662;</button>')
+                  .on('click', function () {
+                    $box.toggleClass('collapsed');
+                  })))
+          .append($('<div class="batch-preview-list"></div>'));
+      $banner.append($box);
+    }
+    var $list = $box.find('.batch-preview-list');
+    var keep = {};
+    previewShown.forEach(function (p) {
+      keep[p.page] = true;
+    });
+    // 丢弃已被上限挤出的条目（最旧的一端）
+    $list.children('.batch-preview-item').each(function () {
+      if (!keep[$(this).attr('data-page')]) {
+        $(this).remove();
+      }
+    });
+    var rendered = {};
+    $list.children('.batch-preview-item').each(function () {
+      rendered[$(this).attr('data-page')] = true;
+    });
+    var listEl = $list[0];
+    // 用户本来就在底部时继续跟随最新，否则不动、尊重其滚动位置
+    var follow = listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight <= 20;
+    previewShown.forEach(function (p) {
+      if (rendered[p.page]) return;
+      var $item = $('<span class="batch-preview-item">')
+          .attr('data-page', p.page)
+          .text(buildPreviewText(p));
+      // 按页号插入到正确位置（局部 insertBefore，不重建整块，保住滚动位置）
+      var $next = null;
+      $list.children('.batch-preview-item').each(function () {
+        if ($next) return;
+        if (parseInt($(this).attr('data-page'), 10) > p.page) {
+          $next = $(this);
+        }
+      });
+      if ($next) {
+        $item.insertBefore($next);
+      } else {
+        $list.append($item);
+      }
+    });
+    if (follow) {
+      listEl.scrollTop = listEl.scrollHeight;
+    }
+    // 收起时列表整体隐藏，把最新一条顶到标签后面，收起状态下也能看到进展
+    $box.find('.batch-preview-latest')
+        .text(buildPreviewText(previewShown[previewShown.length - 1]));
+  }
+
+  /**
+   * 刷新数据表。
+   *
+   * keepPage 为真时保持当前所在页、并在用户本来位于底部时继续跟随新行。抽取期间表格是
+   * 随件级行实时增长的，而 DataTableView.update() 默认会把 start 重置为 0——不保持页位置
+   * 就会每次刷新都跳回第一页，新行却落在末页，看起来就像「一直没有新数据出来」。
+   */
+  function refreshDataTable(keepPage) {
+    try {
+      if (typeof FileViewPanel !== 'undefined' && typeof FileViewPanel.invalidatePageMap === 'function') {
+        FileViewPanel.invalidatePageMap();
+      }
+    } catch (e) {
+      // ignore
+    }
+    try {
+      if (window.ui && ui.dataTableView && typeof ui.dataTableView.update === 'function') {
+        ui.dataTableView.update(function () {
+          try {
+            // The core render fixes column widths from a cache; with an empty
+            // growing table that cache pins narrow widths. Remove the inline
+            // widths after render so columns re-fit their content.
+            $('.data-table-container col').css('width', '');
+          } catch (e) {
+            // ignore
+          }
+          if (keepPage) {
+            followTableBottom();
+          }
+        }, !!keepPage);
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function removeBanner() {
+    if (bannerHideTimer) {
+      window.clearTimeout(bannerHideTimer);
+      bannerHideTimer = null;
+    }
+    if ($banner) {
+      $banner.remove();
+      $banner = null;
+    }
+  }
+
+  function updateBanner(kind, d) {
+    if (!$banner) {
+      // 上行（100% 不透明）：状态图标 + 进度文案 + 进度条 + 关闭按钮。
+      // 下行预览（半透明、可折叠）由 renderPagePreview 按需追加到 $banner
+      var $head = $('<div class="batch-extraction-banner-head">')
+          .append($('<span class="batch-extraction-banner-icon icon-running">'))
+          .append($('<span class="batch-extraction-banner-text">'))
+          .append(
+              $('<div class="batch-progress-track batch-banner-progress-track">' +
+                '<div class="batch-progress-bar batch-banner-progress-bar"></div></div>')
+          )
+          .append(
+              // 右上角操作列：收缩按钮在上、关闭按钮在下（收缩按钮位于关闭按钮正上方）
+              $('<div class="batch-extraction-banner-actions">')
+                  .append(
+                      $('<button type="button" class="batch-extraction-banner-toggle">&#9662;</button>')
+                          .on('click', function () {
+                            // 收缩：只保留标题行，图标/进度条/只读提示/页级预览全部隐藏；
+                            // 再点一次恢复。只切 class，不重建本块，故轮询刷新不会重置收缩状态
+                            $banner.toggleClass('collapsed');
+                          })
+                  )
+                  .append(
+                      $('<button type="button" class="batch-extraction-banner-close">&times;</button>')
+                          .on('click', function () {
+                            // 终态横幅：关闭后按项目持久化，刷新/重进不再出现；
+                            // 运行中横幅：静默直到下一次进度更新
+                            var pid = getProjectId();
+                            var currentKind = $banner ? $banner.data('banner-kind') : null;
+                            if (isFinalStatus(currentKind) && pid !== null) {
+                              writeDismissedFinal(pid, currentKind);
+                            } else if (currentKind === 'running') {
+                              runningDismissed = {
+                                processedPages: $banner.data('processed-pages') || 0,
+                                rowsAppended: $banner.data('rows-appended') || 0
+                              };
+                            }
+                            removeBanner();
+                          })
+                  )
+          );
+      $banner = $('<div class="batch-extraction-banner">').append($head);
+      $('body').append($banner);
+    }
+    $banner.data('banner-kind', kind);
+    if (kind === 'running') {
+      $banner.data('processed-pages', d.processedPages || 0);
+      $banner.data('rows-appended', d.rowsAppended || 0);
+    }
+    $banner.removeClass('banner-error');
+    $banner.find('.batch-banner-progress-bar').removeClass('banner-bar-error');
+    if (kind !== 'running') {
+      // 终态：清掉预览与揭示队列，避免残留上一次运行的内容
+      $banner.find('.batch-extraction-banner-preview').remove();
+      resetPagePreview();
+    }
+    var $text = $banner.find('.batch-extraction-banner-text');
+    var $bar = $banner.find('.batch-banner-progress-bar');
+    var text = '';
+    if (kind !== 'running') {
+      // 终态：清除单调进度记忆，下一次提取从头计算
+      $banner.removeData('last-percent');
+    }
+    if (kind === 'running') {
+      // 耗时：批次开始时间由后端随 payload 回传，跨刷新稳定
+      var startedAt = d.startedAt || 0;
+      var elapsedMin = startedAt > 0
+          ? Math.max(0, Math.round((Date.now() - startedAt) / 60000)) : 0;
+      // 「总耗时预计」按页口径外推：法院案卷的实际成本与页数几乎成正比，而各卷页数
+      // 相差很大（长卷 2-300 页、短卷几页），按件/卷数算完成度会让预估值跳变失真。
+      // 故一律用 已处理页数 / 总页数；总页数缺失时才退回件/卷口径。
+      var fraction = 0;
+      if ((d.totalPages || 0) > 0) {
+        fraction = (d.processedPages || 0) / d.totalPages;
+      } else if ((d.totalFiles || 0) > 0) {
+        fraction = ((d.processedFiles || 0) - 1
+            + (typeof d.unitFraction === 'number' ? d.unitFraction : 0)) / d.totalFiles;
+      }
+      fraction = Math.max(0, Math.min(1, fraction));
+      // 完成度过低时按比例外推会得出离谱的预估值，此时只显示已耗时
+      var timingHint;
+      if (startedAt > 0 && fraction >= 0.02) {
+        var etaMin = Math.max(1, Math.round(elapsedMin / fraction));
+        timingHint = $.i18n('files-import/batch-banner-elapsed', elapsedMin, etaMin);
+      } else {
+        timingHint = $.i18n('files-import/batch-banner-elapsed-only', elapsedMin);
+      }
+      // 「当前处理」在前、件内进度在后：当前处理：X，已完成 m / n 页。
+      var unitHint = '';
+      if (d.currentUnit) {
+        unitHint = $.i18n('files-import/batch-banner-current', d.currentUnit);
+        if (d.message) {
+          unitHint += '，' + d.message;
+        }
+        unitHint += '。';
+      }
+      var unitLabel = $.i18n(d.unitKind === 'volume'
+          ? 'files-import/batch-unit-volume' : 'files-import/batch-unit-case');
+      text = $.i18n('files-import/batch-banner-running',
+          d.processedFiles || 0, d.totalFiles || 0, unitLabel,
+          d.processedPages || 0, d.totalPages || 0,
+          d.rowsAppended || 0, timingHint, unitHint);
+      // 进度条按件口径推进（已完成件数 + 当前件内完成度）。
+      // 不能直接用 processedPages/totalPages：PDF 实际页数只能在处理中探明，
+      // 分母被动态修正后移会让百分比回退，表现为进度条来回跳动。
+      var percent;
+      if ((d.totalFiles || 0) > 0) {
+        percent = ((d.processedFiles || 0) - 1
+            + (typeof d.unitFraction === 'number' ? d.unitFraction : 0)) * 100 / d.totalFiles;
+      } else if ((d.totalPages || 0) > 0) {
+        percent = (d.processedPages || 0) * 100 / d.totalPages;
+      } else {
+        percent = 0;
+      }
+      percent = Math.max(0, Math.min(100, Math.round(percent)));
+      // 单调保护：同一任务内进度条只前进不后退
+      var lastPercent = $banner.data('last-percent');
+      if (typeof lastPercent === 'number' && percent < lastPercent) {
+        percent = lastPercent;
+      }
+      $banner.data('last-percent', percent);
+      $bar.css('width', percent + '%');
+      if ($banner.find('.batch-extraction-banner-hint').length === 0) {
+        $banner.find('.batch-extraction-banner-head')
+            .append($('<span class="batch-extraction-banner-hint">')
+                .text($.i18n('files-import/batch-readonly-hint')));
+      }
+      updatePreviewInterval(d.pageConcurrency, d.avgPageMillis);
+      feedPagePreview($banner, d.recentPages, d.volumeIndex);
+    } else if (kind === 'completed') {
+      text = $.i18n('files-import/batch-banner-completed', d.rowsAppended || 0);
+      $bar.css('width', '100%');
+    } else if (kind === 'cancelled') {
+      text = $.i18n('files-import/batch-banner-cancelled', d.rowsAppended || 0);
+      $bar.css('width', '100%');
+    } else {
+      text = $.i18n('files-import/batch-banner-failed', d.message || '');
+      $banner.addClass('banner-error');
+      $bar.addClass('banner-bar-error');
+      $bar.css('width', '100%');
+    }
+    // 终态已到：再按节奏揭示就来不及了——横幅很快被结果页（重建的项目 UI）替换掉
+    if (kind !== 'running') {
+      flushPagePreview($banner);
+    }
+    $text.text(text);
+    // 状态图标：运行中转圈，终态切换为静态图标
+    var iconClass = 'icon-running';
+    if (kind === 'completed') {
+      iconClass = 'icon-completed';
+    } else if (kind === 'cancelled') {
+      iconClass = 'icon-cancelled';
+    } else if (kind !== 'running') {
+      iconClass = 'icon-error';
+    }
+    $banner.find('.batch-extraction-banner-icon')
+        .attr('class', 'batch-extraction-banner-icon ' + iconClass);
+  }
+
+  function showBanner(kind, d) {
+    // 运行中横幅被用户关闭后，进度未变化前保持静默；
+    // 一旦 processedPages/rowsAppended 有更新则重新出现
+    if (kind === 'running' && runningDismissed &&
+        (d.processedPages || 0) === runningDismissed.processedPages &&
+        (d.rowsAppended || 0) === runningDismissed.rowsAppended) {
+      return;
+    }
+    if (kind === 'running') {
+      runningDismissed = null;
+    }
+    updateBanner(kind, d);
+  }
+
+  function showFinalBanner(kind, d) {
+    // 用户已关闭过该终态横幅：不再出现（跨刷新持久化）
+    var pid = getProjectId();
+    if (pid !== null) {
+      var dismissed = readDismissedFinal(pid);
+      if (dismissed === kind) {
+        return;
+      }
+    }
+    updateBanner(kind, d);
+    if (bannerHideTimer) window.clearTimeout(bannerHideTimer);
+    bannerHideTimer = window.setTimeout(function () {
+      removeBanner();
+    }, FINAL_BANNER_MS);
+  }
+
+  function pollOnce() {
+    var pid = getProjectId();
+    if (pid === null) {
+      stop();
+      return;
+    }
+    Refine.wrapCSRF(function (token) {
+      $.post("command/files/batch-extraction", {
+        subCommand: "progress",
+        project: pid,
+        csrf_token: token
+      }, function (data) {
+        if (!data || data.code !== 'ok') {
+          stop();
+          return;
+        }
+        if (data.status === 'running') {
+          // 新任务运行中：清除该项目旧的终态关闭记录，确保新任务的终态横幅可见
+          clearDismissedFinal(pid);
+          setReadonlyMode(true);
+          showBanner('running', data);
+          if (lastRowsAppended !== -1 && data.rowsAppended !== lastRowsAppended) {
+            // 保持页位置并跟随最新行，否则每次刷新都跳回第一页，看不到新抽出的件
+            refreshDataTable(true);
+          }
+          lastRowsAppended = data.rowsAppended;
+        } else {
+          stop();
+          setReadonlyMode(false);
+          // 重新拉取项目模型，让案卷级项目在抽取结束后出现「卷级」数据表标签页
+          Refine.reinitializeProjectData(function () {
+            refreshDataTable();
+          });
+          showFinalBanner(data.status, data);
+        }
+      }, "json").fail(function () {
+        stop();
+        setReadonlyMode(false);
+      });
+    });
+  }
+
+  function start() {
+    if (pollTimer) return;
+    pollOnce();
+    pollTimer = window.setInterval(pollOnce, POLL_INTERVAL);
+  }
+
+  function stop() {
+    if (pollTimer) {
+      window.clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  function setReadonlyMode(on) {
+    try {
+      $(document.body).toggleClass('extraction-readonly', !!on);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function installEditBlockers() {
+    // R-07: during extraction the project is read-only. Block the most common
+    // editing gestures up front (backend guard vetoes Change commands anyway).
+    $(document).on('dblclick.extraction-readonly', '.data-table-cell', function (e) {
+      if ($(document.body).hasClass('extraction-readonly')) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    });
+    $(document).on('click.extraction-readonly', '.data-table-star, .data-table-flag', function (e) {
+      if ($(document.body).hasClass('extraction-readonly')) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    });
+  }
+
+  $(function () {
+    loadExtensionMessages();
+    installEditBlockers();
+    window.setTimeout(start, 1000);
+  });
+
+  return {};
+})();

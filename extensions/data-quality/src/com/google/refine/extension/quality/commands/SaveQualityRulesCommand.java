@@ -16,7 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.refine.commands.Command;
-import com.google.refine.extension.quality.model.QualityRulesConfig;
+import com.google.refine.extension.quality.model.OverlayQualityRulesConfig;
 import com.google.refine.extension.quality.operations.SaveQualityRulesOperation;
 import com.google.refine.model.Project;
 import com.google.refine.util.ParsingUtilities;
@@ -48,8 +48,8 @@ public class SaveQualityRulesCommand extends Command {
 
             logger.debug("Saving quality rules: {}", rulesJson);
 
-            QualityRulesConfig rulesConfig = ParsingUtilities.mapper.readValue(
-                rulesJson, QualityRulesConfig.class);
+            OverlayQualityRulesConfig rulesConfig = ParsingUtilities.mapper.readValue(
+                rulesJson, OverlayQualityRulesConfig.class);
 
             // Save directly to overlay without adding to history
             synchronized (project) {

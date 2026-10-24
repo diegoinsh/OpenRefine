@@ -27,6 +27,8 @@ tmp/
 test-out/
 /bin
 open-refine.log
+# 系统测试沙箱数据目录（含 OR 项目数据，可重建，不入库）
+data-systest/
 .metadata # Eclipse plugins specific
 
 
@@ -94,3 +96,7 @@ ruyi-refine.code-workspace
 
 docs/em.py
 docs/data.txt
+
+# 本地回归测试临时产物（脚本可复现，不入库）
+.tmp-*
+__pycache__/

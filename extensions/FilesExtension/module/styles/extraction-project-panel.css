@@ -1,0 +1,99 @@
+/* 项目页「抽取参数」tab：与数据质量「质量规则」tab 同一底色与留白 */
+#extraction-params-panel {
+  background-color: var(--background-primary);
+  overflow-y: auto;
+  height: 100%;
+  font-size: 13px;
+}
+
+/* 复用抽取任务对话框的表单，去掉弹窗外框 */
+.extraction-params-embed {
+  max-width: none !important;
+  width: 100% !important;
+  box-shadow: none !important;
+  border: 0 !important;
+  margin: 0 !important;
+  background: var(--background-primary);
+}
+
+.extraction-params-embed .dialog-body {
+  padding: 10px;
+  font-size: 13px;
+}
+
+/* 与质量规则页一致：表单不套边框盒子 */
+.extraction-params-embed .batch-config-panel {
+  margin-top: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* 与 .quality-button-bar 一致：上分隔线 + 左对齐的普通按钮 */
+.extraction-params-actions {
+  margin: 5px 10px 0;
+  padding: 15px 0 10px;
+  border-top: 1px solid #ddd;
+}
+
+.extraction-params-hint {
+  display: block;
+  margin-bottom: 8px;
+  color: #a05a00;
+  font-size: 12px;
+}
+
+/* 管理抽取规则弹窗 */
+.extraction-rules-summary .rules-section {
+  margin-bottom: 16px;
+}
+
+.extraction-rules-summary h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.extraction-rules-summary dl {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.extraction-rules-summary dt {
+  color: #666;
+}
+
+.extraction-rules-summary dd {
+  margin: 0;
+}
+
+.extraction-rules-summary table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.extraction-rules-summary th,
+.extraction-rules-summary td {
+  border: 1px solid #ddd;
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.extraction-rules-summary th {
+  background: #f5f5f5;
+  font-weight: 600;
+}
+
+.extraction-rules-summary td.extraction-rule-prompt {
+  color: #555;
+  white-space: pre-wrap;
+}
+
+.extraction-rules-note {
+  margin: 8px 0 0;
+  color: #777;
+  font-size: 12px;
+}

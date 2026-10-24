@@ -40,8 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import edu.mit.simile.butterfly.ButterflyModule;
-import edu.mit.simile.butterfly.MountPoint;
+import com.jiongche.refine.kernel.ModuleView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,7 +50,7 @@ public class ClientSideResourceManager {
 
     static public class QualifiedPath {
 
-        public ButterflyModule module;
+        public ModuleView module;
         public String path;
         public String fullPath;
     }
@@ -66,7 +65,7 @@ public class ClientSideResourceManager {
 
     static public void addPaths(
             String bundleName,
-            ButterflyModule module,
+            ModuleView module,
             String[] paths) {
 
         ClientSideResourceBundle bundle = s_bundles.get(bundleName);
@@ -104,21 +103,18 @@ public class ClientSideResourceManager {
         }
     }
 
-    static protected String resolve(ButterflyModule module, String path) {
-        MountPoint mountPoint = module.getMountPoint();
-        if (mountPoint != null) {
-            String mountPointPath = mountPoint.getMountPoint();
-            if (mountPointPath != null) {
-                StringBuffer sb = new StringBuffer();
+    static protected String resolve(ModuleView module, String path) {
+        String mountPointPath = module.getMountPoint();
+        if (mountPointPath != null) {
+            StringBuffer sb = new StringBuffer();
 
-                boolean slashed = path.startsWith("/");
-                char[] mountPointChars = mountPointPath.toCharArray();
+            boolean slashed = path.startsWith("/");
+            char[] mountPointChars = mountPointPath.toCharArray();
 
-                sb.append(mountPointChars, 0, slashed ? mountPointChars.length - 1 : mountPointChars.length);
-                sb.append(path);
+            sb.append(mountPointChars, 0, slashed ? mountPointChars.length - 1 : mountPointChars.length);
+            sb.append(path);
 
-                return sb.toString();
-            }
+            return sb.toString();
         }
         return null;
     }

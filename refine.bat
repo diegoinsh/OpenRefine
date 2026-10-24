@@ -139,10 +139,10 @@ set REFINE_MIN_MEMORY=256M
 :gotMemory
 set OPTS=%OPTS% -Xms%REFINE_MIN_MEMORY% -Xmx%REFINE_MEMORY% -Drefine.memory=%REFINE_MEMORY%
 
-if not "%REFINE_MAX_FORM_CONTENT_SIZE%" == "" goto gotMaxFormContentSize
-set REFINE_MAX_FORM_CONTENT_SIZE=1048576
-:gotMaxFormContentSize
-set OPTS=%OPTS% -Drefine.max_form_content_size=%REFINE_MAX_FORM_CONTENT_SIZE%
+if not "%REFINE_CONTAINER_MAX_POST_SIZE%" == "" goto gotContainerMaxPostSize
+set REFINE_CONTAINER_MAX_POST_SIZE=67108864
+:gotContainerMaxPostSize
+set OPTS=%OPTS% -Drefine.container.max_post_size=%REFINE_CONTAINER_MAX_POST_SIZE%
 
 if not "%REFINE_PORT%" == "" goto gotPort
 set REFINE_PORT=3333
@@ -171,6 +171,8 @@ set REFINE_CLASSES_DIR=server\classes
 :gotClassesDir
 
 if not "%REFINE_DATA_DIR%" == "" set OPTS=%OPTS% -Drefine.data_dir=%REFINE_DATA_DIR%
+
+if not "%REFINE_AUTOSAVE_PERIOD%" == "" set OPTS=%OPTS% -Drefine.autosave=%REFINE_AUTOSAVE_PERIOD%
 
 if not "%REFINE_LIB_DIR%" == "" goto gotLibDir
 set REFINE_LIB_DIR=server\target\lib

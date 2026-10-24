@@ -38,7 +38,7 @@ var QualityAlignment = {
     }
   },
 
-  // Content comparison rules: [{ column: '', extractLabel: '', threshold: 90 }]
+  // Content comparison rules: [{ column: '', extractLabel: '', threshold: 100 }]
   _contentRules: [],
 
   // AIMP service configuration - supports both 7998 and 7999 interface modes
@@ -1734,6 +1734,16 @@ QualityAlignment._renderResultsTab = function() {
 
   if (result && result.serviceUnavailable) {
     console.log('[QualityAlignment._renderResultsTab] 准备渲染serviceUnavailable alert');
+    var suMessage = result.serviceUnavailableMessage || '';
+    // 列头未匹配（比对无法进行）与 AI 服务不可用是两类问题，提示需区分
+    var isColumnMismatch = suMessage.indexOf('UNMATCHED_COLUMNS:') === 0;
+    var suHtml = isColumnMismatch
+      ? '<strong>' + $.i18n('data-quality-extension/unmatched-columns-block')
+          .replace('{0}', suMessage.substring('UNMATCHED_COLUMNS:'.length)) + '</strong> '
+          + $.i18n('data-quality-extension/unmatched-columns-hint')
+      : '<strong>' + $.i18n('data-quality-extension/aimp-service-unavailable') + '</strong> '
+          + $.i18n('data-quality-extension/aimp-service-incomplete');
+
     var serviceUnavailableAlert = $('<div class="quality-service-unavailable-alert"></div>')
       .css({
         'background-color': '#fffbfbff',
@@ -1744,24 +1754,25 @@ QualityAlignment._renderResultsTab = function() {
       })
       .appendTo(summarySection);
 
-    $('<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;"></div>')
+    var alertRow = $('<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;"></div>')
       .append(
         $('<img src="images/extensions/triangle-exclamation.svg"/>')
           .css({'width': '20px', 'height': '20px'})
       )
-      .append(
-        $('<span></span>')
-          .html('<strong>' + $.i18n('data-quality-extension/aimp-service-unavailable') + '</strong> ' + $.i18n('data-quality-extension/aimp-service-incomplete'))
-      )
-      .append(
+      .append($('<span></span>').html(suHtml));
+
+    if (!isColumnMismatch) {
+      alertRow.append(
         $('<button class="button"></button>')
           .text($.i18n('data-quality-extension/configure-aimp'))
           .css({'padding': '4px 12px', 'font-size': '13px'})
           .on('click', function() {
             self._showAimpConfigDialog();
           })
-      )
-      .appendTo(serviceUnavailableAlert);
+      );
+    }
+
+    alertRow.appendTo(serviceUnavailableAlert);
   }
 
   // Pie chart section
@@ -3124,9 +3135,9 @@ QualityAlignment._applyContentTemplate = function(templateId) {
   if (templateId === 'content-elements') {
     // 文书档案要素比对规则 - 4个关键要素
     var templateRules = [
-      { templateField: '题名', extractLabel: '题名', threshold: 90 },
-      { templateField: '责任者', extractLabel: '责任者', threshold: 90 },
-      { templateField: '文号', extractLabel: '文号', threshold: 95 },
+      { templateField: '题名', extractLabel: '题名', threshold: 100 },
+      { templateField: '责任者', extractLabel: '责任者', threshold: 100 },
+      { templateField: '文号', extractLabel: '文号', threshold: 100 },
       { templateField: '成文时间', extractLabel: '成文时间', threshold: 100 }
     ];
 
@@ -3733,7 +3744,7 @@ QualityAlignment._addContentRule = function() {
   // Threshold
   var thresholdRow = $('<div class="dialog-row"></div>').appendTo(body);
   $('<label></label>').text($.i18n('data-quality-extension/similarity-threshold') + ' (%): ').appendTo(thresholdRow);
-  var thresholdInput = $('<input type="number" min="0" max="100" value="90">').appendTo(thresholdRow);
+  var thresholdInput = $('<input type="number" min="0" max="100" value="100">').appendTo(thresholdRow);
 
   var footer = $('<div class="dialog-footer"></div>').appendTo(frame);
   $('<button class="button"></button>')
@@ -3752,7 +3763,7 @@ QualityAlignment._addContentRule = function() {
       self._contentRules.push({
         column: colName,
         extractLabel: label,
-        threshold: parseInt(thresholdInput.val()) || 90,
+        threshold: parseInt(thresholdInput.val()) || 100,
         matched: true
       });
       self._hasUnsavedChanges = true;
@@ -3825,7 +3836,7 @@ QualityAlignment._editContentRule = function(index) {
       self._contentRules[index] = {
         column: selectedColumn,
         extractLabel: labelInput.val(),
-        threshold: parseInt(thresholdInput.val()) || 90,
+        threshold: parseInt(thresholdInput.val()) || 100,
         templateField: rule.templateField,
         matched: columnExists
       };

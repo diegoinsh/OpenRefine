@@ -68,7 +68,21 @@
     </dependencies>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src</directory>
+            </resource>
+        </resources>
         <plugins>
+            <!-- src 同时作为资源目录后，localizer 会把 META-INF/solon/*.properties 误当资源束；
+                 用不存在的文件名屏蔽，避免非法 JClass 名。 -->
+            <plugin>
+                <groupId>org.jvnet.localizer</groupId>
+                <artifactId>localizer-maven-plugin</artifactId>
+                <configuration>
+                    <fileMask>no-localizer-bundles.properties</fileMask>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>build-helper-maven-plugin</artifactId>

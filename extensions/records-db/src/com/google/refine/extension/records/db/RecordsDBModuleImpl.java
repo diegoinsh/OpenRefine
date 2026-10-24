@@ -6,15 +6,11 @@ package com.google.refine.extension.records.db;
 
 import javax.servlet.ServletConfig;
 
-import edu.mit.simile.butterfly.ButterflyModuleImpl;
+import com.jiongche.refine.kernel.AbstractRefineModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.refine.extension.records.db.model.RecordsDBOverlayModel;
-import com.google.refine.importing.ImportingManager;
-import com.google.refine.model.Project;
-
-public class RecordsDBModuleImpl extends ButterflyModuleImpl {
+public class RecordsDBModuleImpl extends AbstractRefineModule {
 
     private static final Logger logger = LoggerFactory.getLogger("RecordsDBModuleImpl");
 
@@ -27,17 +23,9 @@ public class RecordsDBModuleImpl extends ButterflyModuleImpl {
         // Set the singleton instance
         instance = this;
 
-        // Register the overlay model for storing schema profile in projects
-        Project.registerOverlayModel(
-                RecordsDBOverlayModel.OVERLAY_MODEL_KEY,
-                RecordsDBOverlayModel.class);
-
-        // Register the importing controller on the server side to avoid
-        // class loading issues when Rhino initializes the module.
-        ImportingManager.registerController(
-                this,
-                "records-db-import-controller",
-                new RecordsDatabaseImportController());
+        // 注册逻辑已收敛到框架无关的 Java SPI：
+        // com.jiongche.extension.records.db.RecordsDBExtensionSpi
+        // （super.init() 会触发 controller.js 的 init() → SpiBootstrap.register）。
 
         logger.info("Records Database Extension module initialization completed");
     }

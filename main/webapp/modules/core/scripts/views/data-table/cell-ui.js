@@ -39,6 +39,9 @@ function DataTableCellUI(dataTableView, cell, rowIndex, cellIndex, td) {
   this._td = td;
   this._focusBeforeEdit;
 
+  // 反向索引：Tab 切换单元格时由 DOM 反查对应的单元格 UI
+  td.dataTableCellUI = this;
+
   this._render();
 }
 
@@ -101,6 +104,576 @@ DataTableCellUI.prototype._render = function() {
   divContent.appendChild(editLink).appendChild(document.createTextNode($.i18n('core-facets/edit')));
 
   this._td.appendChild(divContent);
+
+  $(this._td).addClass('data-table-cell')
+  .off('dblclick.inlineEdit')
+  .on('dblclick.inlineEdit', function(e) {
+    if ($(e.target).is('a, button, input, select, textarea')) {
+      return;
+    }
+    // 提取任务运行期间项目只读，不允许就地编辑
+    if ($(document.body).hasClass('extraction-readonly')) {
+      return;
+    }
+    e.preventDefault();
+    self._startInlineEdit();
+    // 同步打开资源预览浮窗并默认进入 OCR 模式，可在浮窗内拉框识别后写回单元格
+    if (typeof FileViewPanel !== 'undefined' && FileViewPanel.openForOcr) {
+      FileViewPanel.openForOcr(self._rowIndex, self._cellIndex);
+    }
+  });
+};
+
+/** 当前处于就地编辑状态的单元格编辑器，供 OCR 等外部功能写入内容 */
+DataTableCellUI.activeInlineEditor = null;
+
+/**
+ * 单元格提交会写入一条历史操作，提交后自动把左侧面板切到「历史记录」页，
+ * 便于立即核对或撤销本次改动。面板未就绪（如扩展独立使用）时静默跳过。
+ */
+DataTableCellUI._showHistoryTab = function() {
+  if (typeof ui === 'undefined' || !ui || !ui.leftPanelTabs || !ui.leftPanelTabs.length) {
+    return;
+  }
+  var index = ui.leftPanelTabs
+      .find('a[href="#refine-tabs-history"]')
+      .closest('li')
+      .index();
+  if (index >= 0) {
+    ui.leftPanelTabs.tabs('option', 'active', index);
+  }
+};
+
+DataTableCellUI.prototype._startInlineEdit = function() {
+  var self = this;
+  var cell = this._cell;
+
+  if (this._inlineEditing) {
+    return;
+  }
+
+  // 同一时刻只允许一个就地编辑器。进入本格编辑前，若仍有其它单元格处于编辑态，
+  // 先提交它——不能只依赖 document 上的「点击别处提交」（mousedown.inlineEditOutside）：
+  // 双击切格时该处理器可能因浮窗抢焦点／表格重排等原因漏触发，前一格就会一直停在
+  // 编辑态不复原。在这里显式互斥，保证切格时前一格一定收尾。
+  var active = DataTableCellUI.activeInlineEditor;
+  if (active && active.ownerTd && active.ownerTd !== this._td
+      && typeof active.commit === 'function') {
+    active.commit();
+  }
+
+  var originalContent = (!cell || !("v" in cell) || cell.v === null) ? "" : String(cell.v);
+  var dataType = (cell !== null && "t" in cell && cell.t != null) ? cell.t
+      : (typeof (cell ? cell.v : null) === 'string' ? 'text' : typeof (cell ? cell.v : null));
+
+  // 日期等复杂类型沿用原生编辑弹窗，避免在此重复实现解析逻辑
+  if (dataType === 'date' || dataType === 'object' || dataType === 'undefined') {
+    this._startEdit(this._td);
+    return;
+  }
+
+  this._inlineEditing = true;
+
+  // 填充柄弹出浮动菜单期间，禁止「点击别处提交」把源单元格作为另一条历史提交掉
+  var suppressCommit = false;
+
+  var $td = $(this._td);
+  var $holder = $td.find('.data-table-cell-content');
+
+  // 编辑前先量出单元格内容区高度：文本框按此精确复刻，避免清空内容后行高塌陷。
+  // 宽度不在此处固定，交给 CSS 的 100%，这样折叠左面板等导致列宽变化时仍与单元格边框重合
+  var tdStyle = window.getComputedStyle(this._td);
+  var editorHeight = this._td.clientHeight
+      - parseFloat(tdStyle.paddingTop) - parseFloat(tdStyle.paddingBottom);
+
+  var textarea = document.createElement('textarea');
+  textarea.className = 'data-table-cell-inline-editor';
+  textarea.value = originalContent;
+  if (editorHeight > 0) {
+    textarea.style.height = editorHeight + 'px';
+  }
+
+  $holder.empty().append(textarea);
+  $td.addClass('data-table-cell-editing');
+
+  var finished = false;
+  // 绑在 document 上的「点击别处提交」处理器。收尾时必须按引用精确解绑：
+  // 双击切格时新旧编辑器可能短暂共存，若此处无差别 off，一方收尾会把另一方的
+  // 处理器一并摘掉，另一格便再也无法通过点击别处提交（表现为一直停在编辑态）。
+  var outsideHandler = null;
+
+  var cleanup = function() {
+    finished = true;
+    self._inlineEditing = false;
+    DataTableCellUI.activeInlineEditor = null;
+    $(document).off('mousedown.inlineEditOutside', outsideHandler);
+    teardownFill();
+  };
+
+  var restore = function() {
+    cleanup();
+    $td.removeClass('data-table-cell-editing');
+    self._render();
+  };
+
+  var commit = function(onCommitted) {
+    if (finished) {
+      return;
+    }
+    var value = textarea.value;
+    if (dataType === 'number') {
+      value = parseFloat(value);
+      if (isNaN(value)) {
+        alert($.i18n('core-views/not-valid-number'));
+        textarea.focus();
+        return;
+      }
+    } else if (dataType === 'boolean') {
+      value = (value === 'true');
+    }
+
+    // 内容未变则不提交，避免在历史记录里留下无实际改动的操作
+    var unchanged = (dataType === 'number' || dataType === 'boolean')
+        ? value === cell.v
+        : String(value) === originalContent;
+    if (unchanged) {
+      cleanup();
+      $td.removeClass('data-table-cell-editing');
+      self._render();
+      if (onCommitted) {
+        onCommitted();
+      }
+      return;
+    }
+
+    cleanup();
+    $td.removeClass('data-table-cell-editing');
+    // 立即复原这一格（清掉编辑框），不要等异步写回完成：写回是网络往返，
+    // 期间若用户已双击切到别处，本格会一直显示着文本框，观感上就是「没有复原」。
+    // 写回成功后 onDone 会带着新值再渲染一次；失败则 onError 也回退到原值。
+    self._render();
+
+    Refine.postCoreProcess(
+      "edit-one-cell",
+      {},
+      {
+        row: self._rowIndex,
+        cell: self._cellIndex,
+        value: value,
+        type: dataType
+      },
+      {},
+      {
+        onDone: function(o) {
+          if (o.cell.r) {
+            o.cell.r = o.pool.recons[o.cell.r];
+          }
+          self._cell = o.cell;
+          self._dataTableView._updateCell(self._rowIndex, self._cellIndex, self._cell);
+          self._render();
+          // 写入后按新内容重排该表列宽：长文本列会被撑开（只增不减，用户拖过的列不参与）
+          if (typeof self._dataTableView._autoFitColumnWidths === 'function') {
+            self._dataTableView._autoFitColumnWidths(
+                $(self._td).closest('table.data-table').find('colgroup'));
+          }
+          // 本次提交已写入历史，切到左侧「历史记录」页便于立即核对或撤销
+          DataTableCellUI._showHistoryTab();
+          // 提交完成（单元格 DOM 已重绘）后再切换焦点，避免被本次重绘打断
+          if (onCommitted) {
+            onCommitted();
+          }
+        },
+        onError: function() {
+          self._render();
+        }
+      }
+    );
+  };
+
+  textarea.addEventListener('keydown', function(evt) {
+    if (evt.key === 'Enter' && !evt.shiftKey && !evt.ctrlKey && !evt.altKey) {
+      evt.preventDefault();
+      commit();
+    } else if (evt.key === 'Escape') {
+      evt.preventDefault();
+      restore();
+    } else if (evt.key === 'Tab') {
+      // Tab：提交当前单元格，并把就地编辑态推进到本行下一个单元格
+      // Shift+Tab：改为沿本列竖向推进，到下一行的同一个单元格
+      evt.preventDefault();
+      var moveDown = evt.shiftKey;
+      commit(function() {
+        if (moveDown) {
+          self._focusNextRowInlineEdit();
+        } else {
+          self._focusNextCellInlineEdit();
+        }
+      });
+    }
+  });
+
+  // 单击以下区域时不结束就地编辑，也不让文本框失焦：
+  //  - file-view-panel：资源预览浮窗，拉框 OCR 的结果要写回正在编辑的单元格
+  //  - .menu-system / .visibility-panel-button：菜单与左右面板显隐按钮
+  //  - 任意滚动条：编辑中常要横向滚动查看被挡住的列
+  var KEEP_FOCUS_SELECTOR = '#file-view-panel, .menu-system, .visibility-panel-button';
+
+  /**
+   * 点击是否落在滚动条上。滚动条属于滚动容器自身，因此命中时 event.target 就是该容器，
+   * 且坐标落在其内容区之外的那一圈。
+   */
+  var isOnScrollbar = function(e) {
+    var el = e.target;
+    if (!el || el.nodeType !== 1) {
+      return false;
+    }
+    var style = window.getComputedStyle(el);
+    var borderLeft = parseFloat(style.borderLeftWidth) || 0;
+    var borderTop = parseFloat(style.borderTopWidth) || 0;
+    var borderX = borderLeft + (parseFloat(style.borderRightWidth) || 0);
+    var borderY = borderTop + (parseFloat(style.borderBottomWidth) || 0);
+    var scrollbarWidth = el.offsetWidth - el.clientWidth - borderX;
+    var scrollbarHeight = el.offsetHeight - el.clientHeight - borderY;
+    if (scrollbarWidth <= 0 && scrollbarHeight <= 0) {
+      return false;
+    }
+    var rect = el.getBoundingClientRect();
+    return (scrollbarHeight > 0 && e.clientY >= rect.top + borderTop + el.clientHeight)
+        || (scrollbarWidth > 0 && e.clientX >= rect.left + borderLeft + el.clientWidth);
+  };
+
+  outsideHandler = function(e) {
+    // 填充柄拖动 / 浮动菜单期间，点击别处不结束编辑（菜单自身的 mousedown 也会冒泡到这里）
+    if (suppressCommit) {
+      return;
+    }
+    if ($(e.target).closest($td).length) {
+      return;
+    }
+    // 白名单内只阻断原生的焦点转移，不提交；click 仍会正常派发到目标元素，
+    // 因此浮窗拉框、面板折叠按钮等功能不受影响
+    if ($(e.target).closest(KEEP_FOCUS_SELECTOR).length || isOnScrollbar(e)) {
+      e.preventDefault();
+      return;
+    }
+    commit();
+  };
+  $(document).on('mousedown.inlineEditOutside', outsideHandler);
+
+  DataTableCellUI.activeInlineEditor = {
+    textarea: textarea,
+    ownerTd: this._td,
+    commit: commit,
+    cancel: restore,
+    /** 有选区则替换选区，否则插入到光标之后 */
+    insertText: function(text) {
+      var el = textarea;
+      var start = el.selectionStart;
+      var end = el.selectionEnd;
+      if (start === null || start === undefined) {
+        start = end = el.value.length;
+      }
+      el.value = el.value.substring(0, start) + text + el.value.substring(end);
+      var caret = start + text.length;
+      el.selectionStart = caret;
+      el.selectionEnd = caret;
+      el.focus();
+    }
+  };
+
+  // ---- 填充柄（Excel 风格的复制 / 序列填充）----------------------------------
+  // 编辑态单元格右下角的小圆点；按住拖动可把内容复制或按序列填充到相邻单元格。
+  var fillDrag = null;      // 拖动状态：{ startX, startY, axis }；未拖动为 null
+  var previewTds = [];      // 当前高亮的目标单元格
+
+  var handle = document.createElement('div');
+  handle.className = 'data-table-cell-fill-handle';
+  self._td.appendChild(handle);
+
+  var clearPreview = function() {
+    previewTds.forEach(function(td) {
+      td.classList.remove('data-table-cell-fill-preview');
+    });
+    previewTds = [];
+  };
+
+  // ---- 填充结果高亮：填充完成后保留「本次改动区域」的绿色框 --------------------
+  // 刷新会重建整表 DOM，标记必须等重绘之后（onFinallyDone）再加；点击任意别处（失焦）即清除。
+  var clearFillResult = function() {
+    $('.data-table-cell-fill-result').removeClass('data-table-cell-fill-result');
+  };
+
+  var showFillResult = function(cells) {
+    clearFillResult();
+    var wanted = {};
+    cells.forEach(function(c) {
+      wanted[c.row + ':' + c.cell] = true;
+    });
+    $('.data-table-container td').each(function() {
+      var ui = this.dataTableCellUI;
+      if (ui && wanted[ui._rowIndex + ':' + ui._cellIndex]) {
+        $(this).addClass('data-table-cell-fill-result');   // 按项目行/列号匹配，非 DOM 序号
+      }
+    });
+  };
+
+  $(document).off('mousedown.fillResult').on('mousedown.fillResult', function() {
+    clearFillResult();
+  });
+
+  var endMouseDrag = function() {
+    $(document)
+      .off('mousemove.fillHandle')
+      .off('mouseup.fillHandle')
+      .off('keydown.fillHandle');
+  };
+
+  /** 收尾：解绑拖动监听、去掉高亮、移除圆点。cleanup / restore 时都会调用。 */
+  var teardownFill = function() {
+    endMouseDrag();
+    clearPreview();
+    if (handle && handle.parentNode) {
+      handle.parentNode.removeChild(handle);
+    }
+    fillDrag = null;
+  };
+
+  /**
+   * 沿拖动方向收集「已越过中线」的连续相邻数据格；仅单向（横向向右 / 竖向向下）。
+   * 越过哪一格的中线就纳入哪一格，一旦某格未过半即停止，保证选区连续。
+   */
+  var computeTargets = function(axis, clientX, clientY) {
+    var result = [];
+    if (axis === 'x') {
+      var tr = self._td.parentNode;
+      if (!tr) {
+        return result;
+      }
+      var startIndex = Array.prototype.indexOf.call(tr.cells, self._td);
+      for (var i = startIndex + 1; i < tr.cells.length; i++) {
+        var td = tr.cells[i];
+        if (!td.dataTableCellUI) {
+          continue;   // 星标 / 旗标 / 行号等非数据格跳过
+        }
+        var rect = td.getBoundingClientRect();
+        if (clientX < rect.left + rect.width / 2) {
+          break;
+        }
+        result.push(td);
+      }
+    } else {
+      for (var nextTr = self._td.parentNode.nextElementSibling; nextTr; nextTr = nextTr.nextElementSibling) {
+        var targetTd = null;
+        for (var j = 0; j < nextTr.cells.length; j++) {
+          var ui = nextTr.cells[j].dataTableCellUI;
+          if (ui && ui._cellIndex === self._cellIndex) {
+            targetTd = nextTr.cells[j];
+            break;
+          }
+        }
+        if (!targetTd) {
+          continue;
+        }
+        var tr2 = targetTd.getBoundingClientRect();
+        if (clientY < tr2.top + tr2.height / 2) {
+          break;
+        }
+        result.push(targetTd);
+      }
+    }
+    return result;
+  };
+
+  /** 选定填充方式后：一次性提交源格 + 全部目标格（覆盖原值），只产生一条历史。 */
+  var applyFill = function(mode, targets) {
+    var source = {
+      row: self._rowIndex,
+      cell: self._cellIndex,
+      value: textarea.value,   // 编辑框当前内容（含未提交的就地编辑）
+      type: dataType
+    };
+    var targetCells = targets.map(function(td) {
+      var ui = td.dataTableCellUI;
+      return { row: ui._rowIndex, cell: ui._cellIndex };   // 用项目行 / 列号，不能用 DOM 序号
+    });
+    // 源格 + 目标格 = 本次改动区域，刷新后高亮，便于确认改了哪里
+    var resultCells = [{ row: source.row, cell: source.cell }].concat(targetCells);
+    // 整表重绘不保留纵向滚动位置（data-table-view.render 只存了 scrollLeft），会跳回顶部，这里记下以恢复
+    var $containerBefore = $('.data-table-container');
+    var scrollTop = $containerBefore.length ? $containerBefore[0].scrollTop : 0;
+    var scrollLeft = $containerBefore.length ? $containerBefore[0].scrollLeft : 0;
+
+    teardownFill();
+    suppressCommit = false;
+    cleanup();
+    $td.removeClass('data-table-cell-editing');
+    // 立即复原本格（清掉文本框与圆点），写回成功后 Refine.update 会整表重绘
+    self._render();
+
+    Refine.postCoreProcess(
+      "fill-cells",
+      {},
+      {
+        mode: mode,
+        source: JSON.stringify(source),
+        targets: JSON.stringify(targetCells)
+      },
+      // 必须带 cellsChanged：Refine.update 只在设置了变更标志时才调 dataTableView.update 重绘表格。
+      // 传空对象时后端已写入数据、历史也已记录，但界面不会刷新（表现为「填充没生效」）。
+      { cellsChanged: true, rowIdsPreserved: true, recordIdsPreserved: true },
+      {
+        onDone: function() {
+          DataTableCellUI._showHistoryTab();
+        },
+        onError: function() {
+          Refine.update({}, null);
+        },
+        // onDone 早于表格重绘，不能在此操作 DOM；onFinallyDone 才是 Refine.update 完成后的回调。
+        // 重绘后：先恢复纵向滚动位置，再高亮本次填充区域。
+        onFinallyDone: function() {
+          var $container = $('.data-table-container');
+          if ($container.length) {
+            $container[0].scrollTop = scrollTop;
+            $container[0].scrollLeft = scrollLeft;
+          }
+          showFillResult(resultCells);
+        }
+      }
+    );
+  };
+
+  /** 松开鼠标后，在最后一个目标格下方弹出浮动菜单。 */
+  var showFillMenu = function(targets) {
+    var endTd = targets[targets.length - 1];
+    MenuSystem.createAndShowStandardMenu([
+      {
+        label: $.i18n('core-views/fill-copy'),
+        click: function() { applyFill('copy', targets); }
+      },
+      {
+        label: $.i18n('core-views/fill-series'),
+        click: function() { applyFill('series', targets); }
+      }
+    ], $(endTd), {
+      horizontal: false,
+      onDismiss: function() {
+        clearPreview();
+        suppressCommit = false;
+      }
+    });
+    // 菜单挂在 body 下，点菜单项时 mousedown 会冒泡到 document；这里再吞一层，
+    // 与 suppressCommit 一起确保「点击别处提交」不会误触发
+    $('.menu-container').on('mousedown', function(evt) {
+      evt.stopPropagation();
+    });
+  };
+
+  handle.addEventListener('mousedown', function(e) {
+    if (e.button !== 0) {
+      return;
+    }
+    // 保持编辑框焦点与选中，不要因按下圆点而结束编辑
+    e.preventDefault();
+    e.stopPropagation();
+    fillDrag = { startX: e.clientX, startY: e.clientY, axis: null };
+
+    $(document)
+      .on('mousemove.fillHandle', function(evt) {
+        if (!fillDrag) {
+          return;
+        }
+        var dx = evt.clientX - fillDrag.startX;
+        var dy = evt.clientY - fillDrag.startY;
+        if (!fillDrag.axis) {
+          // 超过阈值再定轴，避免抖动；定轴后不再改变
+          if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
+            return;
+          }
+          fillDrag.axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+        }
+        suppressCommit = true;
+        clearPreview();
+        previewTds = computeTargets(fillDrag.axis, evt.clientX, evt.clientY);
+        previewTds.forEach(function(td) {
+          td.classList.add('data-table-cell-fill-preview');
+        });
+        evt.preventDefault();
+      })
+      .on('mouseup.fillHandle', function() {
+        if (!fillDrag) {
+          return;
+        }
+        var axis = fillDrag.axis;
+        var targets = previewTds.slice();
+        endMouseDrag();
+        if (!axis || targets.length === 0) {
+          teardownFill();
+          suppressCommit = false;
+          return;
+        }
+        showFillMenu(targets);
+      })
+      .on('keydown.fillHandle', function(evt) {
+        if (evt.key === 'Escape') {
+          teardownFill();
+          suppressCommit = false;
+          textarea.focus();
+        }
+      });
+  });
+
+  textarea.focus();
+  textarea.select();
+};
+
+/**
+ * 就地编辑按 Tab 时：进入本行下一个单元格的编辑态（默认全选）。
+ * 若目标单元格是提取要素格，同步把资源预览浮窗定位到其取值所在页，并保持 OCR 模式。
+ */
+DataTableCellUI.prototype._focusNextCellInlineEdit = function() {
+  var tr = this._td.parentNode;
+  if (!tr) {
+    return;
+  }
+  var start = Array.prototype.indexOf.call(tr.cells, this._td);
+  for (var i = start + 1; i < tr.cells.length; i++) {
+    var nextTd = tr.cells[i];
+    // 折叠列与非数据格（星标/标记/行号）没有单元格 UI，跳过
+    var nextUI = nextTd.dataTableCellUI;
+    if (!nextUI) {
+      continue;
+    }
+    nextUI._startInlineEdit();
+    if (typeof FileViewPanel !== 'undefined' && FileViewPanel.followCell) {
+      FileViewPanel.followCell(nextUI._rowIndex, nextUI._cellIndex);
+    }
+    return;
+  }
+};
+
+/**
+ * 就地编辑按 Shift+Tab 时：沿本列竖向推进，进入下一行同一个单元格的编辑态。
+ * 表格是整表渲染的，按行序向下找到该列即可；后续行为与横向 Tab 完全一致。
+ */
+DataTableCellUI.prototype._focusNextRowInlineEdit = function() {
+  var tr = this._td.parentNode;
+  if (!tr) {
+    return;
+  }
+  for (var nextTr = tr.nextElementSibling; nextTr; nextTr = nextTr.nextElementSibling) {
+    for (var i = 0; i < nextTr.cells.length; i++) {
+      var nextUI = nextTr.cells[i].dataTableCellUI;
+      // 折叠列与非数据格（星标/标记/行号）没有单元格 UI，跳过
+      if (!nextUI || nextUI._cellIndex !== this._cellIndex) {
+        continue;
+      }
+      nextUI._startInlineEdit();
+      if (typeof FileViewPanel !== 'undefined' && FileViewPanel.followCell) {
+        FileViewPanel.followCell(nextUI._rowIndex, nextUI._cellIndex);
+      }
+      return;
+    }
+  }
 };
 
 DataTableCellUI.prototype._startEdit = function(elmt) {
@@ -191,7 +764,12 @@ DataTableCellUI.prototype._startEdit = function(elmt) {
             type: type
           }])
         },
-        { cellsChanged: true }
+        { cellsChanged: true },
+        {
+          onDone: function() {
+            DataTableCellUI._showHistoryTab();
+          }
+        }
       );
     } else {
       Refine.postCoreProcess(
@@ -215,6 +793,7 @@ DataTableCellUI.prototype._startEdit = function(elmt) {
             self._cell = o.cell;
             self._dataTableView._updateCell(self._rowIndex, self._cellIndex, self._cell);
             self._render();
+            DataTableCellUI._showHistoryTab();
           }
         }
       );

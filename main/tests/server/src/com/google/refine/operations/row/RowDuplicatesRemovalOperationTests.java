@@ -18,6 +18,7 @@ import com.google.refine.expr.MetaParser;
 import com.google.refine.grel.Parser;
 import com.google.refine.model.ColumnsDiff;
 import com.google.refine.model.Project;
+import com.google.refine.operations.OperationHistoryEntry;
 
 public class RowDuplicatesRemovalOperationTests extends RefineTest {
 
@@ -68,7 +69,7 @@ public class RowDuplicatesRemovalOperationTests extends RefineTest {
 
         runOperation(operation, project);
         assertEquals(project.rows.size(), 7);
-        assertEquals(project.history.getLastPastEntries(1).get(0).description, "Remove 2 rows");
+        assertEquals(project.history.getLastPastEntries(1).get(0).description, OperationHistoryEntry.row_removal(2));
 
         Project expected = createProject(
                 new String[] { "SITE_ID", "SITE_NUM", "SITE_NAME",
@@ -106,7 +107,7 @@ public class RowDuplicatesRemovalOperationTests extends RefineTest {
 
         runOperation(operation, project);
         assertEquals(project.rows.size(), 6);
-        assertEquals(project.history.getLastPastEntries(1).get(0).description, "Remove 3 rows");
+        assertEquals(project.history.getLastPastEntries(1).get(0).description, OperationHistoryEntry.row_removal(3));
 
         Project expected = createProject(
                 new String[] { "SITE_ID", "SITE_NUM", "SITE_NAME",
@@ -139,7 +140,7 @@ public class RowDuplicatesRemovalOperationTests extends RefineTest {
         RowDuplicatesRemovalOperation operation = new RowDuplicatesRemovalOperation(engineConfig, duplicateRowCriteria);
         runOperation(operation, project);
         assertEquals(project.rows.size(), 4);
-        assertEquals(project.history.getLastPastEntries(1).get(0).description, "Remove 5 rows");
+        assertEquals(project.history.getLastPastEntries(1).get(0).description, OperationHistoryEntry.row_removal(5));
 
         Project expected = createProject(
                 new String[] { "SITE_ID", "SITE_NUM", "SITE_NAME",

@@ -157,6 +157,24 @@ public class FileProjectManager extends ProjectManager {
     }
 
     @Override
+    public boolean registerExistingProject(long projectID) {
+        synchronized (this) {
+            if (_projectsMetadata.containsKey(projectID)) {
+                return true;
+            }
+            File dir = getProjectDir(projectID, false);
+            if (!dir.isDirectory()) {
+                return false;
+            }
+            if (!loadProjectMetadata(projectID)) {
+                return false;
+            }
+            saveWorkspace();
+            return true;
+        }
+    }
+
+    @Override
     public void importProject(long projectID, InputStream inputStream, boolean gziped) throws IOException {
         File destDir = this.getProjectDir(projectID);
         destDir.mkdirs();

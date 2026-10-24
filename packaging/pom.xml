@@ -17,7 +17,7 @@
     <webapp.dir>../main/webapp</webapp.dir>
     <webapp.target>../main/target</webapp.target>
     <embedded.jre.version>11</embedded.jre.version>
-    <embedded.jre.build>11.0.31_11</embedded.jre.build>
+    <embedded.jre.build>11.0.32.1_1</embedded.jre.build>
 
     <mac.jre.path>${project.build.directory}/mac_jre</mac.jre.path>
     <mac.jre.url>https://mirrors.tuna.tsinghua.edu.cn/Adoptium/${embedded.jre.version}/jre/x64/mac/OpenJDK11U-jre_x64_mac_hotspot_${embedded.jre.build}.tar.gz</mac.jre.url>

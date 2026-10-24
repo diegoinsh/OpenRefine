@@ -151,6 +151,18 @@ public abstract class ProjectManager {
     public abstract boolean loadProjectMetadata(long projectID);
 
     /**
+     * 运行期把工作区中已存在、但尚未登记的项目目录重新登记进内存。
+     *
+     * <p>用于「从回收站恢复项目」：目录已移回 workspace，但 OR 只在启动时扫描工作区，
+     * 运行期不重新扫描。有了这个入口，平台恢复后可立即让项目回到列表，无需重启引擎。
+     *
+     * @return true 表示该项目当前已在列表中（原本就在，或本次登记成功）
+     */
+    public boolean registerExistingProject(long projectID) {
+        return false;
+    }
+
+    /**
      * Loads a project from the data store into memory
      * 
      * @param id

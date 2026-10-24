@@ -16,6 +16,8 @@ import javax.servlet.http.HttpServletResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.jiongche.refine.data.OrViews;
+import com.jiongche.sdk.data.TableView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,6 +29,7 @@ import com.google.refine.extension.quality.checker.ImageQualityChecker;
 import com.google.refine.extension.quality.checker.ResourceChecker;
 import com.google.refine.extension.quality.checker.TypoChecker;
 import com.google.refine.extension.quality.model.CheckResult;
+import com.google.refine.extension.quality.model.OverlayQualityCheckResult;
 import com.google.refine.extension.quality.model.QualityRulesConfig;
 import com.google.refine.extension.quality.operations.SaveQualityResultOperation;
 import com.google.refine.extension.quality.operations.SaveQualityRulesOperation;
@@ -171,12 +174,15 @@ public class RunQualityCheckCommand extends Command {
         int totalRows = project.rows.size();
         long checkStartTime = System.currentTimeMillis();
 
+        // 经 SDK 契约（缺省活视图，逐值等价）驱动下沉内核
+        TableView view = OrViews.viewFor(project);
+
         // Run format checks
-        FormatChecker formatChecker = new FormatChecker(project, rules);
+        FormatChecker formatChecker = new FormatChecker(view, rules);
         CheckResult formatResult = formatChecker.runCheck();
 
         // Run resource checks
-        ResourceChecker resourceChecker = new ResourceChecker(project, rules);
+        ResourceChecker resourceChecker = new ResourceChecker(view, rules);
         CheckResult resourceResult = resourceChecker.runCheck();
 
         // Run content checks
@@ -184,7 +190,7 @@ public class RunQualityCheckCommand extends Command {
         CheckResult contentResult = new CheckResult("content");
         if (aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
             logger.info("Running content check with AIMP service: " + aimpServiceUrl);
-            ContentChecker contentChecker = new ContentChecker(project, rules, aimpServiceUrl);
+            ContentChecker contentChecker = new ContentChecker(view, rules, aimpServiceUrl);
             contentResult = contentChecker.runCheck();
             logger.info("Content check completed, errors: " + contentResult.getErrors().size());
         } else {
@@ -204,7 +210,7 @@ public class RunQualityCheckCommand extends Command {
                     formatBatchSize = ((Number) bsObj).intValue();
                 }
             }
-            TypoChecker typoChecker = new TypoChecker(project, rules, aimpServiceUrl, formatBatchSize);
+            TypoChecker typoChecker = new TypoChecker(view, rules, aimpServiceUrl, formatBatchSize);
             typoResult = typoChecker.runCheck();
             logger.info("Typo check completed, errors: " + typoResult.getErrors().size());
         } else {
@@ -217,7 +223,7 @@ public class RunQualityCheckCommand extends Command {
         CheckResult imageQualityResult = new CheckResult("image_quality");
         if (aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
             logger.info("Running image quality check with AIMP service: " + aimpServiceUrl);
-            ImageQualityChecker imageChecker = new ImageQualityChecker(project, rules, aimpServiceUrl);
+            ImageQualityChecker imageChecker = new ImageQualityChecker(view, rules, aimpServiceUrl);
             imageQualityResult = imageChecker.runCheck();
             logger.info("Image quality check completed, errors: " + imageQualityResult.getErrors().size());
         } else {
@@ -241,16 +247,19 @@ public class RunQualityCheckCommand extends Command {
             long checkStartTime = System.currentTimeMillis();
             int totalErrors = 0;
 
+            // 经 SDK 契约（缺省活视图，逐值等价）驱动下沉内核
+            TableView view = OrViews.viewFor(project);
+
             // Phase 1: Format checks
             task.setCurrentPhase("格式检查");
-            FormatChecker formatChecker = new FormatChecker(project, rules);
+            FormatChecker formatChecker = new FormatChecker(view, rules);
             CheckResult formatResult = formatChecker.runCheck();
             task.setFormatErrors(formatResult.getErrors().size());
             totalErrors += formatResult.getErrors().size();
 
             // Phase 2: Resource checks
             task.setCurrentPhase("资源检查");
-            ResourceChecker resourceChecker = new ResourceChecker(project, rules);
+            ResourceChecker resourceChecker = new ResourceChecker(view, rules);
             CheckResult resourceResult = resourceChecker.runCheck();
             task.setResourceErrors(resourceResult.getErrors().size());
             totalErrors += resourceResult.getErrors().size();
@@ -260,7 +269,7 @@ public class RunQualityCheckCommand extends Command {
             CheckResult contentResult = new CheckResult("content");
             if (aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
                 logger.info("Running async content check with AIMP service: " + aimpServiceUrl);
-                ContentChecker contentChecker = new ContentChecker(project, rules, aimpServiceUrl);
+                ContentChecker contentChecker = new ContentChecker(view, rules, aimpServiceUrl);
                 contentChecker.setTask(task); // Set task for progress updates
                 contentResult = contentChecker.runCheck();
                 task.setContentErrors(contentResult.getErrors().size());
@@ -282,7 +291,7 @@ public class RunQualityCheckCommand extends Command {
                         formatBatchSize = ((Number) bsObj).intValue();
                     }
                 }
-                TypoChecker typoChecker = new TypoChecker(project, rules, aimpServiceUrl, formatBatchSize);
+                TypoChecker typoChecker = new TypoChecker(view, rules, aimpServiceUrl, formatBatchSize);
                 typoChecker.setTask(task);
                 typoResult = typoChecker.runCheck();
                 totalErrors += typoResult.getErrors().size();
@@ -296,7 +305,7 @@ public class RunQualityCheckCommand extends Command {
             CheckResult imageQualityResult = new CheckResult("image_quality");
             if (aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
                 logger.info("Running async image quality check with AIMP service: " + aimpServiceUrl);
-                ImageQualityChecker imageChecker = new ImageQualityChecker(project, rules, aimpServiceUrl);
+                ImageQualityChecker imageChecker = new ImageQualityChecker(view, rules, aimpServiceUrl);
                 imageChecker.setTask(task); // Set task for progress updates
                 imageQualityResult = imageChecker.runCheck();
                 task.setImageQualityErrors(imageQualityResult.getErrors().size());
@@ -317,7 +326,7 @@ public class RunQualityCheckCommand extends Command {
 
             // Persist result to project overlay for later retrieval
             try {
-                CheckResult combinedResult = new CheckResult("combined");
+                OverlayQualityCheckResult combinedResult = new OverlayQualityCheckResult("combined");
                 combinedResult.setTotalRows(project.rows.size());
                 combinedResult.setCheckedRows(project.rows.size());
                 combinedResult.setStartTime(formatResult.getStartTime());

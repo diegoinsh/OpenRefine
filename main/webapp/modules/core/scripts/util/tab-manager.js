@@ -93,6 +93,8 @@ var TabManager = {
     });
 
     summaryBar.prependTo(summaryBarParent);
+    // 左右面板显隐按钮（visibility-panel-button）需保持在 summaryBar 之前
+    summaryBarParent.children('.visibility-panel-button').prependTo(summaryBarParent);
 
     console.log('[TabManager] Reordered tabs');
   },

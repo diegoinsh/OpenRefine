@@ -74,7 +74,18 @@ public class TaskPersistence {
             }
             
             File taskFile = new File(tasksDir, task.getTaskId() + ".json");
-            mapper.writeValue(taskFile, task);
+            // 先写临时文件再原子改名：平台侧（单机共享落盘）会并发只读本文件，
+            // 避免读到写了一半的 JSON。ATOMIC_MOVE 不支持时退化为普通替换。
+            File tmpFile = new File(tasksDir, task.getTaskId() + ".json.tmp");
+            mapper.writeValue(tmpFile, task);
+            try {
+                java.nio.file.Files.move(tmpFile.toPath(), taskFile.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                java.nio.file.Files.move(tmpFile.toPath(), taskFile.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
             logger.info("Saved task to: " + taskFile.getAbsolutePath());
         } catch (IOException e) {
             logger.error("Failed to save task: " + task.getTaskId(), e);

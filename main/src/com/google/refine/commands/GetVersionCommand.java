@@ -64,7 +64,10 @@ public class GetVersionCommand extends Command {
         @JsonProperty("java_runtime_version")
         public String java_runtime_version = Runtime.getRuntime().version().toString();
         @JsonProperty("display_new_version_notice")
-        public String display_new_version_notice = System.getProperty("refine.display.new.version.notice");
+        // 默认 "false"：本产品暂不提供在线版本升级，客户界面不应出现任何升级/订阅提示。
+        // 原实现无默认值，未设属性时返回 null 依赖于前端判断；这里显式钉死，
+        // 需要开启时才由外部显式设置 -Drefine.display.new.version.notice=true。
+        public String display_new_version_notice = System.getProperty("refine.display.new.version.notice", "false");
         @JsonProperty("module_names")
         public String[] modules = servlet.getModuleNames();
     }

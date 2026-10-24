@@ -15,7 +15,7 @@
 }
 
 .status-text {
-  margin-bottom: 15px;
+  margin-bottom: 5px;
   font-size: 14px;
   color: #333;
 }
@@ -81,6 +81,13 @@
 
 #run-check-dialog .button-danger:hover {
   background: #c82333;
+}
+
+/* 第二行状态：错误累积明细，弱化显示 */
+.status-subtext {
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: #777;
 }
 
 /* Indeterminate progress animation */
