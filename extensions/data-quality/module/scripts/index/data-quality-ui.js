@@ -701,7 +701,7 @@ Refine.DataQualityUI.prototype._renderActionButtons = function(container, projec
     $('<button>')
       .addClass('dq-btn-icon')
       .attr('title', '启动检查')
-      .html('<img src="images/extensions/circle-play-regular-full.svg" alt="启动" />')
+      .html('<img src="images/extensions/circle-play-regular-full.svg" alt="启动" width="18" height="18" />')
       .on('click', function() { self._startCheck(projectId); })
       .appendTo(container);
   }
@@ -711,7 +711,7 @@ Refine.DataQualityUI.prototype._renderActionButtons = function(container, projec
     $('<button>')
       .addClass('dq-btn-icon')
       .attr('title', '暂停')
-      .html('<img src="images/extensions/pause-solid-full.svg" alt="暂停" />')
+      .html('<img src="images/extensions/pause-solid-full.svg" alt="暂停" width="18" height="18" />')
       .on('click', function() { self._pauseTask(projectId); })
       .appendTo(container);
 
@@ -719,7 +719,7 @@ Refine.DataQualityUI.prototype._renderActionButtons = function(container, projec
     $('<button>')
       .addClass('dq-btn-icon dq-btn-danger')
       .attr('title', '停止')
-      .html('<img src="images/extensions/stop-solid-full.svg" alt="停止" />')
+      .html('<img src="images/extensions/stop-solid-full.svg" alt="停止" width="18" height="18" />')
       .on('click', function() { self._cancelTask(projectId); })
       .appendTo(container);
   }
@@ -729,7 +729,7 @@ Refine.DataQualityUI.prototype._renderActionButtons = function(container, projec
     $('<button>')
       .addClass('dq-btn-icon')
       .attr('title', '恢复')
-      .html('<img src="images/extensions/circle-play-regular-full.svg" alt="恢复" />')
+      .html('<img src="images/extensions/circle-play-regular-full.svg" alt="恢复" width="18" height="18" />')
       .on('click', function() { self._resumeTask(projectId); })
       .appendTo(container);
 
@@ -737,7 +737,7 @@ Refine.DataQualityUI.prototype._renderActionButtons = function(container, projec
     $('<button>')
       .addClass('dq-btn-icon dq-btn-danger')
       .attr('title', '停止')
-      .html('<img src="images/extensions/stop-solid-full.svg" alt="停止" />')
+      .html('<img src="images/extensions/stop-solid-full.svg" alt="停止" width="18" height="18" />')
       .on('click', function() { self._cancelTask(projectId); })
       .appendTo(container);
   }
@@ -746,7 +746,7 @@ Refine.DataQualityUI.prototype._renderActionButtons = function(container, projec
   $('<button>')
     .addClass('dq-btn-icon')
     .attr('title', '编辑规则')
-    .html('<img src="images/extensions/pen-to-square-regular-full.svg" alt="规则" />')
+    .html('<img src="images/extensions/pen-to-square-regular-full.svg" alt="规则" width="18" height="18" />')
     .on('click', function() { self._openRulesEditor(projectId); })
     .appendTo(container);
 
@@ -756,7 +756,7 @@ Refine.DataQualityUI.prototype._renderActionButtons = function(container, projec
     $('<button>')
       .addClass('dq-btn-icon')
       .attr('title', '查看报告')
-      .html('<img src="images/extensions/chart-line-solid-full.svg" alt="报告" />')
+      .html('<img src="images/extensions/chart-line-solid-full.svg" alt="报告" width="18" height="18" />')
       .on('click', function() { self._viewReport(projectId); })
       .appendTo(container);
   }
@@ -1013,7 +1013,7 @@ Refine.DataQualityUI.prototype._renderSettingsForm = function() {
 
   // 提示信息
   var tip = $('<div>').addClass('dq-settings-tip')
-    .html('<img src="images/extensions/lightbulb-regular-full.svg" alt="提示" /> 配置修改后对新启动的任务生效，运行中的任务不受影响');
+    .html('<img src="images/extensions/lightbulb-regular-full.svg" alt="提示" width="18" height="18" /> 配置修改后对新启动的任务生效，运行中的任务不受影响');
   container.append(tip);
 };
 
@@ -1079,7 +1079,7 @@ Refine.DataQualityUI.prototype._createTestConnectionButton = function(section) {
 
   $('<button>')
     .addClass('dq-btn dq-btn-small')
-    .html('<img src="images/extensions/link-solid-full.svg" alt="提示" /> 测试连接')
+    .html('<img src="images/extensions/link-solid-full.svg" alt="提示" width="16" height="16" /> 测试连接')
     .on('click', function() {
       var serverUrl = self._elmt.find('input[data-config-key="aimp.server"]').val();
       self._testAimpConnection(serverUrl, statusSpan);

@@ -408,7 +408,7 @@ Refine.ExtractionConsoleUI.prototype._renderActionButtons = function(container, 
     $('<button>')
       .addClass('dq-btn-icon')
       .attr('title', resumable ? '继续抽取（断点续跑）' : '启动抽取')
-      .html('<img src="images/extensions/circle-play-regular-full.svg" alt="启动" />')
+      .html('<img src="images/extensions/circle-play-regular-full.svg" alt="启动" width="18" height="18" />')
       .on('click', function() { self._openTaskDialog(projectId, true); })
       .appendTo(container);
   }
@@ -418,7 +418,7 @@ Refine.ExtractionConsoleUI.prototype._renderActionButtons = function(container, 
     $('<button>')
       .addClass('dq-btn-icon')
       .attr('title', '暂停')
-      .html('<img src="images/extensions/pause-solid-full.svg" alt="暂停" />')
+      .html('<img src="images/extensions/pause-solid-full.svg" alt="暂停" width="18" height="18" />')
       .on('click', function() { self._controlTask(projectId, 'pause'); })
       .appendTo(container);
   }
@@ -428,7 +428,7 @@ Refine.ExtractionConsoleUI.prototype._renderActionButtons = function(container, 
     $('<button>')
       .addClass('dq-btn-icon')
       .attr('title', '恢复')
-      .html('<img src="images/extensions/circle-play-regular-full.svg" alt="恢复" />')
+      .html('<img src="images/extensions/circle-play-regular-full.svg" alt="恢复" width="18" height="18" />')
       .on('click', function() { self._controlTask(projectId, 'resume'); })
       .appendTo(container);
   }
@@ -438,7 +438,7 @@ Refine.ExtractionConsoleUI.prototype._renderActionButtons = function(container, 
     $('<button>')
       .addClass('dq-btn-icon dq-btn-danger')
       .attr('title', '停止')
-      .html('<img src="images/extensions/stop-solid-full.svg" alt="停止" />')
+      .html('<img src="images/extensions/stop-solid-full.svg" alt="停止" width="18" height="18" />')
       .on('click', function() { self._cancelTask(projectId); })
       .appendTo(container);
   }
@@ -447,7 +447,7 @@ Refine.ExtractionConsoleUI.prototype._renderActionButtons = function(container, 
   $('<button>')
     .addClass('dq-btn-icon')
     .attr('title', '编辑抽取参数')
-    .html('<img src="images/extensions/pen-to-square-regular-full.svg" alt="编辑" />')
+    .html('<img src="images/extensions/pen-to-square-regular-full.svg" alt="编辑" width="18" height="18" />')
     .on('click', function() { self._openTaskDialog(projectId, false); })
     .appendTo(container);
 };
