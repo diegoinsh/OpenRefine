@@ -43,9 +43,14 @@ param(
     [ValidateSet('court', 'court-casual', 'ws', 'keji')]
     [string]$Preset = 'court',
     [string[]]$RootPaths = @(),
-    [ValidateSet('none', 'quick', 'standard', 'full')]
+    # 口径：none / quick / standard / full，或逗号分隔的档号列表（与基线的 3 卷自定义口径对齐）
     [string]$Subset = 'none',
     [string]$RunId = '',
+    # 复用已提取项目：配合 -SkipExtraction 直接从既有项目导出结果并评测（省掉重跑提取）
+    [string]$ProjectId = '',
+    # 配合 -SkipExtraction 补记速度口径（该次提取的实测总时长 / 总页数）
+    [int]$ExtractSeconds = 0,
+    [int]$ExtractPages = 0,
     [string]$BaselineRun = '',
     [string]$PlatformBase = 'http://127.0.0.1:8090',
     [int]$TimeoutMinutes = 60,
@@ -147,7 +152,11 @@ if (-not $SkipExtraction) {
     Write-Host ""
     Write-Host "[S1] 批量提取（平台代理通道）" -ForegroundColor Yellow
 
-    $roots = if ($RootPaths.Count) { $RootPaths } else { @($null) }
+    # 注意：不要写成 `$roots = if (...) {...} else { @($null) }` ——
+    # PowerShell 会把 if 表达式的单元素集合展开成标量 $null，foreach 一次都不执行，
+    # 导致提取阶段被静默跳过（曾实测踩中）。先声明数组再赋值可保住 1 个元素的数组语义。
+    $roots = @()
+    if ($RootPaths.Count -gt 0) { $roots = $RootPaths } else { $roots = @($null) }
     $idx = 0
     foreach ($root in $roots) {
         $idx++
@@ -168,22 +177,33 @@ if (-not $SkipExtraction) {
         $rc = $LASTEXITCODE
         $out | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
         $elapsed = [int]((Get-Date) - $t0).TotalSeconds
-
-        if ($rc -ne 0) { Fail "批量提取失败（rc=$rc，目录=$root）" }
         $m = ($out | Out-String) | Select-String -Pattern 'PROJECT_ID=(\S+)' | Select-Object -First 1
+
+        # 沙箱/某些宿主下 $LASTEXITCODE 会被读成 $null（子脚本其实已成功），
+        # 仅凭 rc 判定会把成功当失败；以输出里的 PROJECT_ID 作为成功证据兜底。
+        if ($null -eq $rc) { $rc = if ($m) { 0 } else { 1 } }
+        if ($rc -ne 0) { Fail "批量提取失败（rc=$rc，目录=$root）" }
         if (-not $m) { Fail "提取结束但未解析到 PROJECT_ID（目录=$root）" }
         $projId = $m.Matches[0].Groups[1].Value
+        # 页数用于速度口径（per_page_s）：取最后一轮进度行里的 pages=<done>/<total>
+        $pm = ($out | Out-String) | Select-String -Pattern 'pages=(\d+)/(\d+)' | Select-Object -Last 1
+        $pages = if ($pm) { [int]$pm.Matches[0].Groups[2].Value } else { 0 }
 
-        Add-Stage "extract#$idx" 'OK' "project=$projId elapsed=${elapsed}s"
-        $result.projects += [pscustomobject]@{ run_id = $runThis; project = $projId; root = "$root"; seconds = $elapsed }
+        Add-Stage "extract#$idx" 'OK' "project=$projId elapsed=${elapsed}s pages=$pages"
+        $result.projects += [pscustomobject]@{ run_id = $runThis; project = $projId; root = "$root"; seconds = $elapsed; pages = $pages }
         $extractElapsed[$runThis] = $elapsed
     }
 } else {
     Write-Host ""
     Write-Host "[S1] 已跳过批量提取（-SkipExtraction）" -ForegroundColor DarkGray
     if ($result.projects.Count -eq 0) {
-        $result.projects += [pscustomobject]@{ run_id = $RunId; project = ''; root = ''; seconds = 0 }
+        $result.projects += [pscustomobject]@{ run_id = $RunId; project = $ProjectId; root = ''; seconds = $ExtractSeconds; pages = $ExtractPages }
     }
+}
+# 提取阶段必须真的产生项目；为空说明编排逻辑出错（例如循环未执行），
+# 此时继续评测会拿旧 run 的错误结论，必须立刻失败。
+if (-not $SkipExtraction -and $result.projects.Count -eq 0) {
+    Fail '提取阶段未产生任何项目（编排逻辑异常，提取可能被跳过）'
 }
 
 # ============================================================
@@ -200,7 +220,26 @@ if (-not $SkipEvaluate) {
             Write-Host "  --- run $runThis ---" -ForegroundColor Gray
 
             if ($pr.project) {
-                & $Py $cli or-result --project $pr.project --run-id $runThis --note $note 2>&1 |
+                $orArgs = @('or-result', '--project', $pr.project, '--run-id', $runThis, '--note', $note)
+                # 速度口径：把本次提取的实测总时长与页数写成 timing 记录，
+                # 与准确率同轮采集才可比（格式见 benchmark/schemas/result.schema.json）。
+                # 单轮提取无法剔除冷启动，故 cold=false 并在 notes 里注明，避免被当冷轮丢弃。
+                if ($pr.pages -gt 0 -and $pr.seconds -gt 0) {
+                    $tf = Join-Path $env:TEMP "regress-timing-$runThis.json"
+                    [object[]]$repeats = @([pscustomobject]@{
+                        round           = 1
+                        cold            = $false
+                        total_s         = [double]$pr.seconds
+                        cold_start_s    = $null
+                        effective_pages = [int]$pr.pages
+                        notes           = '单轮提取，含模型冷启动；经 RCP 通道'
+                    })
+                    $payload = [pscustomobject]@{ repeats = $repeats }
+                    [IO.File]::WriteAllText($tf, ($payload | ConvertTo-Json -Depth 5),
+                        (New-Object Text.UTF8Encoding($false)))
+                    $orArgs += @('--timing', $tf)
+                }
+                & $Py $cli @orArgs 2>&1 |
                     ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
                 if ($LASTEXITCODE -ne 0) { Fail "or-result 失败（project=$($pr.project)）" }
                 Add-Stage "or-result:$runThis" 'OK' "project=$($pr.project)"
