@@ -34,7 +34,7 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.util.Properties;
 
-import edu.mit.simile.butterfly.ButterflyModule;
+import com.jiongche.refine.kernel.ModuleView;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -51,7 +51,7 @@ import org.openrefine.wikibase.testing.WikidataRefineTest;
 public abstract class OperationTest extends WikidataRefineTest {
 
     protected Project project = null;
-    protected ButterflyModule module = null;
+    protected ModuleView module = null;
     protected Pool pool = null;
 
     @BeforeMethod
@@ -61,7 +61,7 @@ public abstract class OperationTest extends WikidataRefineTest {
                 new Serializable[][] {
                         { "c", "d" }
                 });
-        module = mock(ButterflyModule.class);
+        module = mock(ModuleView.class);
         when(module.getName()).thenReturn("wikidata");
         pool = new Pool();
     }

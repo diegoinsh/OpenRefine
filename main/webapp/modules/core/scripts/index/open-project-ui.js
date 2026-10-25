@@ -70,6 +70,17 @@ Refine.OpenProjectUI = function(elmt) {
 };
 
 /**
+ * 系统内置标签（与能力平台「数据保留 → 按标签保留」一致）：
+ * 短期 = 7 天后可回收；保留 / 重要 = 永久保留。
+ * name 是实际写入项目元数据的标签名，hint 仅用于展示。
+ */
+Refine.OpenProjectUI.BUILTIN_TAGS = [
+  { name: '短期', hint: '7天' },
+  { name: '保留', hint: '永久' },
+  { name: '重要', hint: '永久' }
+];
+
+/**
  * 构建每页数量控制
  */
 Refine.OpenProjectUI.prototype._buildPageSizeControl = function() {
@@ -331,7 +342,6 @@ Refine.OpenProjectUI.prototype._renderProjectsWithPagination = function() {
     var table = $(
       '<table class="tablesorter-blue list-table"><thead><tr>' +
       '<th></th>' +
-      '<th></th>' +
       '<th>'+$.i18n('core-index-open/last-mod')+'</th>' +
       '<th>'+$.i18n('core-index-open/name')+'</th>' +
       '<th>'+$.i18n('core-index-open/tags')+'</th>' + 
@@ -380,17 +390,6 @@ Refine.OpenProjectUI.prototype._renderProjectsWithPagination = function() {
       }).appendTo(
         $(tr.insertCell(tr.cells.length))
       );
-
-      var editMetadataLink = $('<a></a>')
-      .text($.i18n('core-index-open/edit-meta-data'))
-      .addClass("secondary")
-      .attr("href", "javascript:{}")
-      .on('click',function() {
-          new EditMetadataDialog(project, $(this).parent().parent());
-      })
-      .appendTo(
-        $(tr.insertCell(tr.cells.length))
-      );
       
       $('<div></div>')
       .html('<span style="display:none">' + project.modified + '</span>' + project.date)
@@ -405,16 +404,153 @@ Refine.OpenProjectUI.prototype._renderProjectsWithPagination = function() {
       .appendTo($(tr.insertCell(tr.cells.length)));
       
     var tagsCell = $(tr.insertCell(tr.cells.length));
-    var tags = project.tags;
-    tags.map(function(tag){
-        $("<span/>")
-        .addClass("project-tag")
-        .attr("data-tag-name", tag)
-        .addClass("searchable")
-        .text(tag)
-        .appendTo(tagsCell);
-        $(tr).addClass(tag);
-    });
+    tagsCell.addClass("project-tags-cell");
+    var tags = (project.tags || []).slice();
+    var appliedTagClasses = [];
+
+    var renderTags = function() {
+      tagsCell.empty();
+      appliedTagClasses.map(function(tag){ $(tr).removeClass(tag); });
+      appliedTagClasses = [];
+      tags.map(function(tag){
+          $("<span/>")
+          .addClass("project-tag")
+          .attr("data-tag-name", tag)
+          .addClass("searchable")
+          .text(tag)
+          .appendTo(tagsCell);
+          $(tr).addClass(tag);
+          appliedTagClasses.push(tag);
+      });
+      $("<a/>")
+      .addClass("tag-edit")
+      .attr("href", "javascript:{}")
+      .attr("title", "编辑标签")
+      .text("＋")
+      .on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        openTagEditor();
+        return false;
+      })
+      .appendTo(tagsCell);
+    };
+
+    /**
+     * 标签下拉：按「系统内置标签 / 已有标签」两组横向展开，
+     * 可勾选已有标签，也可输入自定义标签。
+     */
+    var openTagEditor = function() {
+      $('.tag-editor-pop').remove();
+      var builtin = Refine.OpenProjectUI.BUILTIN_TAGS || [];
+      var builtinNames = builtin.map(function(t){ return t.name; });
+      var all = (Refine.TagsManager && Refine.TagsManager._getAllProjectTags)
+        ? Refine.TagsManager._getAllProjectTags() : [];
+      var candidates = {};
+      // 内置标签单独成组展示，不再混入「已有标签」
+      all.concat(tags).map(function(t){
+        if (builtinNames.indexOf(t) < 0) { candidates[t] = true; }
+      });
+
+      var pop = $('<div class="tag-editor-pop"></div>');
+
+      var builtinGroup = $('<div class="tag-editor-group"></div>').appendTo(pop);
+      $('<div class="tag-editor-group-title"></div>').text('系统内置标签').appendTo(builtinGroup);
+      var builtinOpts = $('<div class="tag-editor-opts"></div>').appendTo(builtinGroup);
+
+      var existingGroup = $('<div class="tag-editor-group"></div>').appendTo(pop);
+      $('<div class="tag-editor-group-title"></div>').text('已有标签').appendTo(existingGroup);
+      var existingOpts = $('<div class="tag-editor-opts"></div>').appendTo(existingGroup);
+
+      var addRow = $('<div class="tag-editor-add"></div>').appendTo(pop);
+      var input = $('<input type="text" placeholder="新增标签">').appendTo(addRow);
+      var addBtn = $('<button type="button" class="button">添加</button>').appendTo(addRow);
+      var actions = $('<div class="tag-editor-actions"></div>').appendTo(pop);
+
+      /** checked 缺省按项目现有标签判断；hint 显示在标签名后的括号里。 */
+      var addChip = function(container, name, hint, checked) {
+        if (checked === undefined) { checked = tags.indexOf(name) >= 0; }
+        var lab = $('<label class="tag-opt"></label>').attr('data-tag', name);
+        $('<input type="checkbox">').attr('value', name).prop('checked', !!checked).prependTo(lab);
+        $('<span></span>').text(name).appendTo(lab);
+        if (hint) { $('<em class="tag-opt-hint"></em>').text('(' + hint + ')').appendTo(lab); }
+        container.append(lab);
+      };
+
+      builtin.map(function(t){ addChip(builtinOpts, t.name, t.hint); });
+
+      var existingNames = Object.keys(candidates).sort(function(a, b) {
+        return a.toLowerCase().localeCompare(b.toLowerCase());
+      });
+      if (!existingNames.length) {
+        $('<span class="tag-editor-empty"></span>').text('暂无其它标签').appendTo(existingOpts);
+      }
+      existingNames.map(function(t){ addChip(existingOpts, t); });
+
+      addBtn.on('click', function(e) {
+        e.preventDefault();
+        var v = $.trim(input.val());
+        if (!v) { return false; }
+        var exists = pop.find('label').filter(function(){ return $(this).attr('data-tag') === v; });
+        if (exists.length) {
+          exists.find('input').prop('checked', true);
+        } else {
+          existingOpts.find('.tag-editor-empty').remove();
+          addChip(existingOpts, v, '', true);
+        }
+        input.val('');
+        return false;
+      });
+
+      $('<button type="button" class="button button-primary">保存</button>')
+        .appendTo(actions)
+        .on('click', function(e) {
+          e.preventDefault();
+          var newTags = [];
+          pop.find('input:checked').each(function(){ newTags.push($(this).val()); });
+          var oldStr = tags.join(',');
+          var newStr = newTags.join(',');
+          pop.remove();
+          if (oldStr === newStr) { return false; }
+          Refine.postCSRF(
+            "command/core/set-project-tags",
+            { "project": project.id, "old": oldStr, "new": newStr },
+            function(data) {
+              if (data && data.code === "ok") {
+                tags = newTags;
+                project.tags = newTags;
+                renderTags();
+                Refine.TagsManager.allProjectTags = [];
+                if (Refine.OpenProjectUI.refreshTagsListPanel) {
+                  Refine.OpenProjectUI.refreshTagsListPanel();
+                }
+              } else {
+                window.alert((data && data.message) || "保存标签失败");
+              }
+            },
+            "json"
+          );
+          return false;
+        });
+
+      $('<button type="button" class="button">取消</button>')
+        .appendTo(actions)
+        .on('click', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          pop.remove();
+          return false;
+        });
+
+      pop.on('click', function(e){ e.stopPropagation(); });
+      input.on('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); }
+      });
+      tagsCell.append(pop);
+      input.focus();
+    };
+
+    renderTags();
     
     
     var appendMetaField = function(data) {
@@ -447,10 +583,9 @@ Refine.OpenProjectUI.prototype._renderProjectsWithPagination = function() {
     $(table).tablesorter({
         headers : {
             0: { sorter: false },
-            1: { sorter: false },
-            2: { sorter: "text" }
+            1: { sorter: "text" }
         },
-        sortList: [[2,1]],
+        sortList: [[1,1]],
         widthFixed: false
     });
     self._addTagFilter();

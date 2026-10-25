@@ -70,6 +70,13 @@ public class SetProjectTagsCommand extends Command {
         ProjectManager.singleton.addProjectTags(newTags);
 
         metadata.setTags(newTags);
+        try {
+            // 标签须落盘到项目 metadata.json，否则重启后丢失（项目列表内联编辑依赖此命令）。
+            ProjectManager.singleton.saveMetadata(metadata, project.id);
+        } catch (Exception e) {
+            respondException(response, e);
+            return;
+        }
 
         respond(response, "{\"code\":\"ok\"}");
     }

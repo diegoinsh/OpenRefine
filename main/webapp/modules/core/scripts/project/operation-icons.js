@@ -47,6 +47,7 @@ OperationIconRegistry.setIcon('core/row-reorder', 'images/operations/row-reorder
 OperationIconRegistry.setIcon('core/row-addition', 'images/operations/add.svg');
 OperationIconRegistry.setIcon('core/row-duplicate-removal', 'images/operations/row-duplicate-removal.svg');
 OperationIconRegistry.setIcon('core/row-keep-matched', 'images/operations/row-keep-matched.svg');
+OperationIconRegistry.setIcon('core/split-marked-rows', 'images/operations/split-marked-rows.svg');
 
 OperationIconRegistry.setIcon('core/recon', 'images/operations/reconcile.svg');
 OperationIconRegistry.setIcon('core/recon-mark-new-topics', 'images/operations/recon-mark-new-topics.svg');

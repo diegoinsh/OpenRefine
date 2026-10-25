@@ -155,7 +155,7 @@ public class JsonFieldExtractor {
     
     /**
      * Flatten a nested JSON object to a single level
-     * Example: {"user": {"name": "John"}} -> {"user.name": "John"}
+     * Example: {@code {"user": {"name": "John"}} -> {"user.name": "John"}}
      */
     public static ObjectNode flattenJson(JsonNode jsonNode, String prefix) {
         ObjectNode result = ParsingUtilities.mapper.createObjectNode();

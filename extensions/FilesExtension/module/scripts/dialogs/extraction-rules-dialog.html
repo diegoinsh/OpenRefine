@@ -1,0 +1,13 @@
+<div class="dialog-frame" id="extraction-rules-dialog" style="max-width: 780px;">
+  <div class="dialog-header" bind="dialogHeader">管理抽取规则</div>
+  <div class="dialog-body">
+    <div class="extraction-rules-summary" bind="summary"></div>
+    <p class="extraction-rules-note">系统内置提示词不在此显示；自定义要素可查看其名称、key、操作与提示词。</p>
+    <div class="dq-error" bind="errorText" style="display:none"></div>
+  </div>
+  <div class="dialog-footer">
+    <button class="button button-secondary" bind="importButton">导入规则</button>
+    <button class="button button-secondary" bind="exportButton">导出规则</button>
+    <button class="button button-primary" bind="closeButton">关闭</button>
+  </div>
+</div>

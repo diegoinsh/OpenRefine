@@ -235,6 +235,79 @@ ul#tagsUl li a {
   color: white;
 }
 
+/* 标签列内联编辑（下拉勾选 + 自定义） */
+.project .project-tags-cell {
+  position: relative;
+  min-width: 120px;
+}
+.project .tag-edit {
+  float: left;
+  margin: 0 2px;
+  padding: 0 6px;
+  line-height: 20px;
+  border: 1px dashed #b9b1a3;
+  border-radius: 3px;
+  color: #6b5b45;
+  text-decoration: none;
+  font-weight: bold;
+}
+.project .tag-edit:hover { background: #f5f1eb; }
+.tag-editor-pop {
+  position: absolute;
+  z-index: 30;
+  top: 22px;
+  left: 0;
+  min-width: 300px;
+  max-width: 460px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #b9b1a3;
+  border-radius: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
+  font-weight: normal;
+  color: #333;
+}
+.tag-editor-pop .tag-editor-group { margin-bottom: 6px; }
+.tag-editor-pop .tag-editor-group-title {
+  margin-bottom: 3px;
+  color: #8a7a63;
+  font-size: 11px;
+}
+/* 两组候选标签都横向展开（超出换行），不再逐行竖排 */
+.tag-editor-pop .tag-editor-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.tag-editor-pop .tag-opt {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 2px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tag-editor-pop .tag-opt input { margin-right: 4px; vertical-align: middle; }
+.tag-editor-pop .tag-opt-hint {
+  margin-left: 2px;
+  color: #9a8a72;
+  font-style: normal;
+  font-size: 11px;
+}
+.tag-editor-pop .tag-editor-empty { color: #9a8a72; font-size: 12px; }
+.tag-editor-pop .tag-editor-add { display: flex; gap: 4px; margin-bottom: 6px; }
+.tag-editor-pop .tag-editor-add input {
+  flex: 1;
+  padding: 2px 6px;
+  border: 1px solid #ccc;
+  border-radius: 2px;
+  font-size: 12px;
+  font-family: inherit;
+}
+.tag-editor-pop .tag-editor-actions { text-align: right; }
+.tag-editor-pop .tag-editor-actions .button { margin-left: 4px; }
+
 /* Search bar in open project page */
 
 /* input */

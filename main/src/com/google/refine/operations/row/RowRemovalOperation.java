@@ -54,6 +54,7 @@ import com.google.refine.model.Row;
 import com.google.refine.model.changes.RowRemovalChange;
 import com.google.refine.operations.EngineDependentOperation;
 import com.google.refine.operations.OperationDescription;
+import com.google.refine.operations.OperationHistoryEntry;
 
 public class RowRemovalOperation extends EngineDependentOperation {
 
@@ -95,7 +96,7 @@ public class RowRemovalOperation extends EngineDependentOperation {
         return new HistoryEntry(
                 historyEntryID,
                 project,
-                "Remove " + rowIndices.size() + " rows",
+                OperationHistoryEntry.row_removal(rowIndices.size()),
                 this,
                 new RowRemovalChange(rowIndices));
     }

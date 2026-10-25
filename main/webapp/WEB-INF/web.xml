@@ -8,17 +8,6 @@
     <display-name>JinRefine</display-name>
     <description>JinRefine Webapp</description>
 
-    <!--+
-        | This forces all the session cookies to default to the root path.
-        | to allow sessions to work even when butterfly is handling
-        | multiple zones.
-        | NOTE: this is jetty-specific, so other web-app servers
-        | might require different parameters.
-        +-->
-    <context-param>
-        <param-name>org.eclipse.jetty.servlet.SessionPath</param-name>
-        <param-value>/</param-value>
-    </context-param>
     <servlet>
         <servlet-name>refine</servlet-name>
         <servlet-class>com.google.refine.RefineServlet</servlet-class>

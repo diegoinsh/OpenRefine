@@ -74,6 +74,7 @@ function registerCommands() {
   RS.registerCommand(module, "set-project-tags", new Packages.com.google.refine.commands.project.SetProjectTagsCommand());
 
   RS.registerCommand(module, "delete-project", new Packages.com.google.refine.commands.project.DeleteProjectCommand());
+  RS.registerCommand(module, "register-project", new Packages.com.google.refine.commands.project.RegisterProjectCommand());
   RS.registerCommand(module, "rename-project", new Packages.com.google.refine.commands.project.RenameProjectCommand());
   
   RS.registerCommand(module, "get-models", new Packages.com.google.refine.commands.project.GetModelsCommand());
@@ -95,6 +96,7 @@ function registerCommands() {
   RS.registerCommand(module, "get-clustering-functions-and-distances", new Packages.com.google.refine.commands.browsing.GetClusteringFunctionsAndDistancesCommand());
 
   RS.registerCommand(module, "edit-one-cell", new Packages.com.google.refine.commands.cell.EditOneCellCommand());
+  RS.registerCommand(module, "fill-cells", new Packages.com.google.refine.commands.cell.FillCellsCommand());
   RS.registerCommand(module, "text-transform", new Packages.com.google.refine.commands.cell.TextTransformCommand());
   RS.registerCommand(module, "mass-edit", new Packages.com.google.refine.commands.cell.MassEditCommand());
   RS.registerCommand(module, "join-multi-value-cells", new Packages.com.google.refine.commands.cell.JoinMultiValueCellsCommand());
@@ -139,6 +141,7 @@ function registerCommands() {
   RS.registerCommand(module, "add-rows", new Packages.com.google.refine.commands.row.AddRowsCommand());
   RS.registerCommand(module, "remove-duplicate-rows", new Packages.com.google.refine.commands.row.RemoveDuplicateRowsCommand());
   RS.registerCommand(module, "keep-matching-rows", new Packages.com.google.refine.commands.row.KeepMatchingRowsCommand());
+  RS.registerCommand(module, "split-marked-rows", new Packages.com.google.refine.commands.row.SplitMarkedRowsCommand());
 
   RS.registerCommand(module, "get-expression-language-info", new Packages.com.google.refine.commands.expr.GetExpressionLanguageInfoCommand());
   RS.registerCommand(module, "get-expression-history", new Packages.com.google.refine.commands.expr.GetExpressionHistoryCommand());
@@ -189,6 +192,7 @@ function registerOperations() {
   OR.registerOperation(module, "row-addition", Packages.com.google.refine.operations.row.RowAdditionOperation);
   OR.registerOperation(module, "row-duplicate-removal", Packages.com.google.refine.operations.row.RowDuplicatesRemovalOperation);
   OR.registerOperation(module, "row-keep-matched", Packages.com.google.refine.operations.row.RowKeepMatchedOperation);
+  OR.registerOperation(module, "split-marked-rows", Packages.com.google.refine.operations.row.SplitMarkedRowsOperation);
 
   OR.registerOperation(module, "recon", Packages.com.google.refine.operations.recon.ReconOperation);
   OR.registerOperation(module, "recon-mark-new-topics", Packages.com.google.refine.operations.recon.ReconMarkNewTopicsOperation);
@@ -566,7 +570,8 @@ function init() {
       "scripts/dialogs/http-headers-dialog.js",
       "scripts/dialogs/clustering-functions-dialog.js",
       "scripts/dialogs/add-rows-dialog.js",
-      "scripts/dialogs/remove-duplicate-rows-dialog.js"
+      "scripts/dialogs/remove-duplicate-rows-dialog.js",
+      "scripts/dialogs/split-marked-rows-dialog.js"
     ])
   );
 

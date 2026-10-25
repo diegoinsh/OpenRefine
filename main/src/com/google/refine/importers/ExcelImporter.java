@@ -67,6 +67,7 @@ import com.google.refine.ProjectMetadata;
 import com.google.refine.expr.ExpressionUtils;
 import com.google.refine.importing.ImportingJob;
 import com.google.refine.importing.ImportingUtilities;
+import com.google.refine.messages.OpenRefineMessage;
 import com.google.refine.model.Cell;
 import com.google.refine.model.Column;
 import com.google.refine.model.ColumnModel;
@@ -262,28 +263,28 @@ public class ExcelImporter extends TabularImportingParserBase {
                         
                         int actualLastCell;
                         if (physicalCells > 0) {
-                            int maxCol = 0;
-                            for (int i = 0; i < physicalCells; i++) {
-                                org.apache.poi.ss.usermodel.Cell cell = row.getCell(firstCell + i);
-                                if (cell != null) {
-                                    int colIndex = cell.getColumnIndex();
-                                    if (colIndex > maxCol) {
-                                        maxCol = colIndex;
-                                    }
+                            // 遍历真实的物理单元格：POI 的物理单元格索引可能不连续，
+                            // 不能用 firstCell + i 推算，否则会漏掉尾部列（测试文件的 13 列会被算成 12 列）。
+                            int maxCol = firstCell - 1;
+                            for (org.apache.poi.ss.usermodel.Cell cell : row) {
+                                if (cell != null && cell.getColumnIndex() > maxCol) {
+                                    maxCol = cell.getColumnIndex();
                                 }
                             }
                             actualLastCell = maxCol + 1;
                             logger.info("Row {}: actualLastCell={} (based on physical cells)", 
                                 nextRow - 1, actualLastCell);
                         } else {
-                            actualLastCell = firstCell;
+                            actualLastCell = Math.max(firstCell, (short) 0);
                         }
                         
                         if (actualLastCell > maxColumnCount) {
                             maxColumnCount = actualLastCell;
                         }
                         
-                        for (short cellIndex = firstCell; cellIndex < actualLastCell; cellIndex++) {
+                        // 从 0 开始：cells 的下标必须与列索引对齐，前导空列补 null，
+                        // 否则从 firstCell 起会整体左移，造成列错位。
+                        for (short cellIndex = 0; cellIndex < actualLastCell; cellIndex++) {
                             Cell cell = null;
 
                             org.apache.poi.ss.usermodel.Cell sourceCell = row.getCell(cellIndex);
@@ -334,7 +335,9 @@ public class ExcelImporter extends TabularImportingParserBase {
             }
         }
         
-        if (isMultiSheetImport && firstSheetId != null) {
+        // 多文件导入时 readTable 会被多次调用：活动 sheet 只由第一次调用确定，
+        // 否则会被最后一个文件的第一个 sheet 覆盖（列数/内容随之漂移）。
+        if (isMultiSheetImport && firstSheetId != null && project.activeSheetId == null) {
             project.activeSheetId = firstSheetId;
             project.isMultiSheetProject = true;
             
@@ -355,14 +358,15 @@ public class ExcelImporter extends TabularImportingParserBase {
             SheetData sheetData,
             ObjectNode options,
             List<Exception> exceptions) {
-        int ignoreLines = JSONUtilities.getInt(options, "ignoreLines", -1);
-        int headerLines = JSONUtilities.getInt(options, "headerLines", 1);
-        int skipDataLines = JSONUtilities.getInt(options, "skipDataLines", 0);
-        int limit = JSONUtilities.getInt(options, "limit", -1);
+        // 复用 readTable 已解析到 SheetData 的配置，避免同一 sheet 把 options 读两遍。
+        int ignoreLines = sheetData.ignoreLines;
+        int headerLines = sheetData.headerLines;
+        int skipDataLines = sheetData.skipDataLines;
+        int limit = sheetData.limit;
 
         boolean guessCellValueTypes = JSONUtilities.getBoolean(options, "guessCellValueTypes", false);
-        boolean storeBlankRows = JSONUtilities.getBoolean(options, "storeBlankRows", true);
-        boolean storeBlankCellsAsNulls = JSONUtilities.getBoolean(options, "storeBlankCellsAsNulls", true);
+        boolean storeBlankRows = sheetData.storeBlankRows;
+        boolean storeBlankCellsAsNulls = sheetData.storeBlankCellsAsNulls;
         boolean trimStrings = JSONUtilities.getBoolean(options, "trimStrings", false);
 
         List<String> columnNames = new ArrayList<String>();
@@ -509,14 +513,10 @@ public class ExcelImporter extends TabularImportingParserBase {
                 index, currentFileColumnNames.get(index), column != null ? column.getCellIndex() : "null");
             return column;
         } else if (index >= currentFileColumnNames.size()) {
-            String prefix = "Column ";
-            int i = index + 1;
-            String columnName = prefix + i;
-            while (columnModel.getColumnByName(columnName) != null) {
-                i++;
-                columnName = prefix + i;
-            }
-            
+            // 无表头时按列索引命名，一一对应；同一列索引必须复用同一列，
+            // 不能因名字已存在就递增改名（否则每行都会新建列）。
+            // 前缀走本地化资源，与单 Sheet 路径的 ImporterUtilities 保持一致。
+            String columnName = OpenRefineMessage.importer_utilities_column() + " " + (index + 1);
             Column column = columnModel.getColumnByName(columnName);
             if (column == null) {
                 int cellIndex = columnModel.allocateNewCellIndex();

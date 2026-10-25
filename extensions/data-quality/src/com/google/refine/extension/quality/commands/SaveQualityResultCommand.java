@@ -17,7 +17,7 @@ import org.slf4j.LoggerFactory;
 
 import com.google.refine.ProjectManager;
 import com.google.refine.commands.Command;
-import com.google.refine.extension.quality.model.CheckResult;
+import com.google.refine.extension.quality.model.OverlayQualityCheckResult;
 import com.google.refine.extension.quality.operations.SaveQualityResultOperation;
 import com.google.refine.model.Project;
 import com.google.refine.util.ParsingUtilities;
@@ -49,7 +49,7 @@ public class SaveQualityResultCommand extends Command {
 
             logger.info("Saving quality result: {} chars for project {}", resultJson.length(), project.id);
 
-            CheckResult result = ParsingUtilities.mapper.readValue(resultJson, CheckResult.class);
+            OverlayQualityCheckResult result = ParsingUtilities.mapper.readValue(resultJson, OverlayQualityCheckResult.class);
             logger.info("Parsed CheckResult with {} errors", result.getErrors() != null ? result.getErrors().size() : 0);
 
             // Save directly to overlay without adding to history

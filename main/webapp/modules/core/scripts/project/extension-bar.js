@@ -60,11 +60,21 @@ ExtensionBar.prototype.resize = function() {
 
 ExtensionBar.prototype._initializeUI = function() {
   var elmts = DOM.bind(this._div);
-  for (var i = 0; i < ExtensionBar.MenuItems.length; i++) {
-    var menuItem = ExtensionBar.MenuItems[i];
-    var menuButton = this._createMenuButton(menuItem.label, menuItem.submenu);
-    elmts.menuContainer.append(menuButton);
+  var items = ExtensionBar.MenuItems || [];
+  if (items.length === 0) {
+    return;
   }
+  // 只有一个扩展时直接平铺；多个扩展收进一个一级菜单，点击/悬停后展开二级菜单。
+  // 顶栏横向铺开会随插件增多而挤满，故统一收口。
+  if (items.length === 1) {
+    elmts.menuContainer.append(this._createMenuButton(items[0].label, items[0].submenu));
+    return;
+  }
+  var prefix = $('#or-proj-ext');
+  if (prefix.length) {
+    prefix.hide();
+  }
+  elmts.menuContainer.append(this._createMenuButton($.i18n('core-project/extensions'), items));
 };
 
 ExtensionBar.prototype._createMenuButton = function(label, submenu) {

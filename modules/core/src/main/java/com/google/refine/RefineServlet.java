@@ -36,33 +36,45 @@ package com.google.refine;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintWriter;
 import java.net.HttpURLConnection;
 import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
+import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import edu.mit.simile.butterfly.Butterfly;
-import edu.mit.simile.butterfly.ButterflyModule;
+import com.jiongche.refine.data.OrDataSource;
+import com.jiongche.refine.kernel.ModuleKernel;
+import com.jiongche.refine.kernel.ModuleView;
+import com.jiongche.refine.kernel.RefineModule;
 import org.apache.hc.core5.http.HttpStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.refine.auth.RefineAuthGate;
 import com.google.refine.commands.Command;
+import com.google.refine.commands.CommandGuard;
 import com.google.refine.importing.ImportingManager;
 import com.google.refine.io.FileProjectManager;
+import com.google.refine.licensing.LicenseGuard;
 
-public class RefineServlet extends Butterfly {
+public class RefineServlet extends HttpServlet {
 
     static private String ASSIGNED_VERSION = "3.11.0.01";
 
@@ -98,10 +110,37 @@ public class RefineServlet extends Butterfly {
         }
     }
 
+    /** 自研模块内核：发现、装配、生命周期与请求分发。 */
+    private ModuleKernel _kernel;
+
+    /** 直连登录闸门：必须先经能力平台（RCP）登录才允许使用 OR。 */
+    private RefineAuthGate authGate;
+
+    public void configure() throws ServletException {
+        _kernel = new ModuleKernel(this);
+        _kernel.configure(getServletConfig());
+    }
+
+    public RefineModule getModule(String name) {
+        return _kernel == null ? null : _kernel.getModule(name);
+    }
+
+    /**
+     * Get a list of the names of currently loaded modules.
+     *
+     * @return an array of module names in alphabetical order
+     */
+    public String[] getModuleNames() {
+        return _kernel == null ? new String[0] : _kernel.getModuleNames();
+    }
+
+    @Override
+    public void init(ServletConfig config) throws ServletException {
+        super.init(config);
+    }
+
     @Override
     public void init() throws ServletException {
-        super.init();
-
         VERSION = getInitParameter("refine.version");
         REVISION = getInitParameter("refine.revision");
 
@@ -137,8 +176,25 @@ public class RefineServlet extends Butterfly {
         }
         logger.info("Initializing FileProjectManager with data dir: {}", data);
         s_dataDir = new File(data);
+        configure();
+
         FileProjectManager.initialize(s_dataDir);
         ImportingManager.initialize(this);
+
+        // 数据源 SPI registry：登记 OR 内建数据源（稳定名 "or"）与其两个变更操作（幂等），
+        // 供 SPI 能力面 / 外部（能力平台 3A）在进程内按名取用与枚举。须在 singleton 就绪后调用。
+        OrDataSource.register();
+
+        // 模块级授权守卫（纵深防御）：在 POST 命令分发前按「命令 → 加密狗模块」校验，
+        // 堵住绕过能力平台直连 OR 白用未授权模块。默认关闭（ruyi.license.enforce=off），
+        // 由 JVM 系统属性开关；关闭时零影响、可回退。
+        LicenseGuard.register(this);
+
+        // 直连登录闸门：OR 页面必须先在能力平台（RCP）登录才允许使用。
+        // 三态开关 refine.auth.enforce = off / log / block（缺省 block），
+        // 关闭时零影响、可回退；详见 RefineAuthGate。
+        authGate = RefineAuthGate.fromConfiguration();
+        logger.info("{}", authGate.describe());
 
         long AUTOSAVE_PERIOD = Long.parseLong(getInitParameter("refine.autosave"));
 
@@ -152,24 +208,43 @@ public class RefineServlet extends Butterfly {
     public void destroy() {
         logger.trace("> destroy");
 
-        // cancel automatic periodic saving and force a complete save.
-        if (_timer != null) {
-            _timer.cancel();
-            _timer = null;
-        }
         if (ProjectManager.singleton != null) {
             ProjectManager.singleton.dispose();
             ProjectManager.singleton = null;
         }
 
-        logger.trace("< destroy");
+        if (_kernel != null) {
+            _kernel.destroy();
+            _kernel = null;
+        }
 
+        logger.trace("< destroy");
         super.destroy();
     }
 
     @Override
     public void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
-        if (request.getPathInfo().startsWith("/command/")) {
+        String pathInfo = request.getPathInfo();
+        if (pathInfo == null || pathInfo.isEmpty()) {
+            pathInfo = "/";
+        }
+
+        // 健康检查：免登录（打包管理器据此判定 OR 存活，不能被登录闸门拦成 302）
+        if ("/health".equals(pathInfo)) {
+            respondHealth(response);
+            return;
+        }
+
+        // 直连登录闸门：未在能力平台（RCP）登录一律拒绝（页面跳登录，接口返 401）
+        if (authGate != null) {
+            RefineAuthGate.Decision decision = authGate.decide(request);
+            if (decision != RefineAuthGate.Decision.ALLOW) {
+                authGate.respondDenied(request, response, decision);
+                return;
+            }
+        }
+
+        if (pathInfo.startsWith("/command/")) {
             String commandKey = getCommandKey(request);
             Command command = commands.get(commandKey);
             if (command != null) {
@@ -185,7 +260,12 @@ public class RefineServlet extends Butterfly {
                         logger.info("POST {}", request.getPathInfo());
                     }
                     logger.trace("> POST {}", commandKey);
-                    command.doPost(request, response);
+                    String veto = checkCommandGuards(request, commandKey);
+                    if (veto != null) {
+                        respondVetoedCommand(request, response, veto);
+                    } else {
+                        command.doPost(request, response);
+                    }
                     logger.trace("< POST {}", commandKey);
                 } else if (request.getMethod().equals("PUT")) {
                     if (!logger.isTraceEnabled() && command.logRequests()) {
@@ -214,22 +294,9 @@ public class RefineServlet extends Butterfly {
             } else {
                 response.sendError(HttpStatus.SC_NOT_FOUND);
             }
-        } else {
-            super.service(request, response);
+        } else if (_kernel == null || !_kernel.handle(request, response)) {
+            response.sendError(HttpStatus.SC_NOT_FOUND);
         }
-    }
-
-    public ButterflyModule getModule(String name) {
-        return _modulesByName.get(name);
-    }
-
-    /**
-     * Get a list of the names of currently loaded modules.
-     *
-     * @return an array of module names in alphabetical order
-     */
-    public String[] getModuleNames() {
-        return _modulesByName.keySet().stream().sorted().toArray(String[]::new);
     }
 
     protected String getCommandKey(HttpServletRequest request) {
@@ -250,7 +317,7 @@ public class RefineServlet extends Butterfly {
 
     public File getTempDir() {
         if (tempDir == null) {
-            tempDir = (File) _config.getServletContext().getAttribute(JAVAX_SERVLET_CONTEXT_TEMPDIR);
+            tempDir = (File) getServletConfig().getServletContext().getAttribute(JAVAX_SERVLET_CONTEXT_TEMPDIR);
             if (tempDir == null) {
                 throw new RuntimeException("This app server doesn't support temp directories");
             }
@@ -284,7 +351,7 @@ public class RefineServlet extends Butterfly {
      *            object implementing the command
      * @return true if command was loaded and registered successfully
      */
-    protected boolean registerOneCommand(ButterflyModule module, String name, Command commandObject) {
+    protected boolean registerOneCommand(ModuleView module, String name, Command commandObject) {
         return registerOneCommand(module.getName() + "/" + name, commandObject);
     }
 
@@ -322,11 +389,97 @@ public class RefineServlet extends Butterfly {
      *            command verb for command
      * @param commandObject
      *            object implementing the command
-     * 
+     *
      * @return true if command was loaded and registered successfully
      */
-    static public boolean registerCommand(ButterflyModule module, String commandName, Command commandObject) {
-        return s_singleton.registerOneCommand(module, commandName, commandObject);
+    static public boolean registerCommand(ModuleView module, String commandName, Command commandObject) {
+        return registerCommand(module.getName(), commandName, commandObject);
+    }
+
+    /**
+     * Register a single command, namespaced by module name (framework-agnostic overload).
+     * 供 SPI/装载器在拿不到 ButterflyModule 时只传模块名调用。
+     *
+     * @param moduleName
+     *            name of the module the command belongs to
+     * @param commandName
+     *            command verb for command
+     * @param commandObject
+     *            object implementing the command
+     * @return true if command was loaded and registered successfully
+     */
+    static public boolean registerCommand(String moduleName, String commandName, Command commandObject) {
+        return s_singleton.registerOneCommand(moduleName + "/" + commandName, commandObject);
+    }
+
+    // ---- Command guards: extensions may veto mutating POST commands ----
+
+    private static final List<CommandGuard> _commandGuards = new CopyOnWriteArrayList<>();
+
+    /**
+     * Register a guard consulted before every POST command dispatch.
+     * Idempotent: registering the same guard instance twice is a no-op.
+     */
+    static public void registerCommandGuard(CommandGuard guard) {
+        if (guard != null && !_commandGuards.contains(guard)) {
+            _commandGuards.add(guard);
+        }
+    }
+
+    static public void unregisterCommandGuard(CommandGuard guard) {
+        _commandGuards.remove(guard);
+    }
+
+    /**
+     * Run all registered guards. Returns the first veto message, or null to allow.
+     */
+    protected String checkCommandGuards(HttpServletRequest request, String commandKey) {
+        if (_commandGuards.isEmpty()) {
+            return null;
+        }
+        // commandKey format: "module/command-name"
+        int slash = commandKey.indexOf('/');
+        String module = slash > 0 ? commandKey.substring(0, slash) : commandKey;
+        String commandName = slash > 0 ? commandKey.substring(slash + 1) : "";
+        String projectId = request.getParameter("project");
+        Locale locale = request.getLocale();
+        for (CommandGuard guard : _commandGuards) {
+            String veto = guard.intercept(module, commandName, projectId, locale);
+            if (veto != null) {
+                return veto;
+            }
+        }
+        return null;
+    }
+
+    protected void respondVetoedCommand(HttpServletRequest request, HttpServletResponse response, String message)
+            throws IOException {
+        response.setCharacterEncoding("UTF-8");
+        response.setContentType("application/json");
+        PrintWriter writer = response.getWriter();
+        JsonFactory jsonFactory = new JsonFactory();
+        JsonGenerator writerObj = jsonFactory.createGenerator(writer);
+        writerObj.writeStartObject();
+        writerObj.writeStringField("code", "error");
+        writerObj.writeStringField("message", message);
+        writerObj.writeEndObject();
+        writerObj.flush();
+        writerObj.close();
+        writer.flush();
+    }
+
+    /** 健康检查响应（免登录）：打包管理器 / 托盘据此判定 OR 存活。 */
+    protected void respondHealth(HttpServletResponse response) throws IOException {
+        response.setCharacterEncoding("UTF-8");
+        response.setContentType("application/json");
+        response.setStatus(HttpServletResponse.SC_OK);
+        PrintWriter writer = response.getWriter();
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode node = mapper.createObjectNode();
+        node.put("status", "ok");
+        node.put("version", FULLNAME);
+        writer.write(mapper.writeValueAsString(node));
+        writer.flush();
     }
 
     static private class ClassMapping {
@@ -417,6 +570,6 @@ public class RefineServlet extends Butterfly {
     }
 
     static public String getUserAgent() {
-        return "OpenRefine/" + FULL_VERSION;
+        return "JinRefine/" + FULL_VERSION;
     }
 }

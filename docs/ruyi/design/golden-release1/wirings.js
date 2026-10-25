@@ -1,0 +1,1 @@
+var ModuleWirings = {"pc-axis":"/extension/pc-axis/","records-assets":"/extension/records-assets/","jython":"/extension/jython/","module":"/extension/module/","files":"/extension/files/","database":"/extension/database/","data-quality":"/extension/data-quality/","records-db":"/extension/records-db/","core":"/"};

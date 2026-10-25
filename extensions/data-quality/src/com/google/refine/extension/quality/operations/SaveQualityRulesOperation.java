@@ -15,6 +15,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import com.google.refine.extension.quality.model.OverlayQualityRulesConfig;
 import com.google.refine.extension.quality.model.QualityRulesConfig;
 import com.google.refine.history.Change;
 import com.google.refine.history.HistoryEntry;
@@ -35,11 +36,11 @@ public class SaveQualityRulesOperation extends AbstractOperation {
     public static final String OVERLAY_MODEL_KEY = "qualityRulesConfig";
 
     @JsonProperty("rules")
-    protected final QualityRulesConfig _rules;
+    protected final OverlayQualityRulesConfig _rules;
 
     @JsonCreator
     public SaveQualityRulesOperation(
-            @JsonProperty("rules") QualityRulesConfig rules) {
+            @JsonProperty("rules") OverlayQualityRulesConfig rules) {
         this._rules = rules;
     }
 
@@ -71,17 +72,17 @@ public class SaveQualityRulesOperation extends AbstractOperation {
      */
     public static class QualityRulesChange implements Change {
 
-        protected final QualityRulesConfig _newRules;
-        protected QualityRulesConfig _oldRules = null;
+        protected final OverlayQualityRulesConfig _newRules;
+        protected OverlayQualityRulesConfig _oldRules = null;
 
-        public QualityRulesChange(QualityRulesConfig newRules) {
+        public QualityRulesChange(OverlayQualityRulesConfig newRules) {
             this._newRules = newRules;
         }
 
         @Override
         public void apply(Project project) {
             synchronized (project) {
-                _oldRules = (QualityRulesConfig) project.overlayModels.get(OVERLAY_MODEL_KEY);
+                _oldRules = (OverlayQualityRulesConfig) project.overlayModels.get(OVERLAY_MODEL_KEY);
                 project.overlayModels.put(OVERLAY_MODEL_KEY, _newRules);
             }
         }
@@ -109,8 +110,8 @@ public class SaveQualityRulesOperation extends AbstractOperation {
         }
 
         public static Change load(LineNumberReader reader, Pool pool) throws Exception {
-            QualityRulesConfig oldRules = null;
-            QualityRulesConfig newRules = null;
+            OverlayQualityRulesConfig oldRules = null;
+            OverlayQualityRulesConfig newRules = null;
 
             String line;
             while ((line = reader.readLine()) != null && !"/ec/".equals(line)) {
@@ -119,9 +120,9 @@ public class SaveQualityRulesOperation extends AbstractOperation {
                 String value = line.substring(equal + 1);
 
                 if ("oldRules".equals(field) && value.length() > 0) {
-                    oldRules = ParsingUtilities.mapper.readValue(value, QualityRulesConfig.class);
+                    oldRules = ParsingUtilities.mapper.readValue(value, OverlayQualityRulesConfig.class);
                 } else if ("newRules".equals(field) && value.length() > 0) {
-                    newRules = ParsingUtilities.mapper.readValue(value, QualityRulesConfig.class);
+                    newRules = ParsingUtilities.mapper.readValue(value, OverlayQualityRulesConfig.class);
                 }
             }
 

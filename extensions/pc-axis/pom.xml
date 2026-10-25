@@ -24,6 +24,23 @@
     <sourceDirectory>src</sourceDirectory>
     <testSourceDirectory>tests/src</testSourceDirectory>
     <plugins>
+      <!-- src 同时作为资源目录后，localizer 会把 META-INF/solon/*.properties 误当资源束；
+           用不存在的文件名屏蔽，避免非法 JClass 名。 -->
+      <plugin>
+        <groupId>org.jvnet.localizer</groupId>
+        <artifactId>localizer-maven-plugin</artifactId>
+        <version>${org-jvnet-localizer-plugin.version}</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>generate</goal>
+            </goals>
+            <configuration>
+              <fileMask>no-localizer-bundles.properties</fileMask>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>

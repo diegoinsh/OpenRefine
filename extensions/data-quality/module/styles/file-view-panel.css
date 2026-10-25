@@ -1,0 +1,480 @@
+/*
+ * File View Panel Styles
+ * Inline panel within rightPanelDiv for resource file preview
+ */
+
+.file-view-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 700px;
+  height: 100%;
+  background: #fff;
+  border-left: 1px solid #ccc;
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  box-shadow: -2px 0 6px rgba(0, 0, 0, 0.08);
+  outline: none;
+}
+
+.file-view-panel:focus {
+  border-left-color: #1976d2;
+}
+
+.file-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+  flex-shrink: 0;
+}
+
+.file-view-title {
+  font-weight: 600;
+  color: #333;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.file-view-close-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 18px;
+  color: #666;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.file-view-close-btn:hover {
+  background: #e0e0e0;
+  color: #333;
+}
+
+.file-view-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.file-view-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.file-view-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fafafa;
+  position: relative;
+}
+
+/* 预览区被点击激活：上下键与滚轮作用于翻页，用浅绿描边标示当前作用目标 */
+.file-view-panel.preview-active .file-view-content {
+  box-shadow: inset 0 0 0 1px #92d492;
+}
+
+.file-view-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-top: 1px solid #ddd;
+  background: #f5f5f5;
+  flex-shrink: 0;
+}
+
+.file-view-file-info {
+  color: #666;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.file-view-file-counter {
+  background: #e0e0e0;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+.file-view-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 抽取要素的候选页页签 */
+.file-view-page-chips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  margin: 0 8px;
+}
+
+.file-view-page-label {
+  color: #666;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.file-view-page-chip {
+  padding: 3px 8px;
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.file-view-page-chip:hover {
+  background: #e8e8e8;
+}
+
+.file-view-page-chip.active {
+  background: #4374b8;
+  border-color: #4374b8;
+  color: #fff;
+}
+
+.file-view-actions .button {
+  padding: 4px 10px;
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.file-view-actions .button:hover {
+  background: #e8e8e8;
+}
+
+.file-view-zoom-controls {
+  display: flex;
+  gap: 3px;
+  margin-right: 6px;
+}
+
+.file-view-zoom-btn {
+  padding: 3px 8px !important;
+  min-width: 28px;
+}
+
+/* Thumbnails area - right side vertical strip */
+.file-view-thumbnails {
+  width: 80px;
+  flex-shrink: 0;
+  border-left: 1px solid #ddd;
+  background: #f0f0f0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 作用域切到右侧文件列表：左右键切换文件、上下键滚动列表 */
+.file-view-panel.list-active .file-view-thumbnails {
+  box-shadow: inset 0 0 0 1px #92d492;
+}
+
+.file-view-thumb-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px;
+}
+
+/* 面板打开后焦点默认在此列表，避免浏览器默认轮廓框住整个条带 */
+.file-view-thumb-list:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgba(25, 118, 210, 0.35);
+}
+
+.file-view-thumb-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.file-view-thumb-list::-webkit-scrollbar-thumb {
+  background: #bbb;
+  border-radius: 2px;
+}
+
+.file-view-thumb-item {
+  /* 跳过页角标的定位基准 */
+  position: relative;
+  padding: 4px;
+  margin-bottom: 4px;
+  background: #fff;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.2s;
+}
+
+/* 被判定跳过的页：圆形角标。跳过不是用户关心的重点，只求扫一眼能看见，故不做 tooltip */
+.file-view-thumb-skip {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 15px;
+  height: 15px;
+  font-size: 9px;
+  line-height: 15px;
+  color: #8a6414;
+  background: #f2ddb8;
+  border: 1px solid #e3c88f;
+  border-radius: 50%;
+  text-align: center;
+  pointer-events: none;
+}
+
+.file-view-thumb-item:hover {
+  border-color: #aaa;
+}
+
+.file-view-thumb-item.active {
+  border-color: #1976d2;
+  background: #e3f2fd;
+}
+
+/* 固定占位高度：图片按需加载，高度不定会让滚动定位与列表高度抖动 */
+.file-view-thumb-img {
+  width: 60px;
+  height: 84px;
+  object-fit: contain;
+  border-radius: 2px;
+  display: block;
+  margin: 0 auto;
+  background: #fff;
+}
+
+.file-view-thumb-icon {
+  width: 32px;
+  height: 32px;
+  display: block;
+  margin: 6px auto;
+}
+
+.file-view-thumb-name {
+  font-size: 10px;
+  color: #666;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
+/* Image preview */
+.file-view-image-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.file-view-preview-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transition: transform 0.15s;
+  transform-origin: top left;
+  position: relative;
+  display: block;
+  margin: 0 auto;
+  cursor: grab;
+}
+
+.file-view-preview-image.dragging {
+  cursor: grabbing;
+}
+
+/* PDF preview */
+.file-view-pdf-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-view-pdf-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* Text preview */
+.file-view-text-container {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+}
+
+.file-view-text-preview {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 12px;
+  background: #f8f8f8;
+  border-radius: 4px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* No preview */
+.file-view-no-preview {
+  text-align: center;
+  color: #999;
+  padding: 40px;
+}
+
+.file-view-no-preview-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+/* Loading and error states */
+.file-view-loading {
+  text-align: center;
+  color: #666;
+  padding: 40px;
+}
+
+.file-view-error {
+  text-align: center;
+  color: #d93025;
+  padding: 40px;
+}
+
+/* Row indicator for resource association */
+.file-view-row-indicator {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  cursor: pointer;
+  vertical-align: middle;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.file-view-row-indicator:hover {
+  opacity: 1;
+}
+
+.file-view-row-indicator.has-resource {
+  opacity: 1;
+  color: #1976d2;
+}
+
+/* Data table row highlight when file view is open */
+.data-table tr.file-view-active-row {
+  background-color: #e3f2fd !important;
+}
+
+.data-table tr.file-view-active-row:hover {
+  background-color: #bbdefb !important;
+}
+
+/* 奇数行的单元格自带底色（data-table-view.css 的 tr.odd>td），会盖住行级高亮，
+   故高亮必须同时作用于该行的单元格 */
+.data-table tr.file-view-active-row > td {
+  background-color: #e3f2fd !important;
+}
+
+.data-table tr.file-view-active-row:hover > td {
+  background-color: #bbdefb !important;
+}
+
+/* OCR 拉框识别 */
+.file-view-ocr-btn {
+  flex-shrink: 0;
+  margin-right: 6px;
+  font-size: 12px;
+  line-height: 20px;
+  padding: 0 10px;
+}
+
+.file-view-ocr-btn.active {
+  background-color: #1976d2;
+  border-color: #1976d2;
+  color: #fff;
+}
+
+.file-view-ocr-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 拉框光标：自定义细十字（尺寸/线宽见 images/ocr-crosshair.svg），加载失败时回退为系统 crosshair */
+  cursor: url('images/ocr-crosshair.svg') 8 8, crosshair;
+}
+
+.file-view-ocr-bitmap {
+  display: block;
+  max-width: 100%;
+  max-height: 99.5%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.file-view-ocr-selection {
+  position: absolute;
+  border: 1px dashed #1976d2;
+  background-color: rgba(25, 118, 210, 0.18);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.file-view-ocr-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 10px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.file-view-ocr-stage.busy {
+  cursor: progress;
+}
+
+.file-view-ocr-stage.busy::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.5);
+}

@@ -106,9 +106,13 @@ $(function() {
 
           // $("#openrefine-extensions").text($.i18n('core-index/refine-extensions', OpenRefineVersion.module_names.join(", ")));
           $("#java-runtime-version").text(OpenRefineVersion.java_runtime_name + " " + OpenRefineVersion.java_runtime_version);
-          if (OpenRefineVersion.display_new_version_notice === "true") {
-            showNotifications();
-          }
+          // 本产品暂不做在线版本升级：客户界面不出现任何升级/订阅提示，也不请求
+          // 外部 versions.json（离线客户机上那只是一次必失败的请求）。
+          // 后端 display_new_version_notice 已在 GetVersionCommand 里默认 "false"，
+          // 这里再显式短路，避免将来有人把该属性改回 true 把提示带回客户界面。
+          // if (OpenRefineVersion.display_new_version_notice === "true") {
+          //   showNotifications();
+          // }
           buildClipBoardInformation(OpenRefineVersion);
         }
     );
@@ -165,7 +169,7 @@ $(function() {
             .text('(')
             .appendTo(notification);
           $('<a>')
-            .attr('href', 'https://jinshuai.com/jinrefine/privacy')
+            .attr('href', 'https://jinlian-data.com/jinrefine/privacy')
             .attr('target', '_blank')
             .text($.i18n('core-index/notification-privacy-info'))
             .appendTo(privacySpan);
@@ -173,7 +177,7 @@ $(function() {
           container
             .appendTo(document.body);
         } else if (notificationStatus == "enabled") {
-            $.getJSON("https://jinshuai.com/jinrefine/versions.json",
+            $.getJSON("https://jinlian-data.com/jinrefine/versions.json",
                 function (data) {
                   if (data.events && data.events.length > 0) {
                     var latestEvent = data.events[0];
@@ -209,7 +213,7 @@ $(function() {
                         .appendTo(container);
                     $('<a>')
                         .addClass('notification-action')
-                        .attr("href", "https://jinshuai.com/jinrefine.org/download")
+                        .attr("href", "https://jinlian-data.com/jinrefine.org/download")
                         .attr("target", "_blank")
                         .text($.i18n('core-index/new-version-available', latestVersion))
                         .appendTo(notification);
@@ -272,7 +276,7 @@ Client user-agent: ${navigator.userAgent}`;
   };
 
   // 定义菜单顺序，open-project 放第一个
-  var menuOrder = ['open-project', 'create-project', 'data-quality'];
+  var menuOrder = ['open-project', 'create-project', 'data-quality', 'data-extract'];
   Refine.actionAreas.sort(function(a, b) {
     var indexA = menuOrder.indexOf(a.id);
     var indexB = menuOrder.indexOf(b.id);

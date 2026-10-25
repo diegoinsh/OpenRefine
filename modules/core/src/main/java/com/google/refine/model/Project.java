@@ -44,6 +44,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -79,7 +80,7 @@ public class Project {
     transient private Instant _lastSave = Instant.now();
 
     public String activeSheetId;
-    public Map<String, SheetData> sheetDataMap = new HashMap<>();
+    public Map<String, SheetData> sheetDataMap = new LinkedHashMap<>();
     public boolean isMultiSheetProject = false;
 
     final static Logger logger = LoggerFactory.getLogger(Project.class);
@@ -104,12 +105,32 @@ public class Project {
     protected Project(long id) {
         this.id = id;
         this.history = new History(this);
-        this.sheetDataMap = new HashMap<>();
+        this.sheetDataMap = new LinkedHashMap<>();
         this.isMultiSheetProject = false;
     }
 
     static public void registerOverlayModel(String modelName, Class<? extends OverlayModel> klass) {
         s_overlayModelClasses.put(modelName, klass);
+    }
+
+    /**
+     * 已注册的 overlay 模型实现类；未注册返回 {@code null}。
+     *
+     * <p>供跨包的「数据源适配器」（{@code com.jiongche.refine.data}）按名解析 overlay 类型，
+     * 避免下沉模块直接依赖本类的 protected 字段。纯读访问，无行为变化。
+     */
+    static public Class<? extends OverlayModel> overlayModelClass(String modelName) {
+        return modelName == null ? null : s_overlayModelClasses.get(modelName);
+    }
+
+    /**
+     * 以指定 id 新建项目（等价于 {@code new Project(id)}）。
+     *
+     * <p>{@code Project(long)} 为 protected，跨包不可见；本工厂把「按 id 建项目」这一既有能力
+     * 暴露给 {@code com.jiongche.refine.data} 的数据源适配器。纯构造转发，无行为变化。
+     */
+    static public Project withId(long id) {
+        return new Project(id);
     }
 
     /**
@@ -347,9 +368,9 @@ public class Project {
                 String sheetId = line.substring("sheet:".length(), equal);
                 
                 String sheetName = sheetId;
-                String[] parts = sheetId.split("#");
-                if (parts.length > 1) {
-                    sheetName = parts[1];
+                int hash = sheetId.lastIndexOf('#');
+                if (hash >= 0 && hash < sheetId.length() - 1) {
+                    sheetName = sheetId.substring(hash + 1);
                 }
                 
                 logger.info("loadFromReader: Processing sheet: " + sheetId);

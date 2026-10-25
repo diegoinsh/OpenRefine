@@ -276,6 +276,9 @@ public class FilesImporter {
         return rootFS;
     }
 
+    private static final int MAX_TREE_DEPTH = 5;
+    private static final int MAX_TREE_NODES = 30000;
+
     public static void generateDirectoryTree(String directoryPath, Path outputFile) throws IOException {
         Path dir = Paths.get(directoryPath);
         if (!Files.isDirectory(dir)) {
@@ -286,7 +289,7 @@ public class FilesImporter {
         objectMapper.writer().without(SerializationFeature.INDENT_OUTPUT);
         try (JsonGenerator jsonGenerator = objectMapper.getFactory().createGenerator(outputFile.toFile(), JsonEncoding.UTF8)) {
             jsonGenerator.writeStartObject();
-            buildDirectoryNode(dir, jsonGenerator);
+            buildDirectoryNode(dir, jsonGenerator, 0, new java.util.concurrent.atomic.AtomicInteger(1));
             jsonGenerator.writeEndObject();
         } catch (Exception e) {
             logger.info("--- directoryHierarchy - Failed to write directory structure to file: " + e.getMessage());
@@ -294,6 +297,11 @@ public class FilesImporter {
     }
 
     private static void buildDirectoryNode(Path dir, JsonGenerator jsonGenerator) throws IOException {
+        buildDirectoryNode(dir, jsonGenerator, 0, new java.util.concurrent.atomic.AtomicInteger(1));
+    }
+
+    private static void buildDirectoryNode(Path dir, JsonGenerator jsonGenerator, int depth,
+                                           java.util.concurrent.atomic.AtomicInteger nodeCount) throws IOException {
         try {
             String dirName = "unknown";
             String dirPath = "unknown";
@@ -311,22 +319,27 @@ public class FilesImporter {
             jsonGenerator.writeFieldName("children");
             jsonGenerator.writeStartArray();
 
-            List<Path> children = new ArrayList<>();
-            try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
-                for (Path child : stream) {
-                    if (Files.isDirectory(child)) {
-                        children.add(child);
+            if (depth < MAX_TREE_DEPTH && nodeCount.get() < MAX_TREE_NODES) {
+                List<Path> children = new ArrayList<>();
+                try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+                    for (Path child : stream) {
+                        if (Files.isDirectory(child)) {
+                            children.add(child);
+                        }
                     }
+                } catch (Exception e) {
+                    // do nothing - Security exception
                 }
-            } catch (Exception e) {
-                // do nothing - Security exception
-            }
 
-            children.sort((p1, p2) -> p1.getFileName().toString().compareToIgnoreCase(p2.getFileName().toString()));
-            for (Path child : children) {
-                jsonGenerator.writeStartObject();
-                buildDirectoryNode(child, jsonGenerator);
-                jsonGenerator.writeEndObject();
+                children.sort((p1, p2) -> p1.getFileName().toString().compareToIgnoreCase(p2.getFileName().toString()));
+                for (Path child : children) {
+                    if (nodeCount.incrementAndGet() > MAX_TREE_NODES) {
+                        break;
+                    }
+                    jsonGenerator.writeStartObject();
+                    buildDirectoryNode(child, jsonGenerator, depth + 1, nodeCount);
+                    jsonGenerator.writeEndObject();
+                }
             }
             jsonGenerator.writeEndArray();
         } catch (Exception e) {

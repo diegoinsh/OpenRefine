@@ -210,9 +210,7 @@ Refine.DataQualityUI.prototype._loadProjects = function() {
       self._projects = data.projects || {};
       // 构建标签列表
       self._buildTagsList();
-      // 渲染项目表格
-      self._renderProjectList();
-      // 加载任务状态
+      // 加载任务状态后再渲染：列表只显示「有本域（质量检查）任务」的项目
       self._loadAllTasksStatus();
     }
   );
@@ -345,6 +343,9 @@ Refine.DataQualityUI.prototype._loadAllTasksStatus = function() {
         });
       }
 
+      // 任务状态就绪后再渲染列表：列表只显示「有质量检查任务」的项目
+      self._renderProjectList();
+
       // 更新所有项目行
       for (var projectId in self._projects) {
         self._updateProjectRow(projectId);
@@ -353,6 +354,7 @@ Refine.DataQualityUI.prototype._loadAllTasksStatus = function() {
   ).fail(function() {
     // 失败时清空任务状态
     self._tasks = {};
+    self._renderProjectList();
     for (var projectId in self._projects) {
       self._updateProjectRow(projectId);
     }
@@ -372,6 +374,11 @@ Refine.DataQualityUI.prototype._renderProjectList = function() {
 
   // 按上次修改时间逆序排序（最近修改的在前）
   var projectIds = Object.keys(this._projects);
+  // 任务分域：本列表只显示「有质量检查任务」的项目；没有任何检查任务的项目不出现在这里
+  // （想看到全部项目请用「打开项目」）
+  projectIds = projectIds.filter(function(pid) {
+    return !!(self._tasks && self._tasks[pid]);
+  });
   projectIds.sort(function(a, b) {
     var ma = self._projects[a].modified ? new Date(self._projects[a].modified).getTime() : 0;
     var mb = self._projects[b].modified ? new Date(self._projects[b].modified).getTime() : 0;
@@ -694,7 +701,7 @@ Refine.DataQualityUI.prototype._renderActionButtons = function(container, projec
     $('<button>')
       .addClass('dq-btn-icon')
       .attr('title', '启动检查')
-      .html('<img src="images/extensions/circle-play-regular-full.svg" alt="启动" />')
+      .html('<img src="images/extensions/circle-play-regular-full.svg" alt="启动" width="18" height="18" />')
       .on('click', function() { self._startCheck(projectId); })
       .appendTo(container);
   }
@@ -704,7 +711,7 @@ Refine.DataQualityUI.prototype._renderActionButtons = function(container, projec
     $('<button>')
       .addClass('dq-btn-icon')
       .attr('title', '暂停')
-      .html('<img src="images/extensions/pause-solid-full.svg" alt="暂停" />')
+      .html('<img src="images/extensions/pause-solid-full.svg" alt="暂停" width="18" height="18" />')
       .on('click', function() { self._pauseTask(projectId); })
       .appendTo(container);
 
@@ -712,7 +719,7 @@ Refine.DataQualityUI.prototype._renderActionButtons = function(container, projec
     $('<button>')
       .addClass('dq-btn-icon dq-btn-danger')
       .attr('title', '停止')
-      .html('<img src="images/extensions/stop-solid-full.svg" alt="停止" />')
+      .html('<img src="images/extensions/stop-solid-full.svg" alt="停止" width="18" height="18" />')
       .on('click', function() { self._cancelTask(projectId); })
       .appendTo(container);
   }
@@ -722,7 +729,7 @@ Refine.DataQualityUI.prototype._renderActionButtons = function(container, projec
     $('<button>')
       .addClass('dq-btn-icon')
       .attr('title', '恢复')
-      .html('<img src="images/extensions/circle-play-regular-full.svg" alt="恢复" />')
+      .html('<img src="images/extensions/circle-play-regular-full.svg" alt="恢复" width="18" height="18" />')
       .on('click', function() { self._resumeTask(projectId); })
       .appendTo(container);
 
@@ -730,7 +737,7 @@ Refine.DataQualityUI.prototype._renderActionButtons = function(container, projec
     $('<button>')
       .addClass('dq-btn-icon dq-btn-danger')
       .attr('title', '停止')
-      .html('<img src="images/extensions/stop-solid-full.svg" alt="停止" />')
+      .html('<img src="images/extensions/stop-solid-full.svg" alt="停止" width="18" height="18" />')
       .on('click', function() { self._cancelTask(projectId); })
       .appendTo(container);
   }
@@ -739,7 +746,7 @@ Refine.DataQualityUI.prototype._renderActionButtons = function(container, projec
   $('<button>')
     .addClass('dq-btn-icon')
     .attr('title', '编辑规则')
-    .html('<img src="images/extensions/pen-to-square-regular-full.svg" alt="规则" />')
+    .html('<img src="images/extensions/pen-to-square-regular-full.svg" alt="规则" width="18" height="18" />')
     .on('click', function() { self._openRulesEditor(projectId); })
     .appendTo(container);
 
@@ -749,7 +756,7 @@ Refine.DataQualityUI.prototype._renderActionButtons = function(container, projec
     $('<button>')
       .addClass('dq-btn-icon')
       .attr('title', '查看报告')
-      .html('<img src="images/extensions/chart-line-solid-full.svg" alt="报告" />')
+      .html('<img src="images/extensions/chart-line-solid-full.svg" alt="报告" width="18" height="18" />')
       .on('click', function() { self._viewReport(projectId); })
       .appendTo(container);
   }
@@ -1006,7 +1013,7 @@ Refine.DataQualityUI.prototype._renderSettingsForm = function() {
 
   // 提示信息
   var tip = $('<div>').addClass('dq-settings-tip')
-    .html('<img src="images/extensions/lightbulb-regular-full.svg" alt="提示" /> 配置修改后对新启动的任务生效，运行中的任务不受影响');
+    .html('<img src="images/extensions/lightbulb-regular-full.svg" alt="提示" width="18" height="18" /> 配置修改后对新启动的任务生效，运行中的任务不受影响');
   container.append(tip);
 };
 
@@ -1072,7 +1079,7 @@ Refine.DataQualityUI.prototype._createTestConnectionButton = function(section) {
 
   $('<button>')
     .addClass('dq-btn dq-btn-small')
-    .html('<img src="images/extensions/link-solid-full.svg" alt="提示" /> 测试连接')
+    .html('<img src="images/extensions/link-solid-full.svg" alt="提示" width="16" height="16" /> 测试连接')
     .on('click', function() {
       var serverUrl = self._elmt.find('input[data-config-key="aimp.server"]').val();
       self._testAimpConnection(serverUrl, statusSpan);

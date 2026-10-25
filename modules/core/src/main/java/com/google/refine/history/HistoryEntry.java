@@ -69,6 +69,7 @@ public class HistoryEntry {
     @JsonIgnore
     final public long projectID;
     @JsonProperty("sheetId")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     final public String sheetId;
     @JsonProperty("description")
     final public String description;

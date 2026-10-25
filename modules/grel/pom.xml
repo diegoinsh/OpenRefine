@@ -16,8 +16,7 @@
   </parent>
 
   <!-- We need to create the .jar at compilation stage because
-       other artifacts (such as "main") need to copy it to a
-       subdirectory for Butterfly -->
+       other artifacts (such as "main") need to copy it into the webapp lib dir -->
   <build>
     <finalName>openrefine-grel</finalName>
     <plugins>

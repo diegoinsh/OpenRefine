@@ -12,6 +12,8 @@ import javax.servlet.http.HttpServletResponse;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.jiongche.refine.data.OrViews;
+import com.jiongche.sdk.data.TableView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -68,7 +70,8 @@ public class RunImageQualityCheckCommand extends Command {
                 }
             }
 
-            ImageQualityChecker checker = new ImageQualityChecker(project, config, aimpServiceUrl);
+            TableView view = OrViews.viewFor(project);
+            ImageQualityChecker checker = new ImageQualityChecker(view, config, aimpServiceUrl);
             CheckResult result = checker.runCheck();
 
             ObjectNode jsonResult = mapper.createObjectNode();
