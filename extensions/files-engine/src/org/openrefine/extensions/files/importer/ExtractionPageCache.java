@@ -114,13 +114,33 @@ public final class ExtractionPageCache {
         node.path("candidates").fields().forEachRemaining(e -> {
             List<AimpLlmClient.ElementCandidate> list = new ArrayList<>();
             for (JsonNode c : e.getValue()) {
+                List<String> flags = null;
+                JsonNode flagsNode = c.get("qualityFlags");
+                if (flagsNode != null && flagsNode.isArray()) {
+                    flags = new ArrayList<>();
+                    for (JsonNode f : flagsNode) flags.add(f.asText(""));
+                }
+                Boolean winner = c.hasNonNull("winner") ? c.get("winner").asBoolean() : null;
                 list.add(new AimpLlmClient.ElementCandidate(
                         c.path("value").asText(null),
                         c.hasNonNull("confidence") ? c.get("confidence").asDouble() : null,
                         c.path("page").asInt(),
-                        c.hasNonNull("fileName") ? c.get("fileName").asText() : null));
+                        c.hasNonNull("fileName") ? c.get("fileName").asText() : null,
+                        c.hasNonNull("quality") ? c.get("quality").asDouble() : null,
+                        flags,
+                        winner));
             }
             result.candidates.put(e.getKey(), list);
+        });
+        // 页级要素质量（同步单页结果与质量明细）：旧缓存缺失时为空，按「未评分」处理
+        result.qualityScores = new LinkedHashMap<>();
+        node.path("qualityScores").fields().forEachRemaining(e ->
+                result.qualityScores.put(e.getKey(), e.getValue().asDouble()));
+        result.qualityFlags = new LinkedHashMap<>();
+        node.path("qualityFlags").fields().forEachRemaining(e -> {
+            List<String> flags = new ArrayList<>();
+            for (JsonNode f : e.getValue()) flags.add(f.asText(""));
+            result.qualityFlags.put(e.getKey(), flags);
         });
         return result;
     }
@@ -200,7 +220,33 @@ public final class ExtractionPageCache {
                     if (c.fileName != null) {
                         item.put("fileName", c.fileName);
                     }
+                    // 质量必须随缓存往返，否则「首次运行有角标、缓存命中后角标消失」。
+                    // 质量不参与缓存键：评分规则调整不应让整批页缓存失效
+                    if (c.qualityScore != null) {
+                        item.put("quality", c.qualityScore);
+                    }
+                    if (c.qualityFlags != null && !c.qualityFlags.isEmpty()) {
+                        ArrayNode flags = item.putArray("qualityFlags");
+                        for (String f : c.qualityFlags) flags.add(f);
+                    }
+                    if (c.winner != null && c.winner) {
+                        item.put("winner", true);
+                    }
                 }
+            });
+        }
+        ObjectNode scores = node.putObject("qualityScores");
+        if (result.qualityScores != null) {
+            result.qualityScores.forEach((k, v) -> {
+                if (v != null) scores.put(k, v);
+            });
+        }
+        ObjectNode qflags = node.putObject("qualityFlags");
+        if (result.qualityFlags != null) {
+            result.qualityFlags.forEach((k, list) -> {
+                if (list == null || list.isEmpty()) return;
+                ArrayNode arr = qflags.putArray(k);
+                for (String f : list) arr.add(f);
             });
         }
         return node;

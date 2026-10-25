@@ -1076,3 +1076,37 @@
 .quality-correct-btn:active {
   background-color: #1e7e34;
 }
+
+/* ── 抽取质量角标（单元格右上角，与数据质量检查的右下角红三角区分） ── */
+.extraction-quality-marker {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 2;
+}
+.extraction-quality-marker.suspect { background: #f0ad4e; }
+.extraction-quality-marker:focus { outline: 2px solid #f0ad4e; outline-offset: 1px; }
+
+#extraction-quality-tooltip {
+  display: none;
+  position: absolute;
+  z-index: 10000;
+  max-width: 320px;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  font-size: 12px;
+  line-height: 1.5;
+  color: #333;
+}
+.extraction-quality-tooltip-title { font-weight: 600; color: #b8860b; margin-bottom: 2px; }
+.extraction-quality-tooltip-flags { color: #555; }
+.extraction-quality-tooltip-source { margin-top: 4px; color: #666; }
+.extraction-quality-tooltip-link { display: inline-block; margin-top: 4px; color: #007bff; text-decoration: none; }
+.extraction-quality-tooltip-link:hover { text-decoration: underline; }

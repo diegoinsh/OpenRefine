@@ -134,6 +134,7 @@ public class DataQualityExtensionSpi implements RefineModuleSpi {
                 "scripts/menu-bar-extension.js",
                 "scripts/quality-alignment.js",
                 "scripts/quality-cell-renderer.js",
+                "scripts/extraction-quality-cell-renderer.js",
                 "scripts/dialogs/manage-rules-dialog.js",
                 "scripts/dialogs/run-check-dialog.js",
                 "scripts/dialogs/image-quality-tab.js",

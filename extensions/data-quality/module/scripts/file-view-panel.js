@@ -347,9 +347,19 @@ var FileViewPanel = {};
     if (!list || !list.length) {
       return [];
     }
-    return list.filter(function(candidate) {
+    var usable = list.filter(function(candidate) {
       return candidate && candidate.v && parseInt(candidate.p, 10) > 0;
     });
+    // 存在胜出标记（w=1）时把它前置：_show 取 list[0].p 定位，而质量 tooltip 的来源页
+    // 也取 w 候选的页——不前置会出现「tooltip 说第 6 页、点开却是第 5 页」。
+    // 仅在带 w 的新数据上生效，旧项目候选顺序不变。
+    for (var w = 1; w < usable.length; w++) {
+      if (usable[w].w === 1) {
+        usable.unshift(usable.splice(w, 1)[0]);
+        break;
+      }
+    }
+    return usable;
   };
 
   /** 取该行的件首页信息（页映射的行级键）；无页映射或无该信息时返回 null */

@@ -66,6 +66,58 @@ public class ExtractionPageCacheTest {
     }
 
     @Test
+    public void roundTripKeepsQuality() {
+        AimpLlmClient.ExtractPageResult src = new AimpLlmClient.ExtractPageResult();
+        src.success = true;
+        src.textLength = 120;
+        src.values = new LinkedHashMap<>();
+        src.values.put("title", "起诉状");
+        src.qualityScores = new LinkedHashMap<>();
+        src.qualityScores.put("title", 0.42);
+        src.qualityFlags = new LinkedHashMap<>();
+        src.qualityFlags.put("title", new ArrayList<>(List.of("truncated")));
+        src.candidates = new LinkedHashMap<>();
+        src.candidates.put("title", new ArrayList<>(List.of(
+                new AimpLlmClient.ElementCandidate("起诉状", 0.9, 1, "0001.jpg", 0.42,
+                        new ArrayList<>(List.of("truncated")), true))));
+
+        AimpLlmClient.ExtractPageResult back =
+                ExtractionPageCache.fromJson(ExtractionPageCache.toJson(src));
+
+        // 质量必须随缓存往返：否则「首次运行有角标、命中缓存后角标消失」
+        Assert.assertEquals(back.qualityScores.get("title"), Double.valueOf(0.42));
+        Assert.assertEquals(back.qualityFlags.get("title"), List.of("truncated"));
+        AimpLlmClient.ElementCandidate c = back.candidates.get("title").get(0);
+        Assert.assertEquals(c.qualityScore, Double.valueOf(0.42));
+        Assert.assertEquals(c.qualityFlags, List.of("truncated"));
+        Assert.assertEquals(c.winner, Boolean.TRUE);
+    }
+
+    @Test
+    public void oldCacheWithoutQualityReadsAsUnscored() {
+        AimpLlmClient.ExtractPageResult src = new AimpLlmClient.ExtractPageResult();
+        src.success = true;
+        src.textLength = 10;
+        src.values = new LinkedHashMap<>();
+        src.values.put("title", "起诉状");
+        src.candidates = new LinkedHashMap<>();
+        src.candidates.put("title", new ArrayList<>(List.of(
+                new AimpLlmClient.ElementCandidate("起诉状", 0.9, 1, "0001.jpg"))));
+        ObjectNode node = ExtractionPageCache.toJson(src);
+        node.remove("qualityScores");
+        node.remove("qualityFlags");
+
+        AimpLlmClient.ExtractPageResult back = ExtractionPageCache.fromJson(node);
+
+        Assert.assertTrue(back.qualityScores.isEmpty(), "旧缓存无质量：按未评分处理");
+        Assert.assertTrue(back.qualityFlags.isEmpty());
+        AimpLlmClient.ElementCandidate c = back.candidates.get("title").get(0);
+        Assert.assertNull(c.qualityScore);
+        Assert.assertNull(c.qualityFlags);
+        Assert.assertNull(c.winner);
+    }
+
+    @Test
     public void cacheKeyIsStableAndContextSensitive() {
         String a = ExtractionPageCache.keyFor("/tmp/x.jpg", "title", "{}", "文书档案", "", null);
         String b = ExtractionPageCache.keyFor("/tmp/x.jpg", "title", "{}", "文书档案", "", null);

@@ -457,6 +457,25 @@
   "data-quality-extension/file-view-ocr-hint": "在图上按住鼠标左键拉框，松开后自动识别",
   "data-quality-extension/file-view-ocr-failed": "OCR 识别失败",
   "data-quality-extension/file-view-ocr-empty": "未识别到文字，请调整框选范围或改选纯文字模式后重试。",
-  "data-quality-extension/file-view-ocr-result-copied": "OCR结果：$1。结果已拷贝供粘贴。"
+  "data-quality-extension/file-view-ocr-result-copied": "OCR结果：$1。结果已拷贝供粘贴。",
+
+  "data-quality-extension/extraction-quality-suspect": "抽取质量可疑",
+  "data-quality-extension/extraction-quality-low-confidence": "综合可信度低",
+  "data-quality-extension/extraction-quality-flags-more": "等 $1 项",
+  "data-quality-extension/extraction-quality-source-page": "来源：第 $1 页",
+  "data-quality-extension/extraction-quality-view-page": "查看原页",
+  "data-quality-extension/extraction-quality-flag.too_short": "值过短",
+  "data-quality-extension/extraction-quality-flag.too_long": "值过长",
+  "data-quality-extension/extraction-quality-flag.vertical_remnant": "疑似竖排残字",
+  "data-quality-extension/extraction-quality-flag.repeat_loop": "疑似重复复读",
+  "data-quality-extension/extraction-quality-flag.punct_only": "只有标点",
+  "data-quality-extension/extraction-quality-flag.body_sentence": "像正文句子",
+  "data-quality-extension/extraction-quality-flag.not_in_text": "原文未匹配",
+  "data-quality-extension/extraction-quality-flag.title_not_in_head": "题名不在页首",
+  "data-quality-extension/extraction-quality-flag.no_category": "无文书类别",
+  "data-quality-extension/extraction-quality-flag.bad_format": "格式不合法",
+  "data-quality-extension/extraction-quality-flag.signature_label": "签字盖章栏位",
+  "data-quality-extension/extraction-quality-flag.no_entity": "不是机构名称",
+  "data-quality-extension/extraction-quality-flag.short_no_category": "过短且无类别"
 }
 

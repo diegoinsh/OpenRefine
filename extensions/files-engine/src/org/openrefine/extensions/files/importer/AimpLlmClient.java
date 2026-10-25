@@ -258,6 +258,11 @@ public class AimpLlmClient {
                             result.confidences.put(e.getKey(),
                                     info.get(AimpFields.CONFIDENCE).asDouble(0.0));
                         }
+                        // 抽取质量（可选）：只增字段，旧 AIMP 不返回时保持 null
+                        Double score = qualityScoreOf(info);
+                        if (score != null) result.qualityScores.put(e.getKey(), score);
+                        List<String> flags = qualityFlagsOf(info);
+                        if (flags != null) result.qualityFlags.put(e.getKey(), flags);
                     });
                 }
                 if (result.values.isEmpty() && json.has(AimpFields.EXTRACTED_FIELDS)
@@ -351,6 +356,10 @@ public class AimpLlmClient {
                 if (info.has("confidence") && !info.get("confidence").isNull()) {
                     r.confidences.put(e.getKey(), info.get("confidence").asDouble(0.0));
                 }
+                Double score = qualityScoreOf(info);
+                if (score != null) r.qualityScores.put(e.getKey(), score);
+                List<String> flags = qualityFlagsOf(info);
+                if (flags != null) r.qualityFlags.put(e.getKey(), flags);
             } else if (info != null) {
                 r.values.put(e.getKey(), info.asText(""));
             }
@@ -390,9 +399,38 @@ public class AimpLlmClient {
                 Double confidence = info.has("confidence") && !info.get("confidence").isNull()
                         ? info.get("confidence").asDouble(0.0) : null;
                 r.candidates.computeIfAbsent(e.getKey(), k -> new ArrayList<>())
-                        .add(new ElementCandidate(value.trim(), confidence, page));
+                        .add(new ElementCandidate(value.trim(), confidence, page, null,
+                                qualityScoreOf(info), qualityFlagsOf(info), null));
             });
         }
+    }
+
+    /**
+     * 解析抽取质量分（可选字段，0~1）。缺失、null、非数值都返回 null，绝不抛异常。
+     */
+    private static Double qualityScoreOf(JsonNode info) {
+        if (info == null || !info.isObject()) return null;
+        JsonNode node = info.get(AimpFields.QUALITY_SCORE);
+        if (node == null || node.isNull()) return null;
+        if (node.isNumber()) return node.asDouble();
+        try {
+            return Double.parseDouble(node.asText().trim());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 解析抽取质量原因标记（可选字段）；缺失、null、非数组、空数组都返回 null。 */
+    private static List<String> qualityFlagsOf(JsonNode info) {
+        if (info == null || !info.isObject()) return null;
+        JsonNode node = info.get(AimpFields.QUALITY_FLAGS);
+        if (node == null || node.isNull() || !node.isArray()) return null;
+        List<String> flags = new ArrayList<>();
+        for (JsonNode n : node) {
+            String s = n.asText("");
+            if (!s.isEmpty()) flags.add(s);
+        }
+        return flags.isEmpty() ? null : flags;
     }
 
     public LlmAnalyzeResult llmAnalyze(String prompt, String responseFormat) {
@@ -687,6 +725,10 @@ public class AimpLlmClient {
         public String taskId;
         public Map<String, String> values = new HashMap<>();
         public Map<String, Double> confidences = new LinkedHashMap<>();
+        /** 各要素的抽取质量分（可选，0~1）；AIMP 未开启质量校验或旧版本时不写入 */
+        public Map<String, Double> qualityScores = new LinkedHashMap<>();
+        /** 各要素的质量原因标记（可选）；空数组/缺失均不写入 */
+        public Map<String, List<String>> qualityFlags = new LinkedHashMap<>();
         /** 页级候选：要素 key → 该要素在各页出现的取值与置信度（多页任务才有） */
         public Map<String, List<ElementCandidate>> candidates = new LinkedHashMap<>();
         public String error;
@@ -698,17 +740,34 @@ public class AimpLlmClient {
         public final Double confidence;
         public final int page;
         /** 整目录成件的图片批次：该页对应的文件名，前端据此定位而不依赖目录列举顺序 */
-        public final String fileName;
+        public String fileName;
+        /** 该页抽取质量分（可选，0~1）；AIMP 未评分或旧版本时为 null */
+        public final Double qualityScore;
+        /** 该页质量原因标记（可选）；无标记时为 null */
+        public final List<String> qualityFlags;
+        /**
+         * 胜出标记：该候选就是最终写入单元格的取值来源。由 Java 在写行时确定，
+         * 前端据此取质量而不做文本比对。默认 null（未标记）。
+         */
+        public Boolean winner;
 
         public ElementCandidate(String value, Double confidence, int page) {
-            this(value, confidence, page, null);
+            this(value, confidence, page, null, null, null, null);
         }
 
         public ElementCandidate(String value, Double confidence, int page, String fileName) {
+            this(value, confidence, page, fileName, null, null, null);
+        }
+
+        public ElementCandidate(String value, Double confidence, int page, String fileName,
+                                Double qualityScore, List<String> qualityFlags, Boolean winner) {
             this.value = value;
             this.confidence = confidence;
             this.page = page;
             this.fileName = fileName;
+            this.qualityScore = qualityScore;
+            this.qualityFlags = qualityFlags;
+            this.winner = winner;
         }
     }
 

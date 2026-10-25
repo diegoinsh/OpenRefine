@@ -451,6 +451,25 @@
   "data-quality-extension/file-view-ocr-hint": "Drag on the image to select an area; release to run OCR",
   "data-quality-extension/file-view-ocr-failed": "OCR failed",
   "data-quality-extension/file-view-ocr-empty": "No text recognized. Adjust the selection or switch to text mode and retry.",
-  "data-quality-extension/file-view-ocr-result-copied": "OCR result: $1. Copied to clipboard for pasting."
+  "data-quality-extension/file-view-ocr-result-copied": "OCR result: $1. Copied to clipboard for pasting.",
+
+  "data-quality-extension/extraction-quality-suspect": "Suspicious extraction quality",
+  "data-quality-extension/extraction-quality-low-confidence": "Low overall confidence",
+  "data-quality-extension/extraction-quality-flags-more": "and $1 more",
+  "data-quality-extension/extraction-quality-source-page": "Source: page $1",
+  "data-quality-extension/extraction-quality-view-page": "View source page",
+  "data-quality-extension/extraction-quality-flag.too_short": "Value too short",
+  "data-quality-extension/extraction-quality-flag.too_long": "Value too long",
+  "data-quality-extension/extraction-quality-flag.vertical_remnant": "Vertical text remnant",
+  "data-quality-extension/extraction-quality-flag.repeat_loop": "Repeated text",
+  "data-quality-extension/extraction-quality-flag.punct_only": "Punctuation only",
+  "data-quality-extension/extraction-quality-flag.body_sentence": "Looks like body text",
+  "data-quality-extension/extraction-quality-flag.not_in_text": "Not found in text",
+  "data-quality-extension/extraction-quality-flag.title_not_in_head": "Title not at page head",
+  "data-quality-extension/extraction-quality-flag.no_category": "No document category",
+  "data-quality-extension/extraction-quality-flag.bad_format": "Invalid format",
+  "data-quality-extension/extraction-quality-flag.signature_label": "Signature block label",
+  "data-quality-extension/extraction-quality-flag.no_entity": "Not an organization name",
+  "data-quality-extension/extraction-quality-flag.short_no_category": "Too short and no category"
 }
 

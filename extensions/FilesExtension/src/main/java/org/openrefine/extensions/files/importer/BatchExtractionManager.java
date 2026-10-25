@@ -1316,7 +1316,7 @@ public class BatchExtractionManager {
                                 p.endPage = pageOffset + 1;
                                 pageOffset += 1;
                                 appendUnitRow(task, project, unit, pieceNo, new File(pdf).getName(), p, null,
-                                        r.error != null ? r.error : "提交提取任务失败", null);
+                                        r.error != null ? r.error : "提交提取任务失败", null, null);
                                 if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
                                     fail(task, "AIMP 连续失败 " + consecutiveFailures + " 次，任务中止");
                                     return;
@@ -1405,7 +1405,7 @@ public class BatchExtractionManager {
                             normalizePieceValues(pdfValues);
                             // 页级候选：AIMP 的 page_index 即该 PDF 内部页号，可直接用于浏览器 #page 定位
                             appendUnitRow(task, project, unit, pieceNo, new File(pdf).getName(), p,
-                                    pdfValues, null, filterCandidates(r.candidates, pdfValues));
+                                    pdfValues, null, filterCandidates(r.candidates, pdfValues), null);
                         } else {
                             consecutiveFailures++;
                             task.failedPages++;
@@ -1414,7 +1414,7 @@ public class BatchExtractionManager {
                             p.endPage = pageOffset + 1;
                             pageOffset += 1;
                             appendUnitRow(task, project, unit, pieceNo, new File(pdf).getName(), p, null,
-                                    r.error, null);
+                                    r.error, null, null);
                             if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
                                 fail(task, "AIMP 连续失败 " + consecutiveFailures + " 次，任务中止");
                                 return;
@@ -1425,6 +1425,9 @@ public class BatchExtractionManager {
                     List<String> titles = new ArrayList<>();
                     List<Map<String, String>> pageValues = new ArrayList<>();
                     List<Map<String, Double>> pageConfidences = new ArrayList<>();
+                    // 逐页抽取质量（可选）：与 pageValues 对齐，供候选携带质量并确定胜出标记
+                    List<Map<String, Double>> pageQualityScores = new ArrayList<>();
+                    List<Map<String, List<String>>> pageQualityFlags = new ArrayList<>();
                     // 逐页「本页是否被判跳过 LLM」：层2 件级完整性校验靠它区分「真缺要素」与
                     // 「当初这一页压根没送 LLM」，层3 也据此把回抽范围锁在跳过的页上
                     List<Boolean> pageSkipped = new ArrayList<>();
@@ -1459,6 +1462,8 @@ public class BatchExtractionManager {
                             titles.add(ok ? r.values.getOrDefault("title", "") : "");
                             pageValues.add(ok ? r.values : null);
                             pageConfidences.add(ok ? r.confidences : null);
+                            pageQualityScores.add(ok ? r.qualityScores : null);
+                            pageQualityFlags.add(ok ? r.qualityFlags : null);
                             pageSkipped.add(ok && r.skipped);
                             pageTitleRegions.add(ok ? r.titleRegionCount : 0);
                             if (ok) task.recordPageType(unit.path, pageNo, r.pageType, r.skipped);
@@ -1509,6 +1514,8 @@ public class BatchExtractionManager {
                             titles.add(r.success ? r.values.getOrDefault("title", "") : "");
                             pageValues.add(r.success ? r.values : null);
                             pageConfidences.add(r.success ? r.confidences : null);
+                            pageQualityScores.add(r.success ? r.qualityScores : null);
+                            pageQualityFlags.add(r.success ? r.qualityFlags : null);
                             pageSkipped.add(r.success && r.skipped);
                             pageTitleRegions.add(r.success ? r.titleRegionCount : 0);
                             if (r.success) task.recordPageType(unit.path, i + 1, r.pageType, r.skipped);
@@ -1525,12 +1532,13 @@ public class BatchExtractionManager {
                         p.startPage = 1;
                         p.endPage = unit.pages.size();
                         p.title = firstNonEmpty(titles);
-                        MergedElements merged = accumulateByConfidence(pageValues, pageConfidences);
+                        MergedElements merged = accumulateByConfidence(pageValues, pageConfidences, 1,
+                                pageQualityScores, pageQualityFlags);
                         String casePieceNo = allocatePieceNumber(unit.name, usedPieceNos, lastPieceNo);
                         lastPieceNo = casePieceNo;
                         appendUnitRow(task, project, unit, casePieceNo, null, p,
                                 merged.isEmpty() ? null : merged.values, remark,
-                                withFileNames(merged.candidates, unit.pages));
+                                withFileNames(merged.candidates, unit.pages), merged.winners);
                     } else {
                         // 诉讼档案：分件只在「卷内条目页」范围内进行。卷宗封面、卷内目录（卷前材料）
                         // 与备考表、证物袋、卷底（卷尾材料）都不是卷内条目——既不参与分件、也不写条目行，
@@ -1613,7 +1621,8 @@ public class BatchExtractionManager {
                         if (litigationArchive) {
                             long tBack0 = System.nanoTime();
                             runPieceBacktrack(task, client, unit, pieces, pageSkipped, titles,
-                                    pageValues, pageConfidences, keyList, customJson);
+                                    pageValues, pageConfidences, pageQualityScores, pageQualityFlags,
+                                    keyList, customJson);
                             task.tBacktrackMs += (System.nanoTime() - tBack0) / 1_000_000;
                         }
                         Map<String, String> volumeLevelValues = new LinkedHashMap<>();
@@ -1640,7 +1649,9 @@ public class BatchExtractionManager {
                                 if (covered[i] || pageValues.get(i) == null) continue;
                                 MergedElements merged = accumulateByConfidence(
                                         Collections.singletonList(pageValues.get(i)),
-                                        Collections.singletonList(pageConfidences.get(i)), i + 1);
+                                        Collections.singletonList(pageConfidences.get(i)), i + 1,
+                                        Collections.singletonList(pageQualityScores.get(i)),
+                                        Collections.singletonList(pageQualityFlags.get(i)));
                                 merged.values.forEach((key, value) -> {
                                     if (ExtractionTemplate.isVolumeLevelElement(key)) {
                                         volumeLevelValues.put(key, value);
@@ -1659,7 +1670,9 @@ public class BatchExtractionManager {
                             List<Map<String, String>> pieceValues =
                                     pageValues.subList(p.startPage - 1, p.endPage);
                             MergedElements merged = accumulateByConfidence(pieceValues,
-                                    pageConfidences.subList(p.startPage - 1, p.endPage), p.startPage);
+                                    pageConfidences.subList(p.startPage - 1, p.endPage), p.startPage,
+                                    pageQualityScores.subList(p.startPage - 1, p.endPage),
+                                    pageQualityFlags.subList(p.startPage - 1, p.endPage));
                             Map<String, String> rowValues = merged.isEmpty()
                                     ? null : new LinkedHashMap<>(merged.values);
                             if (volumeTrialLevel != null || !volumeLevelValues.isEmpty()) {
@@ -1683,7 +1696,7 @@ public class BatchExtractionManager {
                             volumeLevelCandidates.forEach(rowCandidates::putIfAbsent);
                             appendUnitRow(task, project, unit, String.format("%03d", pieceNo), null, p,
                                     rowValues, remark,
-                                    withFileNames(rowCandidates, unit.pages));
+                                    withFileNames(rowCandidates, unit.pages), merged.winners);
                             pieceNo++;
                         }
                         task.tMergeMs += (System.nanoTime() - tRow0) / 1_000_000;
@@ -1743,6 +1756,8 @@ public class BatchExtractionManager {
                                    List<TitleSplitter.Piece> pieces, List<Boolean> pageSkipped,
                                    List<String> titles, List<Map<String, String>> pageValues,
                                    List<Map<String, Double>> pageConfidences,
+                                   List<Map<String, Double>> pageQualityScores,
+                                   List<Map<String, List<String>>> pageQualityFlags,
                                    String keyList, String customJson) {
         AimpLlmClient.PieceIntegrityResult integrity =
                 client.pieceIntegrity(pieces, pageSkipped, pageValues, null, null);
@@ -1814,6 +1829,9 @@ public class BatchExtractionManager {
                 titles.set(idx, r.values.getOrDefault("title", ""));
                 pageValues.set(idx, r.values);
                 pageConfidences.set(idx, r.confidences);
+                // 质量列表与 pageValues 严格对齐：漏写会让后续按页索引取到别的页的质量
+                if (idx < pageQualityScores.size()) pageQualityScores.set(idx, r.qualityScores);
+                if (idx < pageQualityFlags.size()) pageQualityFlags.set(idx, r.qualityFlags);
                 if (idx < pageSkipped.size()) pageSkipped.set(idx, false);
                 recordPagePreview(task, unit, idx, r, false);
                 task.recordPageType(unit.path, page, r.pageType, r.skipped);
@@ -2205,7 +2223,8 @@ public class BatchExtractionManager {
      */
     private void appendUnitRow(Task task, Project project, UnitScanner.Volume unit, String pieceNo,
                                String fileName, TitleSplitter.Piece piece, Map<String, String> values,
-                               String remark, Map<String, List<AimpLlmClient.ElementCandidate>> candidates) {
+                               String remark, Map<String, List<AimpLlmClient.ElementCandidate>> candidates,
+                               Map<String, AimpLlmClient.ElementCandidate> winners) {
         String status;
         if (values == null) {
             status = "失败";
@@ -2257,6 +2276,25 @@ public class BatchExtractionManager {
         if (task.template == ExtractionTemplate.BATCH_TITLE_VOLUME) {
             prioritizePieceTitle(candidates, piece, unit);
         }
+        // 胜出标记必须在**最终值全部算完之后**统一判定：值被规范化/清空/合成时不得打 `w`，
+        // 否则角标会把「已改写值」的质量当成「当前值」的质量
+        Map<String, String> finalValues = new LinkedHashMap<>();
+        finalValues.put("responsible_party", responsibleParty);
+        finalValues.put("document_number", get(values, "document_number"));
+        finalValues.put("date", documentDate);
+        finalValues.put("title", piece.title);
+        for (CustomElementType ce : task.customElements) {
+            if (!ce.isInclude()) continue;
+            if (task.innerSheet != null && ExtractionTemplate.isVolumeLevelElement(ce.getKey())) continue;
+            finalValues.put(ce.getKey(), get(values, ce.getKey()));
+        }
+        // 题名只在「件名 = 件首页页级题名」时打标；PDF 逐件路径的候选页号是 PDF 内部页号，
+        // 与件起始页口径不同，故只按值匹配
+        Map<String, Integer> pageConstraints = new HashMap<>();
+        if (task.template == ExtractionTemplate.BATCH_TITLE_VOLUME && !unit.pdfMode && piece != null) {
+            pageConstraints.put("title", piece.startPage);
+        }
+        markWinners(candidates, winners, finalValues, pageConstraints);
         int rowIndex = appendRow(task, project, row);
         ObjectNode pieceStart = pieceStartNode(unit, piece);
         accumulateVolumeSummary(task, unit, piece, responsibleParty, documentDate, values,
@@ -2340,6 +2378,54 @@ public class BatchExtractionManager {
     }
 
     /**
+     * 为一列的各候选确定**唯一**胜出标记（`w`）：该候选就是写入单元格的取值来源。
+     *
+     * <p>判定只看「最终值」：值被规范化（日期归一、当事人规范化）、清空（身份证明清责任者、
+     * 笔录类清文号、证件类日期留空）或由卷级模型合成时，候选值与最终值不再逐字相同，
+     * 自然不打标——质量不再适用于当前值。另要求候选本身有质量可展示，否则打标也无法呈现，
+     * 合成题名（质量为 null）因此不会被误标。
+     *
+     * @param winners 择优阶段记录的胜出候选（对象引用，与 candidates 同批），用于同值多条时择优
+     * @param pageConstraints 按列的页号约束（题名要求落在件首页）
+     */
+    private static void markWinners(Map<String, List<AimpLlmClient.ElementCandidate>> candidates,
+                                    Map<String, AimpLlmClient.ElementCandidate> winners,
+                                    Map<String, String> finalValues,
+                                    Map<String, Integer> pageConstraints) {
+        if (candidates == null || candidates.isEmpty()) return;
+        for (Map.Entry<String, List<AimpLlmClient.ElementCandidate>> e : candidates.entrySet()) {
+            List<AimpLlmClient.ElementCandidate> list = e.getValue();
+            if (list == null || list.isEmpty()) continue;
+            for (AimpLlmClient.ElementCandidate c : list) c.winner = null;
+            String key = e.getKey();
+            String target = finalValues == null ? null : finalValues.get(key);
+            if (target == null || target.trim().isEmpty()) continue;
+            Integer requiredPage = pageConstraints == null ? null : pageConstraints.get(key);
+            AimpLlmClient.ElementCandidate matched = null;
+            AimpLlmClient.ElementCandidate preferred = winners == null ? null : winners.get(key);
+            if (isUsableWinner(preferred, target, requiredPage)) {
+                matched = preferred;
+            } else {
+                for (AimpLlmClient.ElementCandidate c : list) {
+                    if (isUsableWinner(c, target, requiredPage)) {
+                        matched = c;
+                        break;
+                    }
+                }
+            }
+            if (matched != null) matched.winner = true;
+        }
+    }
+
+    /** 候选可作胜出标记：值逐字等于最终值、本身有质量、且满足该列的页号约束。 */
+    private static boolean isUsableWinner(AimpLlmClient.ElementCandidate c, String target,
+                                          Integer requiredPage) {
+        if (c == null || c.value == null || !c.value.equals(target)) return false;
+        if (c.qualityScore == null && (c.qualityFlags == null || c.qualityFlags.isEmpty())) return false;
+        return requiredPage == null || c.page == requiredPage;
+    }
+
+    /**
      * 把候选页列表写成前端可读的 `[{v:取值, c:置信度, p:页码, f:文件名}]` 数组。
      *
      * 写入前按页号升序排序：页级抽取是 4 路并发，结果回收顺序随各批完成先后变化，
@@ -2357,12 +2443,23 @@ public class BatchExtractionManager {
             if (c.confidence != null) node.put("c", c.confidence);
             node.put("p", c.page);
             if (c.fileName != null) node.put("f", c.fileName);
+            // 抽取质量（可选，只增字段）：空 flags 省略，减少 pageMap 体积
+            if (c.qualityScore != null) node.put("q", c.qualityScore);
+            if (c.qualityFlags != null && !c.qualityFlags.isEmpty()) {
+                ArrayNode flags = node.putArray("qf");
+                for (String f : c.qualityFlags) flags.add(f);
+            }
+            // 胜出标记：每列最多一条，前端据此取质量而不做文本比对
+            if (c.winner != null && c.winner) node.put("w", 1);
         }
     }
 
     /**
      * 整目录成件的图片批次：给候选页补上该页对应的文件名。
      * 目录列举接口按字典序返回，与扫描时的自然序不一致，前端按文件名定位才可靠。
+     *
+     * <p>原地补 {@code fileName} 而不重建候选：{@link MergedElements#winners} 持有的是同一批
+     * 对象引用，重建会让「择优胜出」与最终候选脱钩，`w` 标记随之丢失。
      */
     private static Map<String, List<AimpLlmClient.ElementCandidate>> withFileNames(
             Map<String, List<AimpLlmClient.ElementCandidate>> candidates, List<String> pages) {
@@ -2372,9 +2469,9 @@ public class BatchExtractionManager {
             List<AimpLlmClient.ElementCandidate> list = new ArrayList<>();
             for (AimpLlmClient.ElementCandidate c : e.getValue()) {
                 int index = c.page - 1;
-                String fileName = index >= 0 && index < pages.size()
+                c.fileName = index >= 0 && index < pages.size()
                         ? new File(pages.get(index)).getName() : null;
-                list.add(new AimpLlmClient.ElementCandidate(c.value, c.confidence, c.page, fileName));
+                list.add(c);
             }
             named.put(e.getKey(), list);
         }
@@ -2675,6 +2772,8 @@ public class BatchExtractionManager {
         final Map<String, Double> confidences = new HashMap<>();
         /** 各要素在各页的取值候选，首位为最终写入单元格的取值所在页 */
         final Map<String, List<AimpLlmClient.ElementCandidate>> candidates = new HashMap<>();
+        /** 各要素择优胜出的候选对象引用（用于按最终值确定 pageMap 的 `w` 标记） */
+        final Map<String, AimpLlmClient.ElementCandidate> winners = new HashMap<>();
         /** 成文日期取值的加权得分：日期按「文本位置档位 + 件内页位置」择优，需记住当前胜出分 */
         final Map<String, Double> dateScores = new HashMap<>();
 
@@ -2702,20 +2801,42 @@ public class BatchExtractionManager {
     static MergedElements accumulateByConfidence(List<Map<String, String>> pageValues,
                                                  List<Map<String, Double>> pageConfidences,
                                                  int startPage) {
+        return accumulateByConfidence(pageValues, pageConfidences, startPage, null, null);
+    }
+
+    /**
+     * @param startPage 首个元素在所在件（文件夹 / PDF）内的 1 起页序，
+     *                  案卷模板按件切分页区间时用它还原绝对页号
+     * @param pageQualityScores 逐页的要素质量分（`quality_score`），与 {@code pageValues} 对齐；
+     *                          旧 AIMP 或未开启校验器时传 null
+     * @param pageQualityFlags  逐页的要素质量标记（`quality_flags`），与 {@code pageValues} 对齐
+     */
+    static MergedElements accumulateByConfidence(List<Map<String, String>> pageValues,
+                                                 List<Map<String, Double>> pageConfidences,
+                                                 int startPage,
+                                                 List<Map<String, Double>> pageQualityScores,
+                                                 List<Map<String, List<String>>> pageQualityFlags) {
         MergedElements merged = new MergedElements();
         for (int i = 0; i < pageValues.size(); i++) {
             Map<String, String> pv = pageValues.get(i);
             if (pv == null) continue;
             Map<String, Double> pc = pageConfidences != null && i < pageConfidences.size()
                     ? pageConfidences.get(i) : null;
+            Map<String, Double> qs = pageQualityScores != null && i < pageQualityScores.size()
+                    ? pageQualityScores.get(i) : null;
+            Map<String, List<String>> qf = pageQualityFlags != null && i < pageQualityFlags.size()
+                    ? pageQualityFlags.get(i) : null;
             for (Map.Entry<String, String> e : pv.entrySet()) {
                 String key = e.getKey();
                 String v = e.getValue();
                 if (v == null || v.trim().isEmpty()) continue;
                 Double conf = pc == null ? null : pc.get(key);
                 if (conf != null && conf < MIN_ELEMENT_CONFIDENCE) continue;
-                merged.candidates.computeIfAbsent(key, k -> new ArrayList<>())
-                        .add(new AimpLlmClient.ElementCandidate(v.trim(), conf, startPage + i));
+                AimpLlmClient.ElementCandidate candidate = new AimpLlmClient.ElementCandidate(
+                        v.trim(), conf, startPage + i, null,
+                        qs == null ? null : qs.get(key),
+                        qf == null ? null : qf.get(key), null);
+                merged.candidates.computeIfAbsent(key, k -> new ArrayList<>()).add(candidate);
                 if (isDateKey(key)) {
                     // 成文日期独立择优：置信度已由 AIMP 按「文本一致性 + 是否独立成行」重估为
                     // 高/中/低三档（落款与标题下方的日期独立成行 -> 高；正文中叙述的日期 -> 中；
@@ -2728,6 +2849,7 @@ public class BatchExtractionManager {
                     if (bestScore == null || score > bestScore) {
                         merged.values.put(key, v.trim());
                         merged.dateScores.put(key, score);
+                        merged.winners.put(key, candidate);
                         if (conf != null) {
                             merged.confidences.put(key, conf);
                         }
@@ -2735,13 +2857,17 @@ public class BatchExtractionManager {
                     continue;
                 }
                 if (conf == null) {
-                    if (!merged.values.containsKey(key)) merged.values.put(key, v.trim());
+                    if (!merged.values.containsKey(key)) {
+                        merged.values.put(key, v.trim());
+                        merged.winners.put(key, candidate);
+                    }
                     continue;
                 }
                 Double best = merged.confidences.get(key);
                 if (best == null || conf > best) {
                     merged.values.put(key, v.trim());
                     merged.confidences.put(key, conf);
+                    merged.winners.put(key, candidate);
                 }
             }
         }
