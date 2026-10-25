@@ -220,11 +220,19 @@ var ResourceExplorer = {};
   };
 
   /**
-   * Wait for ui.dataTableView to be ready, then trigger render
+   * 等首屏数据真的出来后再重绘一次：空表重绘只会让人看到表格先被清空再恢复。
+   * 重绘本身不重新拉行数据，只让「文件路径列 → 超链接」的配置生效。
    */
-  ResourceExplorer._waitForDataTableAndRender = function() {
-    if (typeof ui === 'undefined' || !ui.dataTableView) {
-      setTimeout(ResourceExplorer._waitForDataTableAndRender, 200);
+  ResourceExplorer._waitForDataTableAndRender = function(attempt) {
+    attempt = attempt || 0;
+    var rowModel = (typeof theProject !== 'undefined' && theProject) ? theProject.rowModel : null;
+    var ready = typeof ui !== 'undefined' && ui.dataTableView && rowModel
+        && rowModel.rows && rowModel.rows.length > 0;
+    if (!ready) {
+      // 最多等 5 秒；空项目直接放弃，不无限轮询
+      if (attempt < 25) {
+        setTimeout(function() { ResourceExplorer._waitForDataTableAndRender(attempt + 1); }, 200);
+      }
       return;
     }
 

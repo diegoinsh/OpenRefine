@@ -444,14 +444,10 @@ var BatchTitleExtractionMonitor = (function () {
     try {
       if (window.ui && ui.dataTableView && typeof ui.dataTableView.update === 'function') {
         ui.dataTableView.update(function () {
-          try {
-            // The core render fixes column widths from a cache; with an empty
-            // growing table that cache pins narrow widths. Remove the inline
-            // widths after render so columns re-fit their content.
-            $('.data-table-container col').css('width', '');
-          } catch (e) {
-            // ignore
-          }
+          // 列宽由 DataTableView._autoFitColumnWidths 在 render 内按内容自然宽撑开并写回缓存。
+          // 不要再清空 col 的内联宽度：清空后表格回到 width:max-content，长文本列（如
+          // 「文件夹路径」）会被撑到整段文字的宽度而横向溢出，下一次 render 又把这个宽度
+          // 存进 columnWidthCache，于是每轮刷新列宽来回跳。
           if (keepPage) {
             followTableBottom();
           }

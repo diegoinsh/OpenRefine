@@ -5,16 +5,20 @@
 
 /* File path cell container */
 .file-path-cell-container {
-  display: inline-block;
+  /* block 而非 inline-block：宽度受单元格内容区约束，超长路径才能按列宽省略 */
+  display: block;
   max-width: 100%;
 }
 
-/* File path link style */
+/* File path link style
+   注意：<a> 默认是 inline 元素，max-width / overflow / text-overflow 对 inline 不生效，
+   长路径会直接超出单元格右边界（重绘后尤其明显）。必须设成 block 才能按列宽显示省略号。 */
 .file-path-cell-link {
+  display: block;
+  max-width: 100%;
   color: #1a73e8;
   text-decoration: none;
   cursor: pointer;
-  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

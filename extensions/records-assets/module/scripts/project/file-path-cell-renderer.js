@@ -49,14 +49,10 @@ var FilePathCellRenderer = {};
     var link = document.createElement('a');
     link.href = 'javascript:void(0)';
     link.className = 'file-path-cell-link';
-    link.title = $.i18n('records.assets.cell.clickToExplore') || 'Click to explore resource';
-    
-    // Truncate long paths for display
-    var displayValue = value;
-    if (displayValue.length > 50) {
-      displayValue = '...' + displayValue.substring(displayValue.length - 47);
-    }
-    link.textContent = displayValue;
+    // 完整路径交给 CSS 按列宽显示省略号（见 file-path-cell.css），不要再按字符数截断：
+    // 字符截断会丢掉路径开头的盘符/目录，且与 CSS 省略号叠加后更难辨认。悬停显示全文。
+    link.title = value;
+    link.textContent = value;
 
     // Add click handler
     link.addEventListener('click', function(event) {

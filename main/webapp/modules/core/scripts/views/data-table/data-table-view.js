@@ -678,7 +678,7 @@ DataTableView.prototype._autoFitColumnWidths = function(colGroup) {
   var CELL_PADDING_PX = 12;   // td 左右 padding + 右边框
   var HEADER_EXTRA_PX = 26;   // 列表头 padding + 菜单按钮
   var MIN_COL_PX = 50;        // 与未设置宽度时的 min-width 一致
-  var MAX_COL_PX = 310;       // 与 CSS 中 .data-table td 的 max-width: 300px 一致
+  var MAX_COL_PX = 300;       // 与 CSS 中 .data-table td 的 max-width: 300px 一致
 
   var canvas = document.createElement('canvas');
   var ctx = canvas.getContext('2d');

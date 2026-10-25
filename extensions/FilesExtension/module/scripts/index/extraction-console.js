@@ -539,9 +539,11 @@ Refine.ExtractionConsoleUI.prototype._openTaskDialog = function(projectId, thenS
 
   this._renderTaskForm(elmts, task, project);
 
-  // 断点续跑：已识别的页还在页级缓存里，默认复用（不勾选清除缓存）；
+  // 点「启动」时一律不勾选清除缓存：已识别的页还在页级缓存里，默认复用（断点续跑）；
   // 用户若本次想从头重跑，可在弹窗里手动勾选。
-  if (thenStart && String(task.status || '') === 'interrupted') {
+  // 不能只判 status === 'interrupted'：任务失败/取消/完成后重按启动，状态并不是
+  // interrupted，会被 _renderTaskForm 里按上次 disableCache 回填的逻辑重新勾上。
+  if (thenStart) {
     elmts.batchClearCache.prop('checked', false);
   }
 
