@@ -539,6 +539,12 @@ Refine.ExtractionConsoleUI.prototype._openTaskDialog = function(projectId, thenS
 
   this._renderTaskForm(elmts, task, project);
 
+  // 断点续跑：已识别的页还在页级缓存里，默认复用（不勾选清除缓存）；
+  // 用户若本次想从头重跑，可在弹窗里手动勾选。
+  if (thenStart && String(task.status || '') === 'interrupted') {
+    elmts.batchClearCache.prop('checked', false);
+  }
+
   var level = DialogSystem.showDialog(frame);
 
   elmts.cancelButton.on('click', function() {
