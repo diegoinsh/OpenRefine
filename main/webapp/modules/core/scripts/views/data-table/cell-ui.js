@@ -265,6 +265,15 @@ DataTableCellUI.prototype._startInlineEdit = function() {
       {},
       {
         onDone: function(o) {
+          if (typeof ExtractionEditLog !== 'undefined' && ExtractionEditLog) {
+            ExtractionEditLog.record({
+              row: self._rowIndex,
+              col: Refine.cellIndexToColumn(self._cellIndex).name,
+              old: originalContent,
+              new: (o.cell && o.cell.v !== undefined) ? o.cell.v : value,
+              type: dataType
+            });
+          }
           if (o.cell.r) {
             o.cell.r = o.pool.recons[o.cell.r];
           }
@@ -767,6 +776,14 @@ DataTableCellUI.prototype._startEdit = function(elmt) {
         { cellsChanged: true },
         {
           onDone: function() {
+            if (typeof ExtractionEditLog !== 'undefined' && ExtractionEditLog) {
+              ExtractionEditLog.recordMass({
+                col: Refine.cellIndexToColumn(self._cellIndex).name,
+                old: originalContent,
+                new: value,
+                type: type
+              });
+            }
             DataTableCellUI._showHistoryTab();
           }
         }
@@ -784,6 +801,15 @@ DataTableCellUI.prototype._startEdit = function(elmt) {
         {},
         {
           onDone: function(o) {
+            if (typeof ExtractionEditLog !== 'undefined' && ExtractionEditLog) {
+              ExtractionEditLog.record({
+                row: self._rowIndex,
+                col: Refine.cellIndexToColumn(self._cellIndex).name,
+                old: originalContent,
+                new: (o.cell && o.cell.v !== undefined) ? o.cell.v : value,
+                type: type
+              });
+            }
             if (o.cell.r) {
               o.cell.r = o.pool.recons[o.cell.r];
             }

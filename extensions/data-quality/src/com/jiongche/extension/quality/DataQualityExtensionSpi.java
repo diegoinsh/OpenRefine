@@ -20,6 +20,7 @@ import com.google.refine.extension.quality.commands.GetQualityRulesCommand;
 import com.google.refine.extension.quality.commands.IngestProjectCommand;
 import com.google.refine.extension.quality.commands.ListGlobalRulesCommand;
 import com.google.refine.extension.quality.commands.ListTasksCommand;
+import com.google.refine.extension.quality.commands.LogEditEventCommand;
 import com.google.refine.extension.quality.commands.OcrCropCommand;
 import com.google.refine.extension.quality.commands.RenderFilePageCommand;
 import com.google.refine.extension.quality.commands.RunImageQualityCheckCommand;
@@ -89,6 +90,9 @@ public class DataQualityExtensionSpi implements RefineModuleSpi {
         // OCR 裁切命令（文件视图面板）
         ctx.registerCommand("render-file-page", new RenderFilePageCommand());
         ctx.registerCommand("ocr-crop", new OcrCropCommand());
+
+        // 人工修改事件记录（质量分校准的标签采集；前端未启用时不会被调用）
+        ctx.registerCommand("log-edit-event", new LogEditEventCommand());
     }
 
     private void registerOperations(RefineModuleContext ctx) {
@@ -135,6 +139,7 @@ public class DataQualityExtensionSpi implements RefineModuleSpi {
                 "scripts/quality-alignment.js",
                 "scripts/quality-cell-renderer.js",
                 "scripts/extraction-quality-cell-renderer.js",
+                "scripts/extraction-edit-log.js",
                 "scripts/dialogs/manage-rules-dialog.js",
                 "scripts/dialogs/run-check-dialog.js",
                 "scripts/dialogs/image-quality-tab.js",

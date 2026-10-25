@@ -23,10 +23,16 @@ class ExtractionQualityCellRenderer {
   static SUSPECT_THRESHOLD = 0.75;
 
   /**
-   * 按字段展示的白名单（pageMap 的列名，如 '题名'）；null = 不做字段限制。
-   * 未通过 §10.1 区分度 gate 的字段应排除在这里。
+   * 按字段展示的白名单（pageMap 的列名，如 '题名'）；null = 不做字段限制；[] = 全部关闭。
+   *
+   * 当前为空（全部关闭）：§10.1 区分度 gate 实测结论（run 20261025-or-qc10，97 个对齐件对）——
+   *   题名   覆盖 41% 达标，但无提升（任何阈值最多标出 4 条且全对）；
+   *   责任者 最优阈值 0.90 提升 0.91（< 2），低分档错误率无单调性；
+   *   文号   39 条全 1.000，标出 0 条：误标率 0% 但召回 0，实际不提示；
+   *   成文日期 最优召回 12%（< 30%）。
+   * 依 §10.1.4，不通过字段默认关闭展示；评分与 flags 仍照常落 pageMap，供后续校准训练取用。
    */
-  static FIELDS = null;
+  static FIELDS = [];
 
   /** tooltip 最多展示的 flags 条数，余下显示「等 N 项」 */
   static MAX_FLAGS = 3;
