@@ -10,6 +10,7 @@ package com.jiongche.extension.quality;
 import com.jiongche.refine.spi.RefineModuleContext;
 import com.jiongche.refine.spi.RefineModuleSpi;
 
+import com.google.refine.extension.quality.commands.ApplyExtractionLabelsCommand;
 import com.google.refine.extension.quality.commands.CheckAimpConnectionCommand;
 import com.google.refine.extension.quality.commands.ExportQualityReportCommand;
 import com.google.refine.extension.quality.commands.GetCheckProgressCommand;
@@ -97,6 +98,8 @@ public class DataQualityExtensionSpi implements RefineModuleSpi {
 
         // 抽取反馈提交（导出时/被平台拉取时做最终态快照比对）
         ctx.registerCommand("submit-extraction-feedback", new SubmitExtractionFeedbackCommand());
+        // 训练数据导入：按外部真值批量改写单元格（合成数据走 ui_export 提交前的一步）
+        ctx.registerCommand("apply-extraction-labels", new ApplyExtractionLabelsCommand());
     }
 
     private void registerOperations(RefineModuleContext ctx) {
