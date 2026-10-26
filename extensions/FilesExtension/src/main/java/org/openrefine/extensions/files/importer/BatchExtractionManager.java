@@ -1201,6 +1201,18 @@ public class BatchExtractionManager {
         client.setDisableCache(task.disableCache);
         client.setArchiveCategory(task.archiveCategory);
         client.setArchiveSubCategory(task.archiveSubCategory);
+        // 反馈片段按 OR 的中文列名归档（AIMP 结果键与列名不同名），映射口径与 recordPageMap 一致
+        Map<String, String> feedbackFieldNames = new HashMap<>();
+        feedbackFieldNames.put("title", "题名");
+        feedbackFieldNames.put("responsible_party", "责任者");
+        feedbackFieldNames.put("document_number", "文号");
+        feedbackFieldNames.put("date", "成文日期");
+        if (task.customElements != null) {
+            for (CustomElementType ce : task.customElements) {
+                feedbackFieldNames.put(ce.getKey(), ce.getName());
+            }
+        }
+        client.setFeedbackFieldNames(feedbackFieldNames);
         AimpLlmClient.CompatibilityResult compat = client.checkCompatibility();
         if (!compat.reachable) {
             fail(task, "AIMP_SERVICE_UNAVAILABLE");
@@ -1257,6 +1269,9 @@ public class BatchExtractionManager {
                 pruneUnitRows(task, project, unit.name);
                 task.currentUnit = unit.name;
                 task.volumeIndex++;
+                // 反馈上下文按卷切换：卷号即案卷号（卷目录名），页偏移默认从 0 起（PDF 件按件累加）
+                client.setFeedbackContext(String.valueOf(task.projectId), unit.name);
+                client.setFeedbackPageOffset(0);
                 task.clearPagePreviews();
                 // 耗时窗口同样按卷重置：新卷首批含新一轮启动开销，旧卷的历史不应影响本卷节奏
                 task.resetPageTiming();
@@ -1304,6 +1319,8 @@ public class BatchExtractionManager {
                         }
 
                         if (!fromCache) {
+                            // 反馈片段页号口径 = 卷内绝对页序：本件之前累计的页数即偏移
+                            client.setFeedbackPageOffset(pageOffset);
                             r = client.submitAsync(pdf, keyList, customJson);
                             if (!r.success || r.taskId == null || r.taskId.isEmpty()) {
                                 consecutiveFailures++;

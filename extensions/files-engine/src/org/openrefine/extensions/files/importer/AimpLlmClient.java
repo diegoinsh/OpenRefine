@@ -141,6 +141,32 @@ public class AimpLlmClient {
         this.archiveSubCategory = archiveSubCategory;
     }
 
+    /**
+     * 抽取反馈上下文（AIMP → RCP 回传原文片段时用）：本卷所属项目、卷号（案卷号）。
+     *
+     * <p>AIMP 只拿到单页临时文件，自己推不出项目与卷号，必须由这里带过去；页号另行给出
+     * （见 {@link #setFeedbackPageOffset(int)}），最终口径是**卷内绝对页序**。
+     */
+    private volatile String feedbackProjectId;
+    private volatile String feedbackVolumeId;
+    /** 卷内页号偏移：PDF 分支每件在卷内的起始页之前累计的页数；图片卷恒为 0。 */
+    private volatile int feedbackPageOffset;
+    /** AIMP 结果键 → OR 列名（题名/责任者/文号/成文日期/自定义要素名）；片段按列名归档。 */
+    private volatile Map<String, String> feedbackFieldNames;
+
+    public void setFeedbackContext(String projectId, String volumeId) {
+        this.feedbackProjectId = projectId;
+        this.feedbackVolumeId = volumeId;
+    }
+
+    public void setFeedbackPageOffset(int pageOffset) {
+        this.feedbackPageOffset = Math.max(0, pageOffset);
+    }
+
+    public void setFeedbackFieldNames(Map<String, String> fieldNames) {
+        this.feedbackFieldNames = fieldNames;
+    }
+
     public Map<String, String> extractContent(String filePath, String keyList) {
         Map<String, String> result = new HashMap<>();
         ExtractPageResult r = extractPage(filePath, keyList, null);
@@ -219,8 +245,11 @@ public class AimpLlmClient {
             boolean hasPrev = previousExtractionsJson != null && !previousExtractionsJson.isEmpty();
             boolean hasArchiveCategory = archiveCategory != null && !archiveCategory.isEmpty();
             boolean hasArchiveSubCategory = archiveSubCategory != null && !archiveSubCategory.isEmpty();
+            // 反馈上下文：AIMP 据此把本页各字段的原文片段回传 RCP（缺项目/卷号则不传）
+            boolean hasFeedback = feedbackProjectId != null && !feedbackProjectId.isEmpty()
+                    && feedbackVolumeId != null && !feedbackVolumeId.isEmpty();
             if (currentPage != null || totalPages != null || disableCache || hasPrev
-                    || hasArchiveCategory || hasArchiveSubCategory || forceExtract) {
+                    || hasArchiveCategory || hasArchiveSubCategory || forceExtract || hasFeedback) {
                 ObjectNode opts = mapper.createObjectNode();
                 if (currentPage != null) opts.put(AimpFields.CURRENT_PAGE, currentPage);
                 if (totalPages != null) opts.put(AimpFields.TOTAL_PAGES, totalPages);
@@ -233,6 +262,19 @@ public class AimpLlmClient {
                         opts.set(AimpFields.PREVIOUS_EXTRACTIONS, mapper.readTree(previousExtractionsJson));
                     } catch (Exception e) {
                         logger.warn("previous_extractions 不是合法JSON，已忽略: " + e.getMessage());
+                    }
+                }
+                if (hasFeedback) {
+                    // 键名 "feedback" 为 AIMP 约定的 options 子对象（见 excerpt_uploader 模块注释）；
+                    // 页号由 options.current_page + pageOffset 换算成卷内绝对页序
+                    ObjectNode fb = opts.putObject("feedback");
+                    fb.put("projectId", feedbackProjectId);
+                    fb.put("volumeId", feedbackVolumeId);
+                    if (feedbackPageOffset > 0) fb.put("pageOffset", feedbackPageOffset);
+                    Map<String, String> names = feedbackFieldNames;
+                    if (names != null && !names.isEmpty()) {
+                        ObjectNode nameNode = fb.putObject("fieldNames");
+                        names.forEach(nameNode::put);
                     }
                 }
                 multipart.field(AimpFields.OPTIONS, opts.toString());
