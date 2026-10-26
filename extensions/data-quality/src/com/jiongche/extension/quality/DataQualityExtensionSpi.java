@@ -29,6 +29,7 @@ import com.google.refine.extension.quality.commands.SaveConfigCommand;
 import com.google.refine.extension.quality.commands.SaveImageQualityRuleCommand;
 import com.google.refine.extension.quality.commands.SaveQualityResultCommand;
 import com.google.refine.extension.quality.commands.SaveQualityRulesCommand;
+import com.google.refine.extension.quality.commands.SubmitExtractionFeedbackCommand;
 import com.google.refine.extension.quality.commands.TaskControlCommand;
 import com.google.refine.extension.quality.commands.TestAimpConnectionCommand;
 import com.google.refine.extension.quality.model.OverlayQualityCheckResult;
@@ -93,6 +94,9 @@ public class DataQualityExtensionSpi implements RefineModuleSpi {
 
         // 人工修改事件记录（质量分校准的标签采集；前端未启用时不会被调用）
         ctx.registerCommand("log-edit-event", new LogEditEventCommand());
+
+        // 抽取反馈提交（导出时/被平台拉取时做最终态快照比对）
+        ctx.registerCommand("submit-extraction-feedback", new SubmitExtractionFeedbackCommand());
     }
 
     private void registerOperations(RefineModuleContext ctx) {
@@ -140,6 +144,7 @@ public class DataQualityExtensionSpi implements RefineModuleSpi {
                 "scripts/quality-cell-renderer.js",
                 "scripts/extraction-quality-cell-renderer.js",
                 "scripts/extraction-edit-log.js",
+                "scripts/extraction-feedback-submit.js",
                 "scripts/dialogs/manage-rules-dialog.js",
                 "scripts/dialogs/run-check-dialog.js",
                 "scripts/dialogs/image-quality-tab.js",
