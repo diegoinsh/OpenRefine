@@ -87,11 +87,13 @@ public class SubmitExtractionFeedbackCommand extends Command {
         if (source == null) {
             source = "ui_export";
         }
+        // 来源标记（可选）：自动化/模拟数据生成器据此区分合成批次（RCP 冻结侧按它做留出集过滤）
+        String origin = trim(request.getParameter("origin"));
         boolean push = !"0".equals(trim(request.getParameter("push")));
 
         ObjectNode payload;
         try {
-            payload = buildPayload(project, source);
+            payload = buildPayload(project, source, origin);
         } catch (Exception e) {
             logger.warn("构建反馈载荷失败 project={}", project.id, e);
             respondError(response, "构建反馈载荷失败: " + e.getMessage());
@@ -140,10 +142,13 @@ public class SubmitExtractionFeedbackCommand extends Command {
 
     // ================= 快照比对 =================
 
-    private ObjectNode buildPayload(Project project, String source) throws IOException {
+    private ObjectNode buildPayload(Project project, String source, String origin) throws IOException {
         ObjectNode payload = mapper.createObjectNode();
         payload.put("source", source);
         payload.put("projectId", String.valueOf(project.id));
+        if (origin != null) {
+            payload.put("origin", origin);
+        }
 
         JsonNode pageMap = pageMapOf(project);
         ObjectNode opportunities = mapper.createObjectNode();
@@ -285,6 +290,19 @@ public class SubmitExtractionFeedbackCommand extends Command {
         f.put("docNoLike", label != null && isDocNoLike(label));
         if (winner.has("p")) {
             f.put("pageNo", winner.get("p").asInt(0));
+        }
+        // 页内结构特征（AIMP 侧 quality_features，fv1）：行号/总行数/页首页尾/整行/命中数。
+        // OR 没有 OCR 全文，反算必然丢位置信息，故随 pageMap 的 feat 原样平铺进样本特征。
+        JsonNode feat = winner.get("feat");
+        if (feat != null && feat.isObject()) {
+            Iterator<Map.Entry<String, JsonNode>> it = feat.fields();
+            while (it.hasNext()) {
+                Map.Entry<String, JsonNode> fe = it.next();
+                JsonNode fv = fe.getValue();
+                if (fv != null && (fv.isNumber() || fv.isBoolean())) {
+                    f.set(fe.getKey(), fv);
+                }
+            }
         }
         return f;
     }
