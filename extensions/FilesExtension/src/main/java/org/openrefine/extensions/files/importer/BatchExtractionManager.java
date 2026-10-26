@@ -1445,6 +1445,8 @@ public class BatchExtractionManager {
                     // 逐页抽取质量（可选）：与 pageValues 对齐，供候选携带质量并确定胜出标记
                     List<Map<String, Double>> pageQualityScores = new ArrayList<>();
                     List<Map<String, List<String>>> pageQualityFlags = new ArrayList<>();
+                    // 逐页页内结构特征（可选，fv1）：随候选写入 pageMap，反馈样本直接取用
+                    List<Map<String, JsonNode>> pageQualityFeatures = new ArrayList<>();
                     // 逐页「本页是否被判跳过 LLM」：层2 件级完整性校验靠它区分「真缺要素」与
                     // 「当初这一页压根没送 LLM」，层3 也据此把回抽范围锁在跳过的页上
                     List<Boolean> pageSkipped = new ArrayList<>();
@@ -1481,6 +1483,7 @@ public class BatchExtractionManager {
                             pageConfidences.add(ok ? r.confidences : null);
                             pageQualityScores.add(ok ? r.qualityScores : null);
                             pageQualityFlags.add(ok ? r.qualityFlags : null);
+                            pageQualityFeatures.add(ok ? r.qualityFeatures : null);
                             pageSkipped.add(ok && r.skipped);
                             pageTitleRegions.add(ok ? r.titleRegionCount : 0);
                             if (ok) task.recordPageType(unit.path, pageNo, r.pageType, r.skipped);
@@ -1533,6 +1536,7 @@ public class BatchExtractionManager {
                             pageConfidences.add(r.success ? r.confidences : null);
                             pageQualityScores.add(r.success ? r.qualityScores : null);
                             pageQualityFlags.add(r.success ? r.qualityFlags : null);
+                            pageQualityFeatures.add(r.success ? r.qualityFeatures : null);
                             pageSkipped.add(r.success && r.skipped);
                             pageTitleRegions.add(r.success ? r.titleRegionCount : 0);
                             if (r.success) task.recordPageType(unit.path, i + 1, r.pageType, r.skipped);
@@ -1550,7 +1554,7 @@ public class BatchExtractionManager {
                         p.endPage = unit.pages.size();
                         p.title = firstNonEmpty(titles);
                         MergedElements merged = accumulateByConfidence(pageValues, pageConfidences, 1,
-                                pageQualityScores, pageQualityFlags);
+                                pageQualityScores, pageQualityFlags, pageQualityFeatures);
                         String casePieceNo = allocatePieceNumber(unit.name, usedPieceNos, lastPieceNo);
                         lastPieceNo = casePieceNo;
                         appendUnitRow(task, project, unit, casePieceNo, null, p,
@@ -1639,7 +1643,7 @@ public class BatchExtractionManager {
                             long tBack0 = System.nanoTime();
                             runPieceBacktrack(task, client, unit, pieces, pageSkipped, titles,
                                     pageValues, pageConfidences, pageQualityScores, pageQualityFlags,
-                                    keyList, customJson);
+                                    pageQualityFeatures, keyList, customJson);
                             task.tBacktrackMs += (System.nanoTime() - tBack0) / 1_000_000;
                         }
                         Map<String, String> volumeLevelValues = new LinkedHashMap<>();
@@ -1668,7 +1672,8 @@ public class BatchExtractionManager {
                                         Collections.singletonList(pageValues.get(i)),
                                         Collections.singletonList(pageConfidences.get(i)), i + 1,
                                         Collections.singletonList(pageQualityScores.get(i)),
-                                        Collections.singletonList(pageQualityFlags.get(i)));
+                                        Collections.singletonList(pageQualityFlags.get(i)),
+                                        Collections.singletonList(pageQualityFeatures.get(i)));
                                 merged.values.forEach((key, value) -> {
                                     if (ExtractionTemplate.isVolumeLevelElement(key)) {
                                         volumeLevelValues.put(key, value);
@@ -1689,7 +1694,8 @@ public class BatchExtractionManager {
                             MergedElements merged = accumulateByConfidence(pieceValues,
                                     pageConfidences.subList(p.startPage - 1, p.endPage), p.startPage,
                                     pageQualityScores.subList(p.startPage - 1, p.endPage),
-                                    pageQualityFlags.subList(p.startPage - 1, p.endPage));
+                                    pageQualityFlags.subList(p.startPage - 1, p.endPage),
+                                    pageQualityFeatures.subList(p.startPage - 1, p.endPage));
                             Map<String, String> rowValues = merged.isEmpty()
                                     ? null : new LinkedHashMap<>(merged.values);
                             if (volumeTrialLevel != null || !volumeLevelValues.isEmpty()) {
@@ -1775,6 +1781,7 @@ public class BatchExtractionManager {
                                    List<Map<String, Double>> pageConfidences,
                                    List<Map<String, Double>> pageQualityScores,
                                    List<Map<String, List<String>>> pageQualityFlags,
+                                   List<Map<String, JsonNode>> pageQualityFeatures,
                                    String keyList, String customJson) {
         AimpLlmClient.PieceIntegrityResult integrity =
                 client.pieceIntegrity(pieces, pageSkipped, pageValues, null, null);
@@ -1849,6 +1856,7 @@ public class BatchExtractionManager {
                 // 质量列表与 pageValues 严格对齐：漏写会让后续按页索引取到别的页的质量
                 if (idx < pageQualityScores.size()) pageQualityScores.set(idx, r.qualityScores);
                 if (idx < pageQualityFlags.size()) pageQualityFlags.set(idx, r.qualityFlags);
+                if (idx < pageQualityFeatures.size()) pageQualityFeatures.set(idx, r.qualityFeatures);
                 if (idx < pageSkipped.size()) pageSkipped.set(idx, false);
                 recordPagePreview(task, unit, idx, r, false);
                 task.recordPageType(unit.path, page, r.pageType, r.skipped);
@@ -2466,6 +2474,10 @@ public class BatchExtractionManager {
                 ArrayNode flags = node.putArray("qf");
                 for (String f : c.qualityFlags) flags.add(f);
             }
+            // 页内结构特征（可选）：反馈样本据此携带位置特征，OR 不再用片段反算
+            if (c.qualityFeatures != null && c.qualityFeatures.isObject()) {
+                node.set("feat", c.qualityFeatures);
+            }
             // 胜出标记：每列最多一条，前端据此取质量而不做文本比对
             if (c.winner != null && c.winner) node.put("w", 1);
         }
@@ -2818,7 +2830,7 @@ public class BatchExtractionManager {
     static MergedElements accumulateByConfidence(List<Map<String, String>> pageValues,
                                                  List<Map<String, Double>> pageConfidences,
                                                  int startPage) {
-        return accumulateByConfidence(pageValues, pageConfidences, startPage, null, null);
+        return accumulateByConfidence(pageValues, pageConfidences, startPage, null, null, null);
     }
 
     /**
@@ -2827,12 +2839,14 @@ public class BatchExtractionManager {
      * @param pageQualityScores 逐页的要素质量分（`quality_score`），与 {@code pageValues} 对齐；
      *                          旧 AIMP 或未开启校验器时传 null
      * @param pageQualityFlags  逐页的要素质量标记（`quality_flags`），与 {@code pageValues} 对齐
+     * @param pageQualityFeatures 逐页的页内结构特征（`quality_features`，fv1），同上对齐
      */
     static MergedElements accumulateByConfidence(List<Map<String, String>> pageValues,
                                                  List<Map<String, Double>> pageConfidences,
                                                  int startPage,
                                                  List<Map<String, Double>> pageQualityScores,
-                                                 List<Map<String, List<String>>> pageQualityFlags) {
+                                                 List<Map<String, List<String>>> pageQualityFlags,
+                                                 List<Map<String, JsonNode>> pageQualityFeatures) {
         MergedElements merged = new MergedElements();
         for (int i = 0; i < pageValues.size(); i++) {
             Map<String, String> pv = pageValues.get(i);
@@ -2843,6 +2857,8 @@ public class BatchExtractionManager {
                     ? pageQualityScores.get(i) : null;
             Map<String, List<String>> qf = pageQualityFlags != null && i < pageQualityFlags.size()
                     ? pageQualityFlags.get(i) : null;
+            Map<String, JsonNode> qft = pageQualityFeatures != null && i < pageQualityFeatures.size()
+                    ? pageQualityFeatures.get(i) : null;
             for (Map.Entry<String, String> e : pv.entrySet()) {
                 String key = e.getKey();
                 String v = e.getValue();
@@ -2853,6 +2869,7 @@ public class BatchExtractionManager {
                         v.trim(), conf, startPage + i, null,
                         qs == null ? null : qs.get(key),
                         qf == null ? null : qf.get(key), null);
+                candidate.qualityFeatures = qft == null ? null : qft.get(key);
                 merged.candidates.computeIfAbsent(key, k -> new ArrayList<>()).add(candidate);
                 if (isDateKey(key)) {
                     // 成文日期独立择优：置信度已由 AIMP 按「文本一致性 + 是否独立成行」重估为

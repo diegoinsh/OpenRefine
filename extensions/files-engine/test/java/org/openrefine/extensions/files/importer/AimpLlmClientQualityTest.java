@@ -34,7 +34,9 @@ public class AimpLlmClientQualityTest {
         AimpLlmClient.ExtractPageResult r = parseTaskResult(
                 "{\"results\":{"
                         + "\"题名\":{\"value\":\"民事判决书\",\"confidence\":0.9,"
-                        + "\"quality_score\":0.62,\"quality_flags\":[\"title_not_in_head\"]},"
+                        + "\"quality_score\":0.62,\"quality_flags\":[\"title_not_in_head\"],"
+                        + "\"quality_features\":{\"featureVersion\":\"fv1\",\"lineNo\":2,"
+                        + "\"head\":true,\"tail\":false}},"
                         + "\"责任者\":{\"value\":\"某法院\",\"confidence\":0.88,\"quality_score\":0.95}}}");
 
         Assert.assertTrue(r.success, r.error);
@@ -43,6 +45,13 @@ public class AimpLlmClientQualityTest {
         Assert.assertEquals(r.qualityFlags.get("题名"), List.of("title_not_in_head"));
         Assert.assertEquals(r.qualityScores.get("责任者").doubleValue(), 0.95, 1e-9);
         Assert.assertNull(r.qualityFlags.get("责任者"), "空/缺失 flags 不应写入");
+        // 页内结构特征（fv1）：随结果带出，OR 不做反算
+        JsonNode features = r.qualityFeatures.get("题名");
+        Assert.assertNotNull(features);
+        Assert.assertEquals(features.path("featureVersion").asText(), "fv1");
+        Assert.assertEquals(features.path("lineNo").asInt(), 2);
+        Assert.assertTrue(features.path("head").asBoolean());
+        Assert.assertNull(r.qualityFeatures.get("责任者"), "缺失 quality_features 不写入");
     }
 
     /** 页级明细（page_extractions）的每个候选携带该页的质量。 */
@@ -52,7 +61,9 @@ public class AimpLlmClientQualityTest {
                 "{\"results\":{\"责任者\":{\"value\":\"某法院\",\"confidence\":0.9}},"
                         + "\"page_extractions\":[{\"page_index\":2,\"elements\":{"
                         + "\"责任者\":{\"value\":\"某法院\",\"confidence\":0.9,"
-                        + "\"quality_score\":0.3,\"quality_flags\":[\"signature_label\"]}}}]}");
+                        + "\"quality_score\":0.3,\"quality_flags\":[\"signature_label\"],"
+                        + "\"quality_features\":{\"featureVersion\":\"fv1\",\"lineNo\":17,"
+                        + "\"tail\":true,\"hitCount\":1}}}}]}");
 
         List<AimpLlmClient.ElementCandidate> candidates = r.candidates.get("责任者");
         Assert.assertNotNull(candidates);
@@ -61,6 +72,10 @@ public class AimpLlmClientQualityTest {
         Assert.assertEquals(c.value, "某法院");
         Assert.assertEquals(c.qualityScore.doubleValue(), 0.3, 1e-9);
         Assert.assertEquals(c.qualityFlags, List.of("signature_label"));
+        Assert.assertNotNull(c.qualityFeatures, "候选应携带页内结构特征");
+        Assert.assertEquals(c.qualityFeatures.path("lineNo").asInt(), 17);
+        Assert.assertTrue(c.qualityFeatures.path("tail").asBoolean());
+        Assert.assertEquals(c.qualityFeatures.path("hitCount").asInt(), 1);
         // 胜出标记由 Java 写行时决定，解析阶段一律不标
         Assert.assertNull(c.winner);
     }
@@ -79,6 +94,7 @@ public class AimpLlmClientQualityTest {
         AimpLlmClient.ElementCandidate c = r.candidates.get("题名").get(0);
         Assert.assertNull(c.qualityScore);
         Assert.assertNull(c.qualityFlags);
+        Assert.assertNull(c.qualityFeatures);
     }
 
     /** 非法质量值（非数值字符串、非数组 flags、空数组）一律忽略，不影响其余字段解析。 */

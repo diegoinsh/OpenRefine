@@ -41,6 +41,13 @@ public class AimpLlmClient {
      * __api_version__），并更新 docs/release-compat.md。
      */
     private static final Set<Integer> SUPPORTED_API_VERSIONS = Set.of(2);
+    /**
+     * 页内结构特征（可选，AIMP 侧 {@code quality_features}，fv1）：行号/总行数、
+     * 是否页首页尾、整行匹配、原文命中次数。依赖 OCR 全文与行序，OR 无法反算，
+     * 只能由 AIMP 抽取时算好随结果带出（loop-design §7.1 特征同源）。
+     * SDK 的 {@code AimpFields} 尚未收录该键（跨仓发版联动），先在本地定义。
+     */
+    public static final String QUALITY_FEATURES = "quality_features";
     private final AimpTransport transport;
 
     public AimpLlmClient(String serviceUrl) {
@@ -305,6 +312,8 @@ public class AimpLlmClient {
                         if (score != null) result.qualityScores.put(e.getKey(), score);
                         List<String> flags = qualityFlagsOf(info);
                         if (flags != null) result.qualityFlags.put(e.getKey(), flags);
+                        JsonNode features = qualityFeaturesOf(info);
+                        if (features != null) result.qualityFeatures.put(e.getKey(), features);
                     });
                 }
                 if (result.values.isEmpty() && json.has(AimpFields.EXTRACTED_FIELDS)
@@ -402,6 +411,8 @@ public class AimpLlmClient {
                 if (score != null) r.qualityScores.put(e.getKey(), score);
                 List<String> flags = qualityFlagsOf(info);
                 if (flags != null) r.qualityFlags.put(e.getKey(), flags);
+                JsonNode features = qualityFeaturesOf(info);
+                if (features != null) r.qualityFeatures.put(e.getKey(), features);
             } else if (info != null) {
                 r.values.put(e.getKey(), info.asText(""));
             }
@@ -440,9 +451,11 @@ public class AimpLlmClient {
                 if (value.trim().isEmpty()) return;
                 Double confidence = info.has("confidence") && !info.get("confidence").isNull()
                         ? info.get("confidence").asDouble(0.0) : null;
-                r.candidates.computeIfAbsent(e.getKey(), k -> new ArrayList<>())
-                        .add(new ElementCandidate(value.trim(), confidence, page, null,
-                                qualityScoreOf(info), qualityFlagsOf(info), null));
+                ElementCandidate cand = new ElementCandidate(value.trim(), confidence, page, null,
+                        qualityScoreOf(info), qualityFlagsOf(info), null);
+                // 页内结构特征（可选）：随候选一起回传，供反馈样本免于用片段反算
+                cand.qualityFeatures = qualityFeaturesOf(info);
+                r.candidates.computeIfAbsent(e.getKey(), k -> new ArrayList<>()).add(cand);
             });
         }
     }
@@ -460,6 +473,17 @@ public class AimpLlmClient {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * 解析页内结构特征（可选字段，fv1 对象）。缺失、null、非对象、空对象都返回 null；
+     * 返回 {@code deepCopy}，避免调用方持有响应树的引用。
+     */
+    private static JsonNode qualityFeaturesOf(JsonNode info) {
+        if (info == null || !info.isObject()) return null;
+        JsonNode node = info.get(QUALITY_FEATURES);
+        if (node == null || node.isNull() || !node.isObject() || node.size() == 0) return null;
+        return node.deepCopy();
     }
 
     /** 解析抽取质量原因标记（可选字段）；缺失、null、非数组、空数组都返回 null。 */
@@ -771,6 +795,8 @@ public class AimpLlmClient {
         public Map<String, Double> qualityScores = new LinkedHashMap<>();
         /** 各要素的质量原因标记（可选）；空数组/缺失均不写入 */
         public Map<String, List<String>> qualityFlags = new LinkedHashMap<>();
+        /** 各要素的页内结构特征（可选，fv1）；AIMP 未开启质量校验或旧版本时不写入 */
+        public Map<String, JsonNode> qualityFeatures = new LinkedHashMap<>();
         /** 页级候选：要素 key → 该要素在各页出现的取值与置信度（多页任务才有） */
         public Map<String, List<ElementCandidate>> candidates = new LinkedHashMap<>();
         public String error;
@@ -787,6 +813,8 @@ public class AimpLlmClient {
         public final Double qualityScore;
         /** 该页质量原因标记（可选）；无标记时为 null */
         public final List<String> qualityFlags;
+        /** 该页的页内结构特征（可选，fv1）；旧 AIMP 或未开启质量校验时为 null */
+        public JsonNode qualityFeatures;
         /**
          * 胜出标记：该候选就是最终写入单元格的取值来源。由 Java 在写行时确定，
          * 前端据此取质量而不做文本比对。默认 null（未标记）。
