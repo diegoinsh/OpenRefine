@@ -20,6 +20,12 @@
       --origin mock-data-gen --base http://127.0.0.1:8090
   仅预览将要写回的格子：加 --dry-run。
 
+登录方式：
+  - 缺省走平台狗登录（/api/auth/dog，只读账号，**无管理员权限**）；
+  - 需要管理员动作（如排除批次、改训练策略）时显式传账密走 /api/auth/login，
+    开发环境默认管理员为 admin/admin：
+      --user admin --password admin
+
 注意：
   - `--project` 支持项目 id 或 `.project` 绝对路径（沙箱 data-systest 项目传绝对路径）；
     HTTP 侧仍需项目在 OR 里注册（id 一致时才可写）。
@@ -157,12 +163,22 @@ class OrClient:
         self.base = base.rstrip("/")
         self.token = None
         self.csrf = None
-        if user:
-            self._login(user, password or "")
+        self._login(user, password)
 
-    def _login(self, user, password):
-        body = json.dumps({"username": user, "password": password}).encode("utf-8")
-        data = self._post_json_raw("/api/auth/login", body)
+    def _login(self, user=None, password=None):
+        """平台入口先试狗登录（与 run_batch_extraction.ps1 一致）；有账密再走 /api/auth/login。"""
+        if user:
+            body = json.dumps({"username": user, "password": password}).encode("utf-8")
+            data = self._post_json_raw("/api/auth/login", body)
+            self.token = ((data.get("data") or {}).get("token")) or None
+            if self.token:
+                return
+        try:
+            data = self._post_json_raw("/api/auth/dog", b"")
+        except RuntimeError as e:
+            if "404" in str(e) or "405" in str(e):      # 直连 OR（:3333）没有狗登录接口
+                return
+            raise
         self.token = ((data.get("data") or {}).get("token")) or None
 
     def _headers(self):
@@ -173,7 +189,7 @@ class OrClient:
 
     def _post_json_raw(self, path, body):
         req = urlrequest.Request(self.base + path, data=body, method="POST",
-                                 headers={"Content-Type": "application/json; charset=UTF-8"})
+                                 headers=self._headers())
         try:
             with urlrequest.urlopen(req, timeout=60) as r:
                 return json.loads(r.read().decode("utf-8"))
@@ -183,8 +199,10 @@ class OrClient:
     def _post_form(self, path, params):
         from urllib.parse import urlencode
         body = urlencode(params).encode("utf-8")
+        headers = self._headers()
+        headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
         req = urlrequest.Request(self.base + path, data=body, method="POST",
-                                 headers={"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"})
+                                 headers=headers)
         try:
             with urlrequest.urlopen(req, timeout=600) as r:
                 return json.loads(r.read().decode("utf-8"))
