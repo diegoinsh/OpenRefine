@@ -66,6 +66,15 @@ public class SubmitExtractionFeedbackCommand extends Command {
 
     private static final String PROP_PLATFORM_URL = "refine.feedback.platform-url";
     private static final String PROP_TOKEN = "refine.feedback.token";
+    /**
+     * 未修改单元格的采样率（校准器负类）。{@code 0} = 关闭，回到 §3.2「unchanged 不上传」。
+     *
+     * <p>只上传强标签（{@code wrong}/{@code cleared}）会让校准器只见过「被改过的值」，
+     * 学到的是 P(被改) 而非 P(正确)；按比例补少量未修改单元格作真负类后，
+     * 分数方向与量纲才有实际含义。</p>
+     */
+    private static final String PROP_UNCHANGED_RATE = "refine.feedback.unchanged-rate";
+    private static final double DEFAULT_UNCHANGED_RATE = 0.10;
     private static final String DIR_NAME = "feedback-pending";
     private static final int TIMEOUT_MS = 10_000;
 
@@ -154,6 +163,7 @@ public class SubmitExtractionFeedbackCommand extends Command {
         ObjectNode opportunities = mapper.createObjectNode();
         ArrayNode samples = mapper.createArrayNode();
         Set<String> volumes = new HashSet<>();
+        double unchangedRate = unchangedRate();
 
         if (pageMap != null) {
             // 卷内表：pageMap 键为行号；单表项目（按件模板）直接用主表
@@ -163,11 +173,13 @@ public class SubmitExtractionFeedbackCommand extends Command {
                 inner.rows = project.rows;
                 inner.columnModel = project.columnModel;
             }
-            collect(inner, pageMap, false, opportunities, samples, volumes);
+            collect(inner, pageMap, false, project.id, unchangedRate,
+                    opportunities, samples, volumes);
 
             SheetData summary = project.getSheetData(SUMMARY_SHEET_ID);
             if (summary != null) {
-                collect(summary, pageMap, true, opportunities, samples, volumes);
+                collect(summary, pageMap, true, project.id, unchangedRate,
+                        opportunities, samples, volumes);
             }
         }
 
@@ -177,8 +189,9 @@ public class SubmitExtractionFeedbackCommand extends Command {
         return payload;
     }
 
-    private void collect(SheetData sheet, JsonNode pageMap, boolean summarySheet,
-                         ObjectNode opportunities, ArrayNode samples, Set<String> volumes) {
+    private void collect(SheetData sheet, JsonNode pageMap, boolean summarySheet, long projectId,
+            double unchangedRate, ObjectNode opportunities, ArrayNode samples,
+            Set<String> volumes) {
         if (sheet == null || sheet.rows == null || sheet.columnModel == null) {
             return;
         }
@@ -216,32 +229,24 @@ public class SubmitExtractionFeedbackCommand extends Command {
                 }
                 String pred = text(winner.get("v"));
                 String cur = cellText(row, column);
+                int pageNo = winner.path("p").asInt(0);
 
                 // 机会数：该卷该字段「有胜出候选可评」的单元格数（评估期分母）
                 opportunityByField.merge(fieldKey, 1, Integer::sum);
                 counted = true;
 
                 if (eq(cur, pred)) {
+                    // §3.2：值未变无强标签，默认不上传；但校准器只见过「被改过的值」时
+                    // 学到的是 P(被改) 而非 P(正确)，故按 unchangedRate 确定性抽样补负类。
+                    if (cur != null && pickUnchanged(projectId, volumeId, pageNo,
+                            fieldKey, pred, unchangedRate)) {
+                        samples.add(sampleOf(volumeId, pageNo, fieldKey, pred, cur,
+                                candidates, winner, "unchanged"));
+                    }
                     continue;
                 }
-                ObjectNode sample = mapper.createObjectNode();
-                sample.put("volumeId", volumeId);
-                sample.put("pageNo", winner.path("p").asInt(0));
-                sample.put("fieldKey", fieldKey);
-                if (pred != null) {
-                    sample.put("predValue", pred);
-                }
-                if (cur != null) {
-                    sample.put("labelValue", cur);
-                }
-                if (winner.has("q")) {
-                    sample.put("qualityScore", winner.get("q").asDouble());
-                }
-                if (winner.has("qf")) {
-                    sample.set("qualityFlags", winner.get("qf"));
-                }
-                sample.set("features", features(fieldKey, candidates, winner, cur, pred));
-                samples.add(sample);
+                samples.add(sampleOf(volumeId, pageNo, fieldKey, pred, cur,
+                        candidates, winner, null));
             }
             if (counted && volumeId != null) {
                 volumes.add(volumeId);
@@ -250,6 +255,63 @@ public class SubmitExtractionFeedbackCommand extends Command {
         for (Map.Entry<String, Integer> e : opportunityByField.entrySet()) {
             opportunities.put(e.getKey(), e.getValue());
         }
+    }
+
+    /** 组装一条反馈样本；{@code kind} 为 null 时由平台按 pred/label 兜底判定。 */
+    private ObjectNode sampleOf(String volumeId, int pageNo, String fieldKey, String pred,
+                                String cur, JsonNode candidates, JsonNode winner, String kind) {
+        ObjectNode sample = mapper.createObjectNode();
+        sample.put("volumeId", volumeId);
+        sample.put("pageNo", pageNo);
+        sample.put("fieldKey", fieldKey);
+        if (pred != null) {
+            sample.put("predValue", pred);
+        }
+        if (cur != null) {
+            sample.put("labelValue", cur);
+        }
+        if (kind != null) {
+            sample.put("kind", kind);
+        }
+        if (winner.has("q")) {
+            sample.put("qualityScore", winner.get("q").asDouble());
+        }
+        if (winner.has("qf")) {
+            sample.set("qualityFlags", winner.get("qf"));
+        }
+        sample.set("features", features(fieldKey, candidates, winner, cur, pred));
+        return sample;
+    }
+
+    /** 未修改单元格采样率：{@code refine.feedback.unchanged-rate}（0~1），非法或缺省取 0.10。 */
+    private static double unchangedRate() {
+        String raw = trim(System.getProperty(PROP_UNCHANGED_RATE));
+        if (raw == null) {
+            return DEFAULT_UNCHANGED_RATE;
+        }
+        try {
+            double v = Double.parseDouble(raw);
+            return v < 0 ? 0 : (v > 1 ? 1 : v);
+        } catch (NumberFormatException e) {
+            return DEFAULT_UNCHANGED_RATE;
+        }
+    }
+
+    /**
+     * 确定性抽样：同一（项目/卷/页/字段/值）每次导出结果一致，便于重放与排查；
+     * 不用随机数，避免同一快照重复导出时负类集合抖动。
+     */
+    private static boolean pickUnchanged(long projectId, String volumeId, int pageNo,
+                                         String fieldKey, String pred, double rate) {
+        if (rate <= 0) {
+            return false;
+        }
+        if (rate >= 1) {
+            return true;
+        }
+        String key = projectId + "|" + volumeId + "|" + pageNo + "|" + fieldKey + "|" + pred;
+        long bucket = Math.floorMod(key.hashCode(), 1_000_000L);
+        return bucket < Math.round(rate * 1_000_000L);
     }
 
     /** 胜出候选：{@code w=1}，每列最多一条。 */
