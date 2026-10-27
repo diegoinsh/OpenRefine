@@ -103,6 +103,18 @@ var BatchTitleExtractionMonitor = (function () {
   var PAGE_PREVIEW_MAX = 2000;
   /** 待揭示队列的上限：只作兜底，揭示节奏与抽取节奏大体匹配，正常不会触发 */
   var PAGE_PENDING_LIMIT = 2000;
+  /**
+   * 期望的下一条页号（每卷从 1 起）。揭示严格按页号递增：并发批里先完成的「第 4 页」
+   * 不能抢在 1–3 页前面，否则观感就是「第 4 条先出来、1–3 后补到它上面」。
+   */
+  var previewNextPage = 1;
+  /** 因更小页号还没到而暂缓揭示的起始时刻（0 = 未暂缓） */
+  var previewHoldSince = 0;
+  /**
+   * 暂缓揭示的宽限：并发批内各页完成先后一般只差数秒；等不到说明该页失败、不会再有预览，
+   * 超过该毫秒数即视为缺页放行，避免整卷预览被一页卡死。
+   */
+  var PAGE_HOLD_GRACE_MS = 15000;
   /** 后端还没测出平均耗时时的兜底揭示间隔 */
   var PAGE_REVEAL_FALLBACK_MS = 3000;
   /** 揭示间隔的上下限：太快等于一次性蹦出，太慢会一直追不上抽取进度 */
@@ -134,6 +146,8 @@ var BatchTitleExtractionMonitor = (function () {
     previewKnown = {};
     previewIntervalMs = 0;
     previewVolumeIndex = -1;
+    previewNextPage = 1;
+    previewHoldSince = 0;
     if (previewTimer) {
       window.clearTimeout(previewTimer);
       previewTimer = null;
@@ -172,10 +186,21 @@ var BatchTitleExtractionMonitor = (function () {
       i--;
     }
     previewShown.splice(i, 0, p);
+    // 期望页号随之推进：历史页（缓存）会一次铺进 1..k，后续新页应从 k+1 起算
+    if (p.page >= previewNextPage) {
+      previewNextPage = p.page + 1;
+    }
   }
 
-  /** 把积压队列按当前间隔揭示若干条；all 为真或间隔为 0 时一次揭完 */
-  function revealPending(all) {
+  /**
+   * 把积压队列按当前间隔揭示若干条；all 为真时忽略揭示节奏、一次揭完。
+   * force 为真时连「页号就位」的门控也跳过——只用于终态收尾：不会再有页到达，
+   * 中间缺页就是失败页，没必要再等。
+   */
+  function revealPending(all, force) {
+    if (previewPending.length === 0) {
+      return;
+    }
     var count = 1;
     if (all || previewIntervalMs <= 0) {
       count = previewPending.length;
@@ -185,11 +210,31 @@ var BatchTitleExtractionMonitor = (function () {
     } else if (previewPending.length > 8) {
       count = 2;
     }
+    var revealed = 0;
     while (count-- > 0 && previewPending.length > 0) {
-      insertShown(previewPending.shift());
+      var p = previewPending[0];
+      if (!force && p.page > previewNextPage) {
+        // 页号门控：更小的页还在抽（并发批的完成顺序与页号不一致），先压住不揭示，
+        // 否则「第 4 页」会先蹦出来、1–3 页后到再插到它上面。宽限内等不到（该页失败、
+        // 不会再有预览）才放行后续页，避免整卷预览被一页卡死。
+        var now = Date.now();
+        if (!previewHoldSince) {
+          previewHoldSince = now;
+        }
+        if (now - previewHoldSince < PAGE_HOLD_GRACE_MS) {
+          break;
+        }
+      }
+      previewPending.shift();
+      insertShown(p);
+      revealed++;
       while (previewShown.length > PAGE_PREVIEW_MAX) {
         previewShown.shift();
       }
+    }
+    // 有过揭示说明进度在推进：下一次缺页重新计宽限，而不是沿用上一段的等待时刻
+    if (revealed > 0 || previewPending.length === 0) {
+      previewHoldSince = 0;
     }
   }
 
@@ -225,7 +270,7 @@ var BatchTitleExtractionMonitor = (function () {
     if (previewPending.length === 0) {
       return;
     }
-    revealPending(true);
+    revealPending(true, true);
     renderPagePreview($banner);
   }
 
@@ -247,6 +292,8 @@ var BatchTitleExtractionMonitor = (function () {
       previewShown = [];
       previewPending = [];
       previewKnown = {};
+      previewNextPage = 1;
+      previewHoldSince = 0;
       $banner.find('.batch-extraction-banner-preview').remove();
     }
     var insertedHistorical = false;
@@ -281,6 +328,7 @@ var BatchTitleExtractionMonitor = (function () {
     // 首次（含换卷后第一次）：列表还空着，此刻到达的都是「进项目之前就抽完」的历史。
     // 一次性铺开、**不逐条重放**——重放会让预览永远落后于实际进度；但**也不能丢**：
     // 列表可往上翻，用户回头能看见这段时间认出了什么。只有后续新页才逐条揭示。
+    // 仍走页号门控：换卷后只先抽完第 4 页时，等 1–3 页到齐再按序铺开，不让第 4 页抢跑。
     if (previewShown.length === 0 && previewPending.length > 0 && previewIntervalMs > 0) {
       revealPending(true);
       renderPagePreview($banner);
