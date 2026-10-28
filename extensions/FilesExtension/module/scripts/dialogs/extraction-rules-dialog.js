@@ -23,18 +23,6 @@ ExtractionRulesDialog.LABELS = {
   baoguan_qixian: '保管期限'
 };
 
-ExtractionRulesDialog.VOLUME_INNER = [
-  '案卷号', '件号', '起止页号', '页数', '题名', '责任者', '文号', '成文日期',
-  '文件名', '提取状态', '备注', '文件夹路径'
-];
-ExtractionRulesDialog.VOLUME_SUMMARY = [
-  '案卷号', '题名', '责任者', '起始时间', '终止时间', '总页数', '卷内文件份数', '文件夹路径'
-];
-ExtractionRulesDialog.CASE_INNER = [
-  '文件夹名', '件号', '页数', '题名', '责任者', '文号', '成文日期',
-  '文件名', '文件夹路径', '提取状态', '备注'
-];
-
 ExtractionRulesDialog.prototype._createDialog = function() {
   var self = this;
   var frame = $(DOM.loadHTML('files', 'scripts/dialogs/extraction-rules-dialog.html'));
@@ -153,14 +141,13 @@ ExtractionRulesDialog.prototype._exportRules = function() {
     return;
   }
   var isCase = task.template === 'batch-title-case';
+  // 件级列 / 卷级列由引擎按抽取模式与门类确定，模板不再导出这部分
   var payload = {
     engineTemplate: isCase ? 'batch-title-case' : 'batch-title-volume',
     archiveCategory: task.archiveCategory || '',
     archiveSubCategory: task.archiveSubCategory || '',
     fixedElements: parseArray(task.fixedElements),
-    customElements: parseArray(task.customElements),
-    columns: isCase ? ExtractionRulesDialog.CASE_INNER : ExtractionRulesDialog.VOLUME_INNER,
-    volumeColumns: isCase ? [] : ExtractionRulesDialog.VOLUME_SUMMARY
+    customElements: parseArray(task.customElements)
   };
 
   var projectId = theProject.id;
