@@ -33,6 +33,34 @@
   background-color: #f2f2f2;
 }
 
+/* ===== 嵌入形态（?view=quality-rules）：只保留规则面板 =====
+   平台对外地址 /app/project?project=<id>&view=quality-rules 供业务系统 iframe 直接嵌入，
+   隐藏顶栏、左侧面、数据网格与结果页签；不带该参数时以下规则不生效。 */
+body.ruyi-embed-quality #header,
+body.ruyi-embed-quality #left-panel,
+body.ruyi-embed-quality #summary-bar,
+body.ruyi-embed-quality #extension-bar,
+body.ruyi-embed-quality #view-panel,
+body.ruyi-embed-quality #notification-container,
+body.ruyi-embed-quality .main-view-panel-tab-header.quality-data-tab,
+body.ruyi-embed-quality .main-view-panel-tab-header[href="#quality-results-panel"] {
+  display: none !important;
+}
+
+body.ruyi-embed-quality #body {
+  top: 0 !important;
+}
+
+body.ruyi-embed-quality #right-panel {
+  margin-left: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+}
+
+body.ruyi-embed-quality #quality-rules-panel {
+  width: 100% !important;
+}
+
 /* ===== Main Panels ===== */
 #quality-rules-panel, #quality-results-panel {
   display: block;

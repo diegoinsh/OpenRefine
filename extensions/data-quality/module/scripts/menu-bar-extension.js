@@ -6,6 +6,19 @@
 
 I18NUtil.init("data-quality");
 
+/**
+ * 是否以「仅规则面板」的嵌入形态打开。
+ * 平台对外地址形如 /app/project?project=<id>&view=quality-rules，
+ * 供业务系统 iframe 直接嵌入规则配置界面；不带该参数时行为与原来完全一致。
+ */
+function isQualityEmbedRequest() {
+  try {
+    return new URLSearchParams(window.location.search).get('view') === 'quality-rules';
+  } catch (e) {
+    return false;
+  }
+}
+
 // Extend the ExtensionBar with Data Quality menu
 $(function() {
   ExtensionBar.MenuItems.push({
@@ -43,6 +56,15 @@ $(function() {
   setTimeout(function() {
     console.log('[menu-bar-extension] Timeout fired, QualityAlignment defined:', typeof QualityAlignment !== 'undefined');
     if (typeof QualityAlignment !== 'undefined') {
+      // 嵌入形态（?view=quality-rules）：只显示规则面板，隐藏顶栏/左侧面/数据网格，
+      // 供业务系统 iframe 直接嵌入；规则保存后对之后启动的检查任务生效。
+      if (isQualityEmbedRequest()) {
+        document.body.classList.add('ruyi-embed-quality');
+        // 必须先拉取项目已存规则再渲染：直接 launch 只会搭出空面板，
+        // 客户一保存就会把原有规则覆盖成空。该入口加载完规则后自动切到规则页签。
+        QualityAlignment.autoLaunchIfNeededWithTarget('rules');
+        return;
+      }
       // Check URL hash to activate specific tab
       var hash = window.location.hash;
       console.log('[menu-bar-extension] URL hash:', hash);
