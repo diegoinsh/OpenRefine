@@ -2,7 +2,8 @@
  * Files extension - 数据校审控制台
  *
  * 列出全部数据校审任务（新建项目页「校审模式」下发起）。一行 = 一个校审项目：
- * 名称 / 校审目录 / 规则 / 进度 / 通过 / 不通过 / 无法判定 / 状态 / 进入项目。
+ * 名称 / 校审目录 / 规则 / 进度 / 通过 / 不通过 / 无法判定 / 状态 / 启动校审（图标按钮，
+ * 与「数据抽取」列表的启动/停止交互一致；项目名本身链接可进入项目）。
  *
  * 数据源：DataReviewTaskRegistry（workspace/data-review-tasks.json）经
  * `command/files/data-review?subCommand=list` 输出，在跑任务由后端并入实时计数。
@@ -166,11 +167,20 @@ Refine.DataReviewConsoleUI.prototype._render = function() {
     $('<td/>').text(self._formatDate(task.startedAt)).appendTo(tr);
 
     var opsCell = $('<td/>').addClass('dr-task-ops').appendTo(tr);
-    $('<a href="javascript:void(0)"></a>').text('进入项目')
-      .on('click', function() { document.location = 'project?project=' + projectId; })
-      .appendTo(opsCell);
+    // 启动校审：图标按钮与「数据抽取」列表的启动抽取一致；运行中不显示
+    if (task.status !== 'running') {
+      $('<button>')
+        .addClass('dq-btn-icon')
+        .attr('title', '启动校审')
+        .html('<img src="images/extensions/circle-play-regular-full.svg" alt="启动" width="18" height="18" />')
+        .on('click', function() { self._start(task); })
+        .appendTo(opsCell);
+    }
     if (task.status === 'running' && task.live) {
-      $('<a href="javascript:void(0)"></a>').addClass('dr-op-cancel').text(' 停止')
+      $('<button>')
+        .addClass('dq-btn-icon dq-btn-danger')
+        .attr('title', '停止')
+        .html('<img src="images/extensions/stop-solid-full.svg" alt="停止" width="18" height="18" />')
         .on('click', function() { self._cancel(projectId); })
         .appendTo(opsCell);
     }
@@ -218,6 +228,32 @@ Refine.DataReviewConsoleUI.prototype._cancel = function(projectId) {
     $.post('command/files/data-review',
       { subCommand: 'cancel', project: projectId, csrf_token: token },
       function() { self._load(); }, 'json');
+  });
+};
+
+/** 启动校审：沿用该任务原有的目录与规则重新发起（与「数据抽取」的启动按钮同一交互） */
+Refine.DataReviewConsoleUI.prototype._start = function(task) {
+  var self = this;
+  if (!task || !task.rootPath) {
+    window.alert('该任务缺少校审目录，无法启动');
+    return;
+  }
+  var rules = task.rules;
+  if (typeof rules !== 'string') rules = JSON.stringify(rules || []);
+  Refine.wrapCSRF(function(token) {
+    $.post('command/files/data-review', {
+      subCommand: 'start',
+      rootPath: task.rootPath,
+      projectName: task.projectName || '',
+      rules: rules,
+      csrf_token: token
+    }, function(data) {
+      if (!data || data.code === 'error') {
+        window.alert(data && data.message ? data.message : '启动校审失败');
+        return;
+      }
+      self._load();
+    }, 'json');
   });
 };
 

@@ -10,10 +10,12 @@
   vertical-align: middle;
 }
 
-#dr-task-list .dr-task-ops a {
-  margin-right: 8px;
+/* 操作列：图标按钮与「数据抽取」列表保持一致（行高由按钮撑起，两页观感统一） */
+#dr-task-list .dr-task-ops {
+  white-space: nowrap;
 }
 
-#dr-task-list .dr-task-ops .dr-op-cancel {
-  color: #c62828;
+#dr-task-list .dr-task-ops .dq-btn-icon {
+  padding: 4px 6px;
+  margin-right: 4px;
 }
