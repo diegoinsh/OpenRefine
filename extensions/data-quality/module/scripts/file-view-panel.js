@@ -1294,6 +1294,17 @@ var FileViewPanel = {};
       return;
     }
 
+    // 标注分两类：detected = 视觉级检出（有 bbox，画框），missing = 视觉级缺项（无 bbox，单独列出）
+    var detected = [];
+    var missing = [];
+    ann.items.forEach(function(item) {
+      if (item.kind === 'missing' || !(item.w > 0 && item.h > 0)) {
+        missing.push(item);
+      } else {
+        detected.push(item);
+      }
+    });
+
     var render = function() {
       var el = img[0];
       if (!el.clientWidth || !el.clientHeight) {
@@ -1302,20 +1313,23 @@ var FileViewPanel = {};
       // bbox 与检测所用图像同像素系：优先用后端记录的宽高，缺省时退回原图自然尺寸
       var natW = (ann.w && ann.w > 0) ? ann.w : el.naturalWidth;
       var natH = (ann.h && ann.h > 0) ? ann.h : el.naturalHeight;
-      if (!natW || !natH) {
+      if (detected.length > 0 && (!natW || !natH)) {
         return;
       }
 
       // 标注层与图片同步缩放/平移：图片用 transform 缩放，标注层套用同一变换即可保持对齐
-      var layer = $('<div>').addClass('file-view-ann-layer').css({
-        left: el.offsetLeft + 'px',
-        top: el.offsetTop + 'px',
-        width: el.clientWidth + 'px',
-        height: el.clientHeight + 'px'
-      }).appendTo(imgContainer);
+      var layer = null;
+      if (detected.length > 0) {
+        layer = $('<div>').addClass('file-view-ann-layer').css({
+          left: el.offsetLeft + 'px',
+          top: el.offsetTop + 'px',
+          width: el.clientWidth + 'px',
+          height: el.clientHeight + 'px'
+        }).appendTo(imgContainer);
+      }
 
       var types = {};
-      ann.items.forEach(function(item) {
+      detected.forEach(function(item) {
         var key = item.color || 'other';
         var box = $('<div>').addClass('file-view-ann-box file-view-ann-box-' + key).css({
           left: (item.x / natW * 100) + '%',
@@ -1332,17 +1346,35 @@ var FileViewPanel = {};
         types[key].count++;
       });
 
-      // 错误类型图例：与合规审查结果的标注观感一致（标题 + 类型色块 + 数量）
+      // 标签图例分两组：检出标签（类型色块 + 数量）／缺失标签（逐项列出）
       container.find('.file-view-ann-legend').remove();
-      var legend = $('<div>').addClass('file-view-ann-legend').appendTo(container);
-      $('<div>').addClass('file-view-ann-legend-title')
-          .text($.i18n('data-quality-extension/file-view-ann-error-type') || '错误类型')
-          .appendTo(legend);
-      Object.keys(types).forEach(function(key) {
-        var item = $('<div>').addClass('file-view-ann-legend-item').appendTo(legend);
-        $('<span>').addClass('file-view-ann-swatch file-view-ann-swatch-' + key).appendTo(item);
-        $('<span>').text(types[key].label + '(' + types[key].count + ')').appendTo(item);
-      });
+      if (Object.keys(types).length > 0 || missing.length > 0) {
+        var legend = $('<div>').addClass('file-view-ann-legend').appendTo(container);
+        if (Object.keys(types).length > 0) {
+          var detectedGroup = $('<div>').addClass('file-view-ann-legend-group').appendTo(legend);
+          $('<div>').addClass('file-view-ann-legend-title')
+              .text($.i18n('data-quality-extension/file-view-ann-detected') || '检出标签')
+              .appendTo(detectedGroup);
+          Object.keys(types).forEach(function(key) {
+            var item = $('<div>').addClass('file-view-ann-legend-item').appendTo(detectedGroup);
+            $('<span>').addClass('file-view-ann-swatch file-view-ann-swatch-' + key).appendTo(item);
+            $('<span>').text(types[key].label + '(' + types[key].count + ')').appendTo(item);
+          });
+        }
+        if (missing.length > 0) {
+          var missingGroup = $('<div>').addClass('file-view-ann-legend-group').appendTo(legend);
+          $('<div>').addClass('file-view-ann-legend-title file-view-ann-legend-title-missing')
+              .text($.i18n('data-quality-extension/file-view-ann-missing') || '缺失标签')
+              .appendTo(missingGroup);
+          missing.forEach(function(item) {
+            var row = $('<div>').addClass('file-view-ann-legend-item file-view-ann-legend-item-missing')
+                .attr('title', item.message || '')
+                .appendTo(missingGroup);
+            $('<span>').addClass('file-view-ann-swatch file-view-ann-swatch-missing').appendTo(row);
+            $('<span>').text(item.label || '缺失项').appendTo(row);
+          });
+        }
+      }
 
       FileViewPanel._applyZoom();
     };

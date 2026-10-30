@@ -81,7 +81,7 @@ Refine.SUB_CATEGORY_EXTRA_ELEMENTS = {
   '人民检察院诉讼档案': Refine.EXTRA_ELEMENTS
 };
 
-// 数据校审规则分类体系（5 大类）。当前只实现「存在类 · 印章检测」，
+// 数据校审规则分类体系（5 大类）。当前已实现「存在类 · 印章检测 / 指纹检测」，
 // 其余分类/规则仅为占位（置灰不可选），后续按能力逐个启用（见 docs/design/data-review-plugin-design.md）。
 Refine.REVIEW_RULE_CATEGORIES = [
   {
@@ -89,8 +89,8 @@ Refine.REVIEW_RULE_CATEGORIES = [
     rules: [
       { key: 'seal', name: '印章检测', enabled: true,
         desc: '检测文件是否加盖印章（落款章、骑缝章），现由 AI 服务印章检测模型完成' },
-      { key: 'fingerprint', name: '指纹检测', enabled: false,
-        desc: '区分指纹与印章（指纹/印章混淆的后处理待接入）' },
+      { key: 'fingerprint', name: '指纹检测', enabled: true,
+        desc: '检测文件是否按压指纹；与印章同源出框后按框内墨迹分布区分，指纹单独标记' },
       { key: 'signature', name: '签字检测', enabled: false,
         desc: '指定区域是否含手写签字' }
     ]

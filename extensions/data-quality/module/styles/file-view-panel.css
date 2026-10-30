@@ -332,6 +332,16 @@
   background: rgba(229, 57, 53, 0.18);
 }
 
+/* 疑似指纹（与印章同源出框后按框内墨迹分布分流，仅作初筛提示） */
+.file-view-ann-box-fingerprint {
+  border-color: #7b1fa2;
+  background: rgba(123, 31, 162, 0.16);
+}
+
+.file-view-ann-box-fingerprint .file-view-ann-tag {
+  background: #7b1fa2;
+}
+
 .file-view-ann-tag {
   position: absolute;
   left: -2px;
@@ -364,10 +374,25 @@
   margin-bottom: 4px;
 }
 
+/* 图例分组：检出标签 / 缺失标签 */
+.file-view-ann-legend-group + .file-view-ann-legend-group {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed #ddd;
+}
+
+.file-view-ann-legend-title-missing {
+  color: #d98324;
+}
+
 .file-view-ann-legend-item {
   display: flex;
   align-items: center;
   white-space: nowrap;
+}
+
+.file-view-ann-legend-item-missing {
+  color: #d98324;
 }
 
 .file-view-ann-swatch {
@@ -381,6 +406,16 @@
 
 .file-view-ann-swatch-seal {
   background: #e53935;
+}
+
+.file-view-ann-swatch-fingerprint {
+  background: #7b1fa2;
+}
+
+/* 缺失项没有检出位置，用虚框色块与检出标签区分 */
+.file-view-ann-swatch-missing {
+  background: transparent;
+  border: 1px dashed #d98324;
 }
 
 /* PDF preview */
