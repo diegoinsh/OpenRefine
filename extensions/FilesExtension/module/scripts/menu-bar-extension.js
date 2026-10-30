@@ -29,6 +29,20 @@
         }
       ]
     });
+    // 「数据校审」紧随「数据抽取」之后（unshift 会倒序，故插到 1 位）
+    ExtensionBar.MenuItems.splice(1, 0, {
+      id: 'data-review',
+      label: '数据校审',
+      submenu: [
+        {
+          id: 'data-review/edit-params',
+          label: '编辑校审参数',
+          click: function() {
+            ReviewProjectPanel.open();
+          }
+        }
+      ]
+    });
     return true;
   }
 

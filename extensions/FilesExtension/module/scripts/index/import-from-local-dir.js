@@ -813,28 +813,14 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
 
   /* ---------------- 数据校审（极简版：文件校审 → 印章检测） ---------------- */
 
-  var REVIEW_CATEGORIES = Refine.REVIEW_RULE_CATEGORIES;
   var reviewRootPath = null;
   var reviewProjectId = null;
   var reviewPollTimer = null;
-  var reviewActiveCategory = REVIEW_CATEGORIES[0].key;
-  // 规则勾选状态按 key 记在面板上：切 tab 不丢勾选，只有已启用规则可勾
-  var reviewChecked = {};
+  // 规则勾选状态按 key 记在表单状态上：切 tab 不丢勾选，只有已启用规则可勾
+  var reviewState = ReviewConfigPanelUI.createState();
 
   function resetReviewChecked() {
-    reviewChecked = {};
-    REVIEW_CATEGORIES.forEach(function (cat) {
-      cat.rules.forEach(function (rule) {
-        if (rule.enabled) reviewChecked[rule.key] = true;
-      });
-    });
-  }
-
-  function reviewCategoryOf(key) {
-    for (var i = 0; i < REVIEW_CATEGORIES.length; i++) {
-      if (REVIEW_CATEGORIES[i].key === key) return REVIEW_CATEGORIES[i];
-    }
-    return REVIEW_CATEGORIES[0];
+    reviewState = ReviewConfigPanelUI.createState();
   }
 
   /** 默认校审项目名：数据校审-所选根目录名-年月日时 */
@@ -870,76 +856,19 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
     if (!self._elmts.reviewProjectName.val() || !self._elmts.reviewProjectName.data('edited')) {
       self._elmts.reviewProjectName.val(defaultReviewProjectName());
     }
-    reviewActiveCategory = REVIEW_CATEGORIES[0].key;
-    renderReviewCategoryTabs();
-    renderReviewRules();
+    reviewState.activeKey = (ReviewConfigPanelUI.categories()[0] || {}).key || '';
+    renderReviewPanel();
   }
 
-  function renderReviewCategoryTabs() {
-    var $tabs = self._elmts.reviewCategoryTabs.empty();
-    REVIEW_CATEGORIES.forEach(function (cat) {
-      var enabled = cat.rules.some(function (r) { return r.enabled; });
-      $("<a href='javascript:void(0)' class='review-category-tab'></a>")
-          .text(cat.name)
-          .attr('title', cat.desc || '')
-          .toggleClass('active', cat.key === reviewActiveCategory)
-          .toggleClass('review-category-tab-disabled', !enabled)
-          .on('click', function () {
-            reviewActiveCategory = cat.key;
-            renderReviewCategoryTabs();
-            renderReviewRules();
-          })
-          .appendTo($tabs);
-    });
-  }
-
-  function renderReviewRules() {
-    var cat = reviewCategoryOf(reviewActiveCategory);
-    var $list = self._elmts.reviewRuleList.empty();
-    if (cat.desc) {
-      $("<div class='review-rule-category-desc'></div>").text(cat.desc).appendTo($list);
-    }
-    cat.rules.forEach(function (rule) {
-      var $item = $("<label class='review-rule-item'></label>");
-      var $cb = $("<input type='checkbox' class='review-rule-checkbox'/>").val(rule.key);
-      if (!rule.enabled) {
-        $item.addClass('review-rule-disabled');
-        $cb.prop('disabled', true);
-      } else {
-        $cb.prop('checked', !!reviewChecked[rule.key]);
-      }
-      $cb.on('change', function () {
-        reviewChecked[rule.key] = $(this).is(':checked');
-        updateReviewSelectedNote();
-      });
-      $item.append($cb)
-          .append($("<span class='review-rule-name'></span>").text(rule.name))
-          .append($("<span class='review-rule-desc'></span>").text(rule.desc || ''))
-          .appendTo($list);
-    });
-    updateReviewSelectedNote();
+  function renderReviewPanel() {
+    ReviewConfigPanelUI.render(
+        self._elmts.reviewCategoryTabs, self._elmts.reviewRuleList,
+        self._elmts.reviewSelectedNote, reviewState);
   }
 
   /** 已勾选规则（仅已启用规则可能被勾选） */
   function collectReviewRules() {
-    var items = [];
-    REVIEW_CATEGORIES.forEach(function (cat) {
-      cat.rules.forEach(function (rule) {
-        if (rule.enabled && reviewChecked[rule.key]) {
-          items.push({ category: cat.name, key: rule.key, name: rule.name });
-        }
-      });
-    });
-    return items;
-  }
-
-  function updateReviewSelectedNote() {
-    var names = collectReviewRules().map(function (r) { return r.name; });
-    self._elmts.reviewSelectedNote
-        .toggleClass('review-selected-note-empty', names.length === 0)
-        .text(names.length > 0
-            ? $.i18n('files-import/review-selected') + names.join('、')
-            : $.i18n('files-import/review-rules-required'));
+    return ReviewConfigPanelUI.collect(reviewState);
   }
 
   this._elmts.reviewBackButton.on('click', function () {

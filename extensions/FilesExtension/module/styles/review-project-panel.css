@@ -1,0 +1,81 @@
+/* 项目页「校审参数」tab：与「抽取参数」tab 同一底色与留白 */
+#review-params-panel {
+  background-color: var(--background-primary);
+  overflow-y: auto;
+  height: 100%;
+  font-size: 13px;
+}
+
+.review-params-form {
+  padding: 10px 10px 0;
+}
+
+.review-params-form.batch-config-panel {
+  margin-top: 0;
+  padding: 10px 10px 0;
+  border: 0;
+}
+
+.review-params-root {
+  color: #555;
+  word-break: break-all;
+}
+
+.review-params-actions {
+  margin: 5px 10px 0;
+  padding: 15px 0 10px;
+  border-top: 1px solid #ddd;
+}
+
+.review-params-error {
+  display: none;
+  margin-left: 10px;
+  color: #c62828;
+  font-size: 12px;
+}
+
+/* ===== 嵌入形态（?view=review-params / ?view=review-preview） =====
+   与合规审查的 ruyi-embed-quality 同口径：只显示目标 UI 模块，隐藏顶栏、左侧面与数据网格。
+   标记由 project.vt <head> 脚本提前打在 <html> 上，避免顶栏先闪一下。 */
+html.ruyi-embed-review #header,
+html.ruyi-embed-review #left-panel,
+html.ruyi-embed-review #tool-panel,
+html.ruyi-embed-review #view-panel,
+html.ruyi-embed-review #notification-container {
+  display: none !important;
+}
+
+html.ruyi-embed-review #body {
+  top: 0 !important;
+}
+
+html.ruyi-embed-review #right-panel {
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100vh !important;
+  padding-left: 0 !important;
+  background: var(--background-primary) !important;
+  border-top-left-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+html.ruyi-embed-review #review-params-panel {
+  width: 100% !important;
+}
+
+/* 校审结果预览：面板本身铺满嵌入区域（面板定位/宽度由脚本写入，故用 !important 覆盖） */
+html.ruyi-embed-review #file-view-panel {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  border-left: 0 !important;
+  box-shadow: none !important;
+}
+
+html.ruyi-embed-review #file-view-panel .file-view-close-btn {
+  display: none;
+}

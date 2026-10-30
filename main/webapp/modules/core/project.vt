@@ -47,6 +47,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
       if (urlParams.get("view") === "quality-rules") {
         document.documentElement.classList.add("ruyi-embed-quality");
       }
+      // 数据校审的嵌入形态：编辑校审参数 / 校审结果预览（FilesExtension 样式随扩展注入）
+      var embedView = urlParams.get("view");
+      if (embedView === "review-params" || embedView === "review-preview") {
+        document.documentElement.classList.add("ruyi-embed-review");
+      }
     </script>
     <script type="text/javascript" src="wirings.js"></script>
     $scriptInjection

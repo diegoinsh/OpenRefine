@@ -94,6 +94,8 @@ public class DataReviewCommand extends Command {
             doCancel(request, response);
         } else if ("delete".equals(subCommand)) {
             doDeleteTask(request, response);
+        } else if ("save-rules".equals(subCommand)) {
+            doSaveRules(request, response);
         } else if ("list".equals(subCommand)) {
             doList(request, response);
         } else {
@@ -596,6 +598,54 @@ public class DataReviewCommand extends Command {
             result.put("message", task.message);
             result.put("startedAt", task.startedAt);
         }
+        respondJSON(response, result);
+    }
+
+    /**
+     * 保存校审参数（项目页「编辑校审参数」入口调用），不启动校审任务。
+     *
+     * <p>与抽取的 save-task 同口径：只更新任务登记表里的规则清单，
+     * 保存后的参数对之后启动的校审任务生效；已完成的校审结果不回写。</p>
+     */
+    private void doSaveRules(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        long pid;
+        try {
+            pid = Long.parseLong(trim(request.getParameter("project")));
+        } catch (NumberFormatException e) {
+            respondError(response, "缺少或非法的 project 参数");
+            return;
+        }
+        String rulesJson = request.getParameter("rules");
+        List<ReviewRule> rules = parseRules(rulesJson);
+        if (rules.isEmpty()) {
+            respondError(response, "请至少选择一项校审规则");
+            return;
+        }
+        for (ReviewRule rule : rules) {
+            if (!"seal".equals(rule.key) && !"fingerprint".equals(rule.key)) {
+                respondError(response, "暂不支持的校审规则: " + rule.name);
+                return;
+            }
+        }
+        Task live = TASKS.get(pid);
+        if (live != null && STATUS_RUNNING.equals(live.status) && !live.cancelled) {
+            respondError(response, "校审任务进行中，暂时不能修改参数");
+            return;
+        }
+        if (live != null) {
+            synchronized (live) {
+                live.rules.clear();
+                live.rules.addAll(rules);
+            }
+        }
+
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("rules", rulesJson == null ? "" : rulesJson);
+        fields.put("rulesUpdatedAt", System.currentTimeMillis());
+        DataReviewTaskRegistry.merge(pid, fields);
+
+        ObjectNode result = mapper.createObjectNode();
+        result.put("code", "ok");
         respondJSON(response, result);
     }
 

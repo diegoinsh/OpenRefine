@@ -63,6 +63,7 @@ public class FilesExtensionSpi implements RefineModuleSpi {
                 "scripts/vendor/tiny-pinyin.js",
                 "scripts/index/files-importing-controller.js",
                 "scripts/index/import-from-local-dir.js",
+                "scripts/review-config-panel.js",
                 "scripts/index/extraction-console.js",
                 "scripts/index/data-review-console.js");
 
@@ -73,14 +74,17 @@ public class FilesExtensionSpi implements RefineModuleSpi {
                 "styles/index/extraction-console.css",
                 "styles/index/data-review-console.css");
 
-        // 注入 /project 页的脚本（抽取参数 tab、管理抽取规则弹窗、扩展栏菜单）
+        // 注入 /project 页的脚本（抽取参数 tab、校审参数 tab、嵌入入口、扩展栏菜单）
         ctx.addClientSidePaths(
                 "project/scripts",
                 "scripts/project-injection.js",
                 "scripts/vendor/tiny-pinyin.js",
                 "scripts/index/import-from-local-dir.js",
+                "scripts/review-config-panel.js",
                 "scripts/index/extraction-console.js",
                 "scripts/extraction-project-panel.js",
+                "scripts/review-project-panel.js",
+                "scripts/review-embed.js",
                 "scripts/dialogs/extraction-rules-dialog.js",
                 "scripts/menu-bar-extension.js");
 
@@ -89,6 +93,7 @@ public class FilesExtensionSpi implements RefineModuleSpi {
                 "project/styles",
                 "styles/files-importing-controller.css",
                 "styles/index/extraction-console.css",
-                "styles/extraction-project-panel.css");
+                "styles/extraction-project-panel.css",
+                "styles/review-project-panel.css");
     }
 }
