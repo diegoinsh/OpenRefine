@@ -83,6 +83,13 @@ var FileViewPanel = {};
   /** 页映射中「件首页」的行级键，与后端 BatchExtractionManager.PIECE_START_KEY 保持一致 */
   FileViewPanel.PIECE_START_KEY = '__piece_start__';
 
+  /**
+   * 页映射中「校审标注」的保留键，与后端 DataReviewCommand.ANNOTATION_KEY 保持一致。
+   * 值为 `{f: 文件名, p: 页号, w/h: 原图宽高, items:[{x,y,w,h,label,color,message}]}`，
+   * 坐标为原图像素；据此在原图上框出问题位置并显示错误类型标签。
+   */
+  FileViewPanel.ANNOTATION_KEY = '__review_ann__';
+
   /** 「卷级」汇总表 id，与后端 BatchExtractionCommand.SUMMARY_SHEET_ID 保持一致 */
   FileViewPanel.SUMMARY_SHEET_ID = 'batch#卷级';
 
@@ -272,10 +279,18 @@ var FileViewPanel = {};
       return false;
     }
     var resourceConfig = QualityAlignment._resourceConfig;
-    if (resourceConfig.pathFields && resourceConfig.pathFields.length > 0) {
+    var pathFields = resourceConfig.pathFields || [];
+    if (pathFields.length > 0 && FileViewPanel._pathFieldsResolve(pathFields)) {
       return true;
     }
-    return FileViewPanel._findFolderPathCellIndex() >= 0;
+    if (FileViewPanel._findFolderPathCellIndex() >= 0) {
+      return true;
+    }
+    // 目录模式：表里没有条目路径列，但有「一级目录…N级目录」列
+    if (FileViewPanel._levelFields().length > 0) {
+      return true;
+    }
+    return pathFields.length > 0;
   };
 
   /**
@@ -707,6 +722,76 @@ var FileViewPanel = {};
     panel.hide();
   };
 
+  /** 中文序号（1..99），与后端目录层级列命名保持一致。 */
+  FileViewPanel._chineseNumber = function(n) {
+    var digits = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+    if (n < 10) return digits[n];
+    if (n < 20) return '十' + (n % 10 === 0 ? '' : digits[n % 10]);
+    if (n < 100) return digits[Math.floor(n / 10)] + '十' + (n % 10 === 0 ? '' : digits[n % 10]);
+    return String(n);
+  };
+
+  /** 当前表里的目录层级列（一级目录、二级目录…），不存在返回空数组。 */
+  FileViewPanel._levelFields = function() {
+    var columns = (typeof theProject !== 'undefined' && theProject && theProject.columnModel)
+        ? (theProject.columnModel.columns || []) : [];
+    var names = [];
+    for (var i = 1; i <= 99; i++) {
+      var name = FileViewPanel._chineseNumber(i) + '级目录';
+      var found = false;
+      for (var c = 0; c < columns.length; c++) {
+        if (columns[c].name === name) { found = true; break; }
+      }
+      if (!found) break;
+      names.push(name);
+    }
+    return names;
+  };
+
+  /** 配置的路径列里是否至少有一个在当前项目表中存在。 */
+  FileViewPanel._pathFieldsResolve = function(fieldNames) {
+    if (!fieldNames || fieldNames.length === 0) return false;
+    var columns = (typeof theProject !== 'undefined' && theProject && theProject.columnModel)
+        ? (theProject.columnModel.columns || []) : [];
+    for (var f = 0; f < fieldNames.length; f++) {
+      for (var c = 0; c < columns.length; c++) {
+        if (columns[c].name === fieldNames[f]) return true;
+      }
+    }
+    return false;
+  };
+
+  /** 取一行里指定列的非空值（按传入列顺序）。 */
+  FileViewPanel._valuesOfFields = function(cells, fieldNames) {
+    var columns = (typeof theProject !== 'undefined' && theProject && theProject.columnModel)
+        ? (theProject.columnModel.columns || []) : [];
+    var values = [];
+    fieldNames.forEach(function(fieldName) {
+      var cellIndex = -1;
+      for (var c = 0; c < columns.length; c++) {
+        if (columns[c].name === fieldName) { cellIndex = columns[c].cellIndex; break; }
+      }
+      var cell = (cellIndex >= 0 && cellIndex < cells.length) ? cells[cellIndex] : null;
+      var value = (cell && cell.v !== undefined && cell.v !== null) ? String(cell.v).trim() : '';
+      if (value) values.push(value);
+    });
+    return values;
+  };
+
+  /** 把若干层级值与 basePath 拼成资源路径（统一成正斜杠）。 */
+  FileViewPanel._joinPath = function(basePath, values, separator) {
+    var resourcePath = values.join(separator);
+    if (basePath) {
+      if (!basePath.endsWith('/') && !basePath.endsWith('\\')
+          && !resourcePath.startsWith('/') && !resourcePath.startsWith('\\')) {
+        resourcePath = basePath + separator + resourcePath;
+      } else {
+        resourcePath = basePath + resourcePath;
+      }
+    }
+    return resourcePath.replace(/\\/g, '/');
+  };
+
   FileViewPanel._buildResourcePath = function(rowIndex) {
     var resourceConfig = QualityAlignment._resourceConfig;
     console.log('[FileViewPanel] _buildResourcePath called, rowIndex:', rowIndex);
@@ -727,10 +812,26 @@ var FileViewPanel = {};
     }
 
     var cells = row.cells;
+    var basePath = resourceConfig.basePath || '';
+    var separator = resourceConfig.separator || QualityAlignment._getPathSeparator();
+    var pathMode = resourceConfig.pathMode || 'separator';
+    var template = resourceConfig.template || '';
+    var pathFields = resourceConfig.pathFields || [];
+    var levelFields = FileViewPanel._levelFields();
+
+    // 目录模式：模板配的路径列（如「文件路径」）在表里一个都命中不了，表里有「一级目录…N级目录」——
+    // 按目录层级拼路径；层级值全空即根目录行（该行只有根目录的直属文件）
+    if (levelFields.length > 0 && !FileViewPanel._pathFieldsResolve(pathFields)) {
+      var levelValues = FileViewPanel._valuesOfFields(cells, levelFields);
+      console.log('[FileViewPanel] level mode, levelValues:', levelValues);
+      if (levelValues.length === 0) {
+        return basePath ? basePath.replace(/\\/g, '/') : null;
+      }
+      return FileViewPanel._joinPath(basePath, levelValues, separator);
+    }
 
     // 条目提取项目没有资源路径配置，直接用该行「文件夹路径」列的值作为资源目录
-    var configuredFields = resourceConfig.pathFields || [];
-    if (configuredFields.length === 0) {
+    if (pathFields.length === 0) {
       var folderCellIndex = FileViewPanel._findFolderPathCellIndex();
       var folderCell = (folderCellIndex >= 0 && folderCellIndex < cells.length) ? cells[folderCellIndex] : null;
       var folderValue = (folderCell && folderCell.v !== undefined && folderCell.v !== null) ? String(folderCell.v).trim() : '';
@@ -738,32 +839,9 @@ var FileViewPanel = {};
       return folderValue ? folderValue.replace(/\\/g, '/') : null;
     }
 
-    var basePath = resourceConfig.basePath || '';
-    var pathFields = resourceConfig.pathFields || [];
-    var pathMode = resourceConfig.pathMode || 'separator';
-    var separator = resourceConfig.separator || QualityAlignment._getPathSeparator();
-    var template = resourceConfig.template || '';
-
     console.log('[FileViewPanel] basePath:', basePath, 'pathFields:', pathFields, 'pathMode:', pathMode, 'template:', template);
 
-    var fieldValues = [];
-    var columns = theProject.columnModel.columns;
-    pathFields.forEach(function(fieldName) {
-      var cellIndex = -1;
-      for (var c = 0; c < columns.length; c++) {
-        if (columns[c].name === fieldName) {
-          cellIndex = columns[c].cellIndex;
-          break;
-        }
-      }
-      console.log('[FileViewPanel] fieldName:', fieldName, 'cellIndex:', cellIndex, 'cells.length:', cells.length);
-      var cell = (cellIndex >= 0 && cellIndex < cells.length) ? cells[cellIndex] : null;
-      var value = (cell && cell.v !== undefined && cell.v !== null) ? String(cell.v).trim() : '';
-      console.log('[FileViewPanel] cell:', cell, 'value:', value);
-      if (value) {
-        fieldValues.push(value);
-      }
-    });
+    var fieldValues = FileViewPanel._valuesOfFields(cells, pathFields);
 
     console.log('[FileViewPanel] fieldValues:', fieldValues);
 
@@ -1157,6 +1235,7 @@ var FileViewPanel = {};
 
       container.data('previewImage', img);
       FileViewPanel._initImageDrag(imgContainer);
+      FileViewPanel._renderAnnotations(container, imgContainer, img, file);
 
     } else if (previewType === 'pdf') {
       var pdfContainer = $('<div>').addClass('file-view-pdf-container').appendTo(container);
@@ -1190,6 +1269,89 @@ var FileViewPanel = {};
 
   FileViewPanel._clearOcrSelection = function() {
     $(document).off(FileViewPanel._ocrNamespace);
+  };
+
+  /**
+   * 在原图上渲染「校审标注」：问题位置框 + 错误类型标签 + 左上角图例。
+   *
+   * <p>数据来自页映射行节点的保留键 {@link FileViewPanel.ANNOTATION_KEY}（后端
+   * DataReviewCommand 写入），坐标为原图像素。只在标注文件名与当前文件同名时生效——
+   * 同一目录下翻到其它文件时不该残留上一页的框。</p>
+   */
+  FileViewPanel._renderAnnotations = function(container, imgContainer, img, file) {
+    if (!FileViewPanel._pageMap || !img || !img[0]) {
+      return;
+    }
+    var rowNode = FileViewPanel._pageMap[FileViewPanel._pageMapKey(FileViewPanel._currentRow)];
+    if (!rowNode) {
+      return;
+    }
+    var ann = rowNode[FileViewPanel.ANNOTATION_KEY];
+    if (!ann || !ann.items || !ann.items.length) {
+      return;
+    }
+    if (ann.f && file && ann.f !== file.name) {
+      return;
+    }
+
+    var render = function() {
+      var el = img[0];
+      if (!el.clientWidth || !el.clientHeight) {
+        return;
+      }
+      // bbox 与检测所用图像同像素系：优先用后端记录的宽高，缺省时退回原图自然尺寸
+      var natW = (ann.w && ann.w > 0) ? ann.w : el.naturalWidth;
+      var natH = (ann.h && ann.h > 0) ? ann.h : el.naturalHeight;
+      if (!natW || !natH) {
+        return;
+      }
+
+      // 标注层与图片同步缩放/平移：图片用 transform 缩放，标注层套用同一变换即可保持对齐
+      var layer = $('<div>').addClass('file-view-ann-layer').css({
+        left: el.offsetLeft + 'px',
+        top: el.offsetTop + 'px',
+        width: el.clientWidth + 'px',
+        height: el.clientHeight + 'px'
+      }).appendTo(imgContainer);
+
+      var types = {};
+      ann.items.forEach(function(item) {
+        var key = item.color || 'other';
+        var box = $('<div>').addClass('file-view-ann-box file-view-ann-box-' + key).css({
+          left: (item.x / natW * 100) + '%',
+          top: (item.y / natH * 100) + '%',
+          width: (item.w / natW * 100) + '%',
+          height: (item.h / natH * 100) + '%'
+        });
+        $('<span>').addClass('file-view-ann-tag').text(item.label || '问题').appendTo(box);
+        layer.append(box);
+
+        if (!types[key]) {
+          types[key] = { label: item.label || '问题', count: 0 };
+        }
+        types[key].count++;
+      });
+
+      // 错误类型图例：与合规审查结果的标注观感一致（标题 + 类型色块 + 数量）
+      container.find('.file-view-ann-legend').remove();
+      var legend = $('<div>').addClass('file-view-ann-legend').appendTo(container);
+      $('<div>').addClass('file-view-ann-legend-title')
+          .text($.i18n('data-quality-extension/file-view-ann-error-type') || '错误类型')
+          .appendTo(legend);
+      Object.keys(types).forEach(function(key) {
+        var item = $('<div>').addClass('file-view-ann-legend-item').appendTo(legend);
+        $('<span>').addClass('file-view-ann-swatch file-view-ann-swatch-' + key).appendTo(item);
+        $('<span>').text(types[key].label + '(' + types[key].count + ')').appendTo(item);
+      });
+
+      FileViewPanel._applyZoom();
+    };
+
+    if (img[0].complete && img[0].naturalWidth > 0) {
+      render();
+    } else {
+      img.one('load', render);
+    }
   };
 
   /** 取当前文件/当前页的位图，作为拉框裁剪的底图（PDF 由后端 PDFBox 渲染） */
@@ -1619,6 +1781,12 @@ var FileViewPanel = {};
       img.css('transform', 'translate(' + FileViewPanel._currentOffsetX + 'px, ' +
               FileViewPanel._currentOffsetY + 'px) scale(' + FileViewPanel._zoomLevel + ')');
       img.css('transform-origin', 'top left');
+    }
+    // 校审标注层与图片同源变换，缩放 / 平移后框仍贴合原位置
+    var annLayer = FileViewPanel._panel.find('.file-view-ann-layer');
+    if (annLayer.length) {
+      annLayer.css('transform', 'translate(' + FileViewPanel._currentOffsetX + 'px, ' +
+              FileViewPanel._currentOffsetY + 'px) scale(' + FileViewPanel._zoomLevel + ')');
     }
   };
 

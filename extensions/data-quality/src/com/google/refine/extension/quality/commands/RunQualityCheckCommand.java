@@ -177,18 +177,19 @@ public class RunQualityCheckCommand extends Command {
         // 经 SDK 契约（缺省活视图，逐值等价）驱动下沉内核
         TableView view = OrViews.viewFor(project);
 
+        // 「仅目录」项目没有条目数据：条目类检查（含条目-图像关联项）无输入，静默跳过
+        boolean dirOnly = isDirectoryOnly(project);
+
         // Run format checks
-        FormatChecker formatChecker = new FormatChecker(view, rules);
-        CheckResult formatResult = formatChecker.runCheck();
+        CheckResult formatResult = dirOnly ? skipped("format") : new FormatChecker(view, rules).runCheck();
 
         // Run resource checks
-        ResourceChecker resourceChecker = new ResourceChecker(view, rules);
-        CheckResult resourceResult = resourceChecker.runCheck();
+        CheckResult resourceResult = dirOnly ? skipped("resource") : new ResourceChecker(view, rules).runCheck();
 
         // Run content checks
         logger.info("Content check AIMP service URL: " + aimpServiceUrl);
         CheckResult contentResult = new CheckResult("content");
-        if (aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
+        if (!dirOnly && aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
             logger.info("Running content check with AIMP service: " + aimpServiceUrl);
             ContentChecker contentChecker = new ContentChecker(view, rules, aimpServiceUrl);
             contentResult = contentChecker.runCheck();
@@ -200,7 +201,7 @@ public class RunQualityCheckCommand extends Command {
 
         // Run typo checks
         CheckResult typoResult = new CheckResult("typo");
-        if (aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
+        if (!dirOnly && aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
             logger.info("Running typo check with AIMP service: " + aimpServiceUrl);
             int formatBatchSize = 20;
             Map<String, Object> globalConfig = GetConfigCommand.loadConfig();
@@ -250,24 +251,25 @@ public class RunQualityCheckCommand extends Command {
             // 经 SDK 契约（缺省活视图，逐值等价）驱动下沉内核
             TableView view = OrViews.viewFor(project);
 
+            // 「仅目录」项目没有条目数据：条目类检查（含条目-图像关联项）无输入，静默跳过
+            boolean dirOnly = isDirectoryOnly(project);
+
             // Phase 1: Format checks
             task.setCurrentPhase("格式检查");
-            FormatChecker formatChecker = new FormatChecker(view, rules);
-            CheckResult formatResult = formatChecker.runCheck();
+            CheckResult formatResult = dirOnly ? skipped("format") : new FormatChecker(view, rules).runCheck();
             task.setFormatErrors(formatResult.getErrors().size());
             totalErrors += formatResult.getErrors().size();
 
             // Phase 2: Resource checks
             task.setCurrentPhase("资源检查");
-            ResourceChecker resourceChecker = new ResourceChecker(view, rules);
-            CheckResult resourceResult = resourceChecker.runCheck();
+            CheckResult resourceResult = dirOnly ? skipped("resource") : new ResourceChecker(view, rules).runCheck();
             task.setResourceErrors(resourceResult.getErrors().size());
             totalErrors += resourceResult.getErrors().size();
 
             // Phase 3: Content checks
             task.setCurrentPhase("内容检查");
             CheckResult contentResult = new CheckResult("content");
-            if (aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
+            if (!dirOnly && aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
                 logger.info("Running async content check with AIMP service: " + aimpServiceUrl);
                 ContentChecker contentChecker = new ContentChecker(view, rules, aimpServiceUrl);
                 contentChecker.setTask(task); // Set task for progress updates
@@ -281,7 +283,7 @@ public class RunQualityCheckCommand extends Command {
             // Phase 4: Typo checks
             task.setCurrentPhase("错别字检查");
             CheckResult typoResult = new CheckResult("typo");
-            if (aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
+            if (!dirOnly && aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
                 logger.info("Running async typo check with AIMP service: " + aimpServiceUrl);
                 int formatBatchSize = 20;
                 Map<String, Object> globalConfig = GetConfigCommand.loadConfig();
@@ -487,6 +489,20 @@ public class RunQualityCheckCommand extends Command {
         responseNode.set("imageQualityResult", mapper.valueToTree(imageQualityResult));
 
         return responseNode;
+    }
+
+    /** 「仅目录」项目（只有目录层级表、没有条目表）：条目类检查无输入，静默跳过。 */
+    private static boolean isDirectoryOnly(Project project) {
+        Object kind = project.getMetadata() == null ? null
+                : project.getMetadata().getCustomMetadata(IngestProjectCommand.META_SHEET_KIND);
+        return kind != null && "dir".equals(String.valueOf(kind));
+    }
+
+    /** 未执行的检查类别：返回已完成标记的空结果。 */
+    private static CheckResult skipped(String category) {
+        CheckResult result = new CheckResult(category);
+        result.complete();
+        return result;
     }
 
     private ObjectNode createErrorResponse(String errorKey, String defaultMessage) {

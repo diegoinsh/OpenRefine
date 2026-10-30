@@ -29,7 +29,18 @@ public class ResourcePathBuilder {
 
         List<String> pathFields = config.getPathFields();
         logger.info("buildResourcePath - pathFields: {}", pathFields);
-        
+
+        // 「仅图像审查」项目没有条目列（如「文件路径」），此时按目录层级列逐级拼路径
+        boolean levelMode = false;
+        if (!resolves(pathFields, columnIndexMap)) {
+            List<String> levels = levelFields(columnIndexMap);
+            if (!levels.isEmpty()) {
+                logger.info("buildResourcePath - 目录层级模式，改用列: {}", levels);
+                pathFields = levels;
+                levelMode = true;
+            }
+        }
+
         if (pathFields == null || pathFields.isEmpty()) {
             String basePath = config.getBasePath();
             logger.info("buildResourcePath - pathFields为空，直接返回basePath: {}", basePath);
@@ -77,7 +88,7 @@ public class ResourcePathBuilder {
         String template = config.getTemplate();
         logger.info("buildResourcePath - pathMode: {}, template: {}", pathMode, template);
 
-        if ("template".equals(pathMode) && template != null && !template.isEmpty()) {
+        if (!levelMode && "template".equals(pathMode) && template != null && !template.isEmpty()) {
             logger.info("buildResourcePath - 使用template模式");
             for (int i = 0; i < values.size(); i++) {
                 template = template.replace("{" + i + "}", values.get(i));
@@ -92,5 +103,45 @@ public class ResourcePathBuilder {
         String finalPath = path.toString();
         logger.info("buildResourcePath - 最终路径: {}", finalPath);
         return finalPath;
+    }
+
+    /** 配置里的列名在表中是否至少能命中一个（命中即按配置拼路径）。 */
+    private static boolean resolves(List<String> pathFields, Map<String, Integer> columnIndexMap) {
+        if (pathFields == null || pathFields.isEmpty()) {
+            return false;
+        }
+        for (String field : pathFields) {
+            if (columnIndexMap.get(field) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 目录层级列（一级目录、二级目录…），按列存在顺序收集。 */
+    private static List<String> levelFields(Map<String, Integer> columnIndexMap) {
+        List<String> out = new ArrayList<>();
+        for (int i = 1; i <= 99; i++) {
+            String name = chineseNumber(i) + "级目录";
+            if (columnIndexMap.get(name) == null) {
+                break;
+            }
+            out.add(name);
+        }
+        return out;
+    }
+
+    private static String chineseNumber(int n) {
+        String[] digits = {"零", "一", "二", "三", "四", "五", "六", "七", "八", "九"};
+        if (n < 10) {
+            return digits[n];
+        }
+        if (n < 20) {
+            return "十" + (n % 10 == 0 ? "" : digits[n % 10]);
+        }
+        if (n < 100) {
+            return digits[n / 10] + "十" + (n % 10 == 0 ? "" : digits[n % 10]);
+        }
+        return String.valueOf(n);
     }
 }
