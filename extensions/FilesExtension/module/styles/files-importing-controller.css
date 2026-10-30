@@ -509,3 +509,100 @@ body.extraction-readonly .data-table-cell {
 .batch-banner-progress-bar.banner-bar-error {
   background: #e53935;
 }
+
+/* ── 数据校审二级页（校审规则分类 tab + 规则勾选） ── */
+
+.review-mode-label {
+  margin-top: 12px;
+}
+
+.extraction-mode-options .option-disabled {
+  color: #999;
+}
+
+.extraction-mode-options .option-disabled input {
+  cursor: not-allowed;
+}
+
+.review-category-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border-bottom: 1px solid #ddd;
+  margin-bottom: 10px;
+}
+
+.review-category-tab {
+  display: inline-block;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.95em;
+}
+
+.review-category-tab:hover {
+  background: #f5f5f5;
+}
+
+.review-category-tab.active {
+  background: #fff;
+  border-color: #ddd;
+  color: #333;
+  font-weight: bold;
+  margin-bottom: -1px;
+}
+
+.review-category-tab.review-category-tab-disabled {
+  color: #aaa;
+}
+
+.review-rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 2px 8px;
+}
+
+.review-rule-category-desc {
+  color: var(--text-secondary);
+  font-size: 0.92em;
+}
+
+.review-rule-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.review-rule-item.review-rule-disabled {
+  color: #999;
+  cursor: not-allowed;
+}
+
+.review-rule-name {
+  min-width: 96px;
+  font-weight: bold;
+}
+
+.review-rule-desc {
+  color: var(--text-secondary);
+  font-size: 0.92em;
+}
+
+.review-rule-item.review-rule-disabled .review-rule-desc {
+  color: #b5b5b5;
+}
+
+.review-selected-note {
+  margin-top: 6px;
+  color: #5b4a1f;
+  font-size: 0.92em;
+}
+
+.review-selected-note.review-selected-note-empty {
+  color: #c62828;
+}

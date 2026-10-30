@@ -1,0 +1,29 @@
+<div class="relative-frame data-quality-container">
+  <!-- 二级Tab导航（与「数据抽取」「数据质量」保持同一套样式类，界面观感一致） -->
+  <div class="data-quality-tabs">
+    <ul class="dq-tab-list">
+      <li class="dq-tab active" data-tab="review">
+        <a href="javascript:void(0)">数据校审任务</a>
+      </li>
+      <li class="dq-tab" data-tab="format">
+        <a href="javascript:void(0)">格式数据校审（暂未实现）</a>
+      </li>
+    </ul>
+  </div>
+
+  <div class="dq-tab-content">
+    <!-- Tab 1: 数据校审任务 -->
+    <div class="dq-tab-panel active" id="dr-panel-review">
+      <div class="dq-workspace-controls" id="dr-workspace-controls">
+        <button class="dq-btn dq-btn-refresh" id="dr-refresh-tasks" title="刷新">刷新列表</button>
+        <span class="dr-summary" id="dr-summary"></span>
+      </div>
+      <div class="dq-projects-list" id="dr-task-list"></div>
+    </div>
+
+    <!-- Tab 2: 格式数据校审（未实现，占位） -->
+    <div class="dq-tab-panel" id="dr-panel-format">
+      <div class="dq-empty-message">格式数据校审尚未实现，后续版本开放。</div>
+    </div>
+  </div>
+</div>

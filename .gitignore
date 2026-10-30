@@ -100,3 +100,6 @@ docs/data.txt
 # 本地回归测试临时产物（脚本可复现，不入库）
 .tmp-*
 __pycache__/
+
+# AI 浏览器回归验证截图（本地临时产物，不入库）
+.screenshots/

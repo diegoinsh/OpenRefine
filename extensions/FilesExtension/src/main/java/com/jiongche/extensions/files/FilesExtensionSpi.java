@@ -12,6 +12,7 @@ import com.google.refine.io.FileProjectManager;
 import com.jiongche.refine.spi.RefineModuleContext;
 import com.jiongche.refine.spi.RefineModuleSpi;
 import org.openrefine.extensions.files.importer.BatchExtractionCommand;
+import org.openrefine.extensions.files.importer.DataReviewCommand;
 import org.openrefine.extensions.files.importer.ExtractionConfigCommand;
 import org.openrefine.extensions.files.importer.ExtractionResultCommand;
 import org.openrefine.extensions.files.importer.FilesImportingController;
@@ -53,19 +54,24 @@ public class FilesExtensionSpi implements RefineModuleSpi {
         // 抽取控制台系统级配置命令（get/save）
         ctx.registerCommand("extraction-config", new ExtractionConfigCommand());
 
+        // 数据校审命令（极简版：校审模式建项目 / 逐文件印章检测 / 结果写项目数据区）
+        ctx.registerCommand("data-review", new DataReviewCommand());
+
         // 注入 /index 页的脚本
         ctx.addClientSidePaths(
                 "index/scripts",
                 "scripts/vendor/tiny-pinyin.js",
                 "scripts/index/files-importing-controller.js",
                 "scripts/index/import-from-local-dir.js",
-                "scripts/index/extraction-console.js");
+                "scripts/index/extraction-console.js",
+                "scripts/index/data-review-console.js");
 
         // 注入 /index 页的样式
         ctx.addClientSidePaths(
                 "index/styles",
                 "styles/files-importing-controller.css",
-                "styles/index/extraction-console.css");
+                "styles/index/extraction-console.css",
+                "styles/index/data-review-console.css");
 
         // 注入 /project 页的脚本（抽取参数 tab、管理抽取规则弹窗、扩展栏菜单）
         ctx.addClientSidePaths(

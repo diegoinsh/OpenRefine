@@ -19,6 +19,11 @@
           <label><input type="radio" name="extractionMode" value="batch-volume"><span bind="modeVolumeLabel"></span></label>
           <label><input type="radio" name="extractionMode" value="batch-case"><span bind="modeCaseLabel"></span></label>
         </div>
+        <label bind="reviewModeLabel" class="extraction-mode-label review-mode-label"></label>
+        <div class="extraction-mode-options">
+          <label><input type="radio" name="extractionMode" value="review-file"><span bind="modeReviewFileLabel"></span></label>
+          <label class="option-disabled"><input type="radio" name="extractionMode" value="review-format" disabled><span bind="modeReviewFormatLabel"></span></label>
+        </div>
         <div class="extraction-mode-note" bind="batchModeNote" style="display:none"></div>
       </div>
       <button type="submit" bind="nextButton" class="button button-primary" type="button"></button>
@@ -80,6 +85,34 @@
         <div class="batch-progress-message" bind="progressMessage"></div>
         <button type="button" bind="batchRestartButton" style="display:none"></button>
       </div>
+    </div>
+    <div class="batch-config-panel" id="review-config-panel" bind="reviewConfigPanel" style="display:none">
+      <h2 bind="reviewConfigTitle"></h2>
+      <div class="batch-field-row">
+        <label bind="reviewProjectNameLabel"></label>
+        <input type="text" bind="reviewProjectName" class="batch-project-name-input"/>
+      </div>
+      <div class="batch-field-row">
+        <label bind="reviewRulesLabel" class="batch-section-title"></label>
+        <div class="review-category-tabs" bind="reviewCategoryTabs"></div>
+        <div class="review-rule-list" bind="reviewRuleList"></div>
+        <div class="review-selected-note" bind="reviewSelectedNote"></div>
+      </div>
+      <div class="batch-progress-panel" bind="reviewProgressPanel" style="display:none">
+        <div class="batch-progress-label" bind="reviewProgressLabel"></div>
+        <div class="batch-progress-track">
+          <div class="batch-progress-bar" bind="reviewProgressBar"></div>
+        </div>
+        <div class="batch-progress-detail">
+          <span bind="reviewProgressDetail"></span>
+          <button type="button" bind="reviewCancelButton"></button>
+        </div>
+        <div class="batch-progress-message" bind="reviewProgressMessage"></div>
+      </div>
+    </div>
+    <div class="batch-action-row" bind="reviewActionRow" style="display:none">
+      <button type="button" bind="reviewStartButton" class="button button-primary"></button>
+      <button type="button" bind="reviewBackButton" class="button button-light"></button>
     </div>
     <div class="batch-action-row" bind="batchActionRow" style="display:none">
       <button type="button" bind="batchStartButton" class="button button-primary"></button>

@@ -81,6 +81,50 @@ Refine.SUB_CATEGORY_EXTRA_ELEMENTS = {
   '人民检察院诉讼档案': Refine.EXTRA_ELEMENTS
 };
 
+// 数据校审规则分类体系（5 大类）。当前只实现「存在类 · 印章检测」，
+// 其余分类/规则仅为占位（置灰不可选），后续按能力逐个启用（见 docs/design/data-review-plugin-design.md）。
+Refine.REVIEW_RULE_CATEGORIES = [
+  {
+    key: 'presence', name: '存在类', desc: '判断某件「有没有」：盖章、指纹、签字等',
+    rules: [
+      { key: 'seal', name: '印章检测', enabled: true,
+        desc: '检测文件是否加盖印章（落款章、骑缝章），现由 AI 服务印章检测模型完成' },
+      { key: 'fingerprint', name: '指纹检测', enabled: false,
+        desc: '区分指纹与印章（指纹/印章混淆的后处理待接入）' },
+      { key: 'signature', name: '签字检测', enabled: false,
+        desc: '指定区域是否含手写签字' }
+    ]
+  },
+  {
+    key: 'consistency', name: '一致性比对类', desc: '签名/盖章与要素比对，给出相似度或数值差',
+    rules: [
+      { key: 'signature_match', name: '签名一致性', enabled: false, desc: '签名是否与某要素一致' },
+      { key: 'seal_match', name: '盖章一致性', enabled: false, desc: '盖章是否与责任者等要素一致' }
+    ]
+  },
+  {
+    key: 'compliance', name: '规范类', desc: '条款、页件完整性、规定符合性',
+    rules: [
+      { key: 'clause_presence', name: '必备条款检测', enabled: false, desc: '某件中是否有某条款' },
+      { key: 'missing_piece', name: '缺件缺页检测', enabled: false, desc: '是否缺少某件/某页' }
+    ]
+  },
+  {
+    key: 'list', name: '名单类', desc: '材料是否命中黑白名单内容',
+    rules: [
+      { key: 'blacklist', name: '黑名单命中', enabled: false, desc: '材料是否含黑名单内容' },
+      { key: 'whitelist', name: '白名单核对', enabled: false, desc: '材料是否在白名单内' }
+    ]
+  },
+  {
+    key: 'logic', name: '逻辑勾稽类', desc: '跨字段/跨件的数值与日期勾稽',
+    rules: [
+      { key: 'date_order', name: '日期勾稽', enabled: false, desc: '成文日期与流程日期是否矛盾' },
+      { key: 'amount_check', name: '金额勾稽', enabled: false, desc: '金额合计与明细是否一致' }
+    ]
+  }
+];
+
 Refine.LocalDirectorySourceUI = function (controller) {
   this._controller = controller;
 };
@@ -122,6 +166,19 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
   this._elmts.archiveCategoryLabel.text($.i18n('files-import/batch-archive-category'));
   this._elmts.archiveSubCategoryLabel.text($.i18n('files-import/batch-archive-sub-category'));
   this._elmts.extractionElementsLabel.text($.i18n('files-import/batch-extraction-elements'));
+
+  // 校审模式（极简版：文件校审已实现，格式数据校审置灰占位）
+  this._elmts.reviewModeLabel.text($.i18n('files-import/review-mode-label'));
+  this._elmts.modeReviewFileLabel.text($.i18n('files-import/review-mode-file'));
+  this._elmts.modeReviewFormatLabel.text($.i18n('files-import/review-mode-format'));
+  this._elmts.reviewConfigTitle.text($.i18n('files-import/review-config-title'));
+  this._elmts.reviewProjectNameLabel.text($.i18n('files-import/review-project-name'));
+  this._elmts.reviewRulesLabel.text($.i18n('files-import/review-rules'));
+  this._elmts.reviewStartButton.text($.i18n('files-import/review-start'));
+  this._elmts.reviewBackButton.text($.i18n('files-import/review-back'));
+  this._elmts.reviewCancelButton.text($.i18n('files-import/review-cancel'));
+  this._elmts.reviewProgressLabel.text($.i18n('files-import/review-progress-label'));
+  this._elmts.batchModeNote.text($.i18n('files-import/batch-single-dir-note'));
 
   // 门类 / 要素定义统一定义在模块作用域（Refine.ARCHIVE_CATEGORIES 等，见本文件顶部），
   // 「数据抽取」控制台的参数弹窗复用同一套，避免两处各写一份而漂移。
@@ -320,7 +377,8 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
   var self2 = this;
   $('input[name="extractionMode"]').on('change', function () {
     var mode = $("input[name='extractionMode']:checked").val();
-    self2._elmts.batchModeNote.toggle(mode !== 'standard');
+    // 单目录限制只针对两种批量提取模式；校审模式也需单目录，但提示文案由校审面板承载
+    self2._elmts.batchModeNote.toggle(mode === 'batch-volume' || mode === 'batch-case');
   });
 
   getFileSystemDetails();
@@ -421,6 +479,8 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
     if (mode === 'standard') {
       doc.directoryJsonObj = selectedItems;
       self._controller.startImportingDocument(doc);
+    } else if (mode === 'review-file') {
+      showReviewConfig(selectedItems[0].directory);
     } else {
       showBatchConfig(mode, selectedItems[0].directory);
     }
@@ -749,6 +809,244 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
     if (batchProjectId) {
       document.location = "project?project=" + batchProjectId;
     }
+  });
+
+  /* ---------------- 数据校审（极简版：文件校审 → 印章检测） ---------------- */
+
+  var REVIEW_CATEGORIES = Refine.REVIEW_RULE_CATEGORIES;
+  var reviewRootPath = null;
+  var reviewProjectId = null;
+  var reviewPollTimer = null;
+  var reviewActiveCategory = REVIEW_CATEGORIES[0].key;
+  // 规则勾选状态按 key 记在面板上：切 tab 不丢勾选，只有已启用规则可勾
+  var reviewChecked = {};
+
+  function resetReviewChecked() {
+    reviewChecked = {};
+    REVIEW_CATEGORIES.forEach(function (cat) {
+      cat.rules.forEach(function (rule) {
+        if (rule.enabled) reviewChecked[rule.key] = true;
+      });
+    });
+  }
+
+  function reviewCategoryOf(key) {
+    for (var i = 0; i < REVIEW_CATEGORIES.length; i++) {
+      if (REVIEW_CATEGORIES[i].key === key) return REVIEW_CATEGORIES[i];
+    }
+    return REVIEW_CATEGORIES[0];
+  }
+
+  /** 默认校审项目名：数据校审-所选根目录名-年月日时 */
+  function defaultReviewProjectName() {
+    var path = (reviewRootPath || '').replace(/[\\/]+$/, '');
+    var idx = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'));
+    var dirName = idx >= 0 ? path.substring(idx + 1) : path;
+    if (!dirName) dirName = $.i18n('files-import/review-project-default-name');
+    var now = new Date();
+    var stamp = '' + now.getFullYear() + pad2(now.getMonth() + 1)
+        + pad2(now.getDate()) + pad2(now.getHours());
+    return $.i18n('files-import/review-project-default-name') + '-' + dirName + '-' + stamp;
+  }
+
+  function showReviewConfig(rootPath) {
+    reviewRootPath = rootPath;
+    resetReviewChecked();
+    $("#directoryTreePanel").hide();
+    self._elmts.reviewConfigPanel.show();
+    self._elmts.reviewActionRow.show();
+    self._elmts.reviewProgressPanel.hide();
+    self._elmts.reviewStartButton.prop('disabled', false).text($.i18n('files-import/review-start'));
+    self._elmts.reviewBackButton.prop('disabled', false);
+    self._elmts.reviewCancelButton.show();
+    self._elmts.reviewProgressBar.css("width", "0%").removeData("last-percent");
+    self._elmts.reviewProgressDetail.empty();
+    self._elmts.reviewProgressMessage.empty();
+    if (!self._elmts.reviewProjectName.data('bound')) {
+      self._elmts.reviewProjectName.data('bound', true).on('input', function () {
+        $(this).data('edited', true);
+      });
+    }
+    if (!self._elmts.reviewProjectName.val() || !self._elmts.reviewProjectName.data('edited')) {
+      self._elmts.reviewProjectName.val(defaultReviewProjectName());
+    }
+    reviewActiveCategory = REVIEW_CATEGORIES[0].key;
+    renderReviewCategoryTabs();
+    renderReviewRules();
+  }
+
+  function renderReviewCategoryTabs() {
+    var $tabs = self._elmts.reviewCategoryTabs.empty();
+    REVIEW_CATEGORIES.forEach(function (cat) {
+      var enabled = cat.rules.some(function (r) { return r.enabled; });
+      $("<a href='javascript:void(0)' class='review-category-tab'></a>")
+          .text(cat.name)
+          .attr('title', cat.desc || '')
+          .toggleClass('active', cat.key === reviewActiveCategory)
+          .toggleClass('review-category-tab-disabled', !enabled)
+          .on('click', function () {
+            reviewActiveCategory = cat.key;
+            renderReviewCategoryTabs();
+            renderReviewRules();
+          })
+          .appendTo($tabs);
+    });
+  }
+
+  function renderReviewRules() {
+    var cat = reviewCategoryOf(reviewActiveCategory);
+    var $list = self._elmts.reviewRuleList.empty();
+    if (cat.desc) {
+      $("<div class='review-rule-category-desc'></div>").text(cat.desc).appendTo($list);
+    }
+    cat.rules.forEach(function (rule) {
+      var $item = $("<label class='review-rule-item'></label>");
+      var $cb = $("<input type='checkbox' class='review-rule-checkbox'/>").val(rule.key);
+      if (!rule.enabled) {
+        $item.addClass('review-rule-disabled');
+        $cb.prop('disabled', true);
+      } else {
+        $cb.prop('checked', !!reviewChecked[rule.key]);
+      }
+      $cb.on('change', function () {
+        reviewChecked[rule.key] = $(this).is(':checked');
+        updateReviewSelectedNote();
+      });
+      $item.append($cb)
+          .append($("<span class='review-rule-name'></span>").text(rule.name))
+          .append($("<span class='review-rule-desc'></span>").text(rule.desc || ''))
+          .appendTo($list);
+    });
+    updateReviewSelectedNote();
+  }
+
+  /** 已勾选规则（仅已启用规则可能被勾选） */
+  function collectReviewRules() {
+    var items = [];
+    REVIEW_CATEGORIES.forEach(function (cat) {
+      cat.rules.forEach(function (rule) {
+        if (rule.enabled && reviewChecked[rule.key]) {
+          items.push({ category: cat.name, key: rule.key, name: rule.name });
+        }
+      });
+    });
+    return items;
+  }
+
+  function updateReviewSelectedNote() {
+    var names = collectReviewRules().map(function (r) { return r.name; });
+    self._elmts.reviewSelectedNote
+        .toggleClass('review-selected-note-empty', names.length === 0)
+        .text(names.length > 0
+            ? $.i18n('files-import/review-selected') + names.join('、')
+            : $.i18n('files-import/review-rules-required'));
+  }
+
+  this._elmts.reviewBackButton.on('click', function () {
+    self._elmts.reviewConfigPanel.hide();
+    self._elmts.reviewActionRow.hide();
+    $("#directoryTreePanel").show();
+  });
+
+  this._elmts.reviewStartButton.on('click', function () {
+    if (reviewProjectId) {
+      // 已完成/中断后按钮切换为「进入项目」
+      document.location = "project?project=" + reviewProjectId;
+      return;
+    }
+    var projectName = self._elmts.reviewProjectName.val().trim();
+    if (!projectName) {
+      window.alert($.i18n('files-import/batch-project-name-required'));
+      return;
+    }
+    var rules = collectReviewRules();
+    if (rules.length === 0) {
+      window.alert($.i18n('files-import/review-rules-required'));
+      return;
+    }
+    var payload = {
+      subCommand: "start",
+      rootPath: reviewRootPath,
+      projectName: projectName,
+      rules: JSON.stringify(rules)
+    };
+    Refine.wrapCSRF(function (token) {
+      payload.csrf_token = token;
+      $.post("command/files/data-review", payload, function (data) {
+        if (!data || data.code === 'error') {
+          window.alert(data && data.message ? data.message : $.i18n('files-import/review-start-failed'));
+          return;
+        }
+        reviewProjectId = data.projectId;
+        startReviewPolling(data.projectId);
+      }, "json");
+    });
+  });
+
+  function startReviewPolling(projectId) {
+    self._elmts.reviewStartButton.prop('disabled', true);
+    self._elmts.reviewBackButton.prop('disabled', true);
+    self._elmts.reviewCancelButton.show();
+    self._elmts.reviewProgressPanel.show();
+    if (reviewPollTimer) window.clearInterval(reviewPollTimer);
+    reviewPollTimer = window.setInterval(function () {
+      Refine.wrapCSRF(function (token) {
+        $.post("command/files/data-review", {
+          subCommand: "progress",
+          project: projectId,
+          csrf_token: token
+        }, function (data) {
+          if (!data || data.code === 'error') {
+            window.clearInterval(reviewPollTimer);
+            reviewPollTimer = null;
+            window.alert(data && data.message ? data.message : $.i18n('files-import/review-progress-error'));
+            return;
+          }
+          var total = data.totalFiles || 0;
+          var processed = data.processedFiles || 0;
+          var percent = total > 0 ? processed * 100 / total : 0;
+          percent = Math.max(0, Math.min(100, Math.round(percent)));
+          var last = self._elmts.reviewProgressBar.data("last-percent");
+          if (typeof last === "number" && percent < last) percent = last;
+          self._elmts.reviewProgressBar.data("last-percent", percent).css("width", percent + "%");
+          var detail = $.i18n('files-import/review-progress-detail',
+              processed, total, data.passed || 0, data.failed || 0, data.unknown || 0);
+          if (data.currentFile) detail += " · " + data.currentFile;
+          self._elmts.reviewProgressDetail.text(detail);
+          self._elmts.reviewProgressMessage.text(data.message || "");
+          if (data.status !== 'running') {
+            window.clearInterval(reviewPollTimer);
+            reviewPollTimer = null;
+            self._elmts.reviewCancelButton.hide();
+            if (data.status === 'completed') {
+              self._elmts.reviewProgressMessage.text($.i18n('files-import/review-completed'));
+              self._elmts.reviewStartButton.prop('disabled', false)
+                  .text($.i18n('files-import/batch-open-project'));
+              self._elmts.reviewBackButton.prop('disabled', false);
+              document.location = "project?project=" + projectId;
+            } else {
+              self._elmts.reviewProgressMessage.text(data.status === 'cancelled'
+                  ? $.i18n('files-import/review-cancelled')
+                  : $.i18n('files-import/review-failed', data.message || ''));
+              self._elmts.reviewStartButton.prop('disabled', false)
+                  .text($.i18n('files-import/batch-open-project'));
+              self._elmts.reviewBackButton.prop('disabled', false);
+            }
+          }
+        }, "json");
+      });
+    }, 1500);
+  }
+
+  this._elmts.reviewCancelButton.on('click', function () {
+    if (!reviewProjectId) return;
+    Refine.wrapCSRF(function (token) {
+      $.post("command/files/data-review", {
+        subCommand: "cancel",
+        project: reviewProjectId,
+        csrf_token: token
+      }, function () {}, "json");
+    });
   });
 
   function renderTreeView(tree) {
