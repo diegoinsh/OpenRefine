@@ -130,6 +130,8 @@ Refine.DataReviewConsoleUI.prototype._render = function() {
 
   var table = $(
     '<table class="tablesorter-blue list-table"><thead><tr>' +
+    '<th></th>' +
+    '<th>开始时间</th>' +
     '<th>项目名称</th>' +
     '<th>校审目录</th>' +
     '<th>校审规则</th>' +
@@ -137,7 +139,6 @@ Refine.DataReviewConsoleUI.prototype._render = function() {
     '<th>通过</th>' +
     '<th>不通过</th>' +
     '<th>无法判定</th>' +
-    '<th>开始时间</th>' +
     '<th>操作</th>' +
     '</tr></thead><tbody id="dr-table-body"></tbody></table>'
   ).appendTo(container);
@@ -147,6 +148,36 @@ Refine.DataReviewConsoleUI.prototype._render = function() {
     var projectId = String(task.projectId);
     var project = self._projects[projectId] || {};
     var tr = $('<tr>').addClass('project').attr('data-project-id', projectId).appendTo(tbody);
+
+    // 删除任务：X 按钮与「数据抽取」列表一致；运行中禁止删除
+    var deleteCell = $('<td/>').appendTo(tr);
+    if (task.status !== 'running') {
+      $('<a/>')
+        .addClass('delete-project')
+        .attr('title', '删除任务')
+        .attr('href', 'javascript:void(0)')
+        .html('<img src="images/close-ry.png" />')
+        .on('click', function(e) {
+          e.preventDefault();
+          var name = project.name || task.projectName || ('#' + projectId);
+          if (window.confirm('确定要删除校审任务 "' + name + '" 吗？项目与校审结果将一并删除，此操作不可撤销！')) {
+            Refine.wrapCSRF(function(token) {
+              $.post('command/files/data-review',
+                { subCommand: 'delete', project: projectId, csrf_token: token },
+                function(data) {
+                  if (data && data.code === 'ok') {
+                    self._load();
+                  } else {
+                    window.alert('删除失败：' + ((data && data.message) ? data.message : '未知错误'));
+                  }
+                }, 'json');
+            });
+          }
+        })
+        .appendTo(deleteCell);
+    }
+
+    $('<td/>').text(self._formatDate(task.startedAt)).appendTo(tr);
 
     var nameCell = $('<td/>').appendTo(tr);
     if (project.name || task.projectName) {
@@ -164,7 +195,6 @@ Refine.DataReviewConsoleUI.prototype._render = function() {
     $('<td/>').text(Number(task.passed || 0)).appendTo(tr);
     $('<td/>').text(Number(task.failed || 0)).appendTo(tr);
     $('<td/>').text(Number(task.unknown || 0)).appendTo(tr);
-    $('<td/>').text(self._formatDate(task.startedAt)).appendTo(tr);
 
     var opsCell = $('<td/>').addClass('dr-task-ops').appendTo(tr);
     // 启动校审：图标按钮与「数据抽取」列表的启动抽取一致；运行中不显示

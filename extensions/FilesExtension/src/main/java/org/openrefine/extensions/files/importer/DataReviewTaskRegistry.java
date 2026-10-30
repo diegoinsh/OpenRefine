@@ -69,6 +69,16 @@ public final class DataReviewTaskRegistry {
         }
     }
 
+    /** 删除某个项目的任务登记；登记项不存在则忽略 */
+    public static void remove(long projectId) {
+        synchronized (LOCK) {
+            Map<String, Object> data = read();
+            if (data.remove(String.valueOf(projectId)) != null) {
+                write(data);
+            }
+        }
+    }
+
     /** 任务进入终态时更新状态/消息与统计；登记项不存在则忽略 */
     public static void updateStatus(long projectId, String status, String message,
                                     int processedFiles, int passed, int failed, int unknown) {

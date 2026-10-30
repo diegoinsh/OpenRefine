@@ -92,6 +92,8 @@ public class DataReviewCommand extends Command {
             doProgress(request, response);
         } else if ("cancel".equals(subCommand)) {
             doCancel(request, response);
+        } else if ("delete".equals(subCommand)) {
+            doDeleteTask(request, response);
         } else if ("list".equals(subCommand)) {
             doList(request, response);
         } else {
@@ -614,6 +616,34 @@ public class DataReviewCommand extends Command {
         ObjectNode result = mapper.createObjectNode();
         result.put("code", "ok");
         result.put("message", "取消请求已提交");
+        respondJSON(response, result);
+    }
+
+    /** 删除校审任务：先移除内存任务与登记表，再删除对应的校审项目（含校审结果） */
+    private void doDeleteTask(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        long pid;
+        try {
+            pid = Long.parseLong(trim(request.getParameter("project")));
+        } catch (NumberFormatException e) {
+            respondError(response, "缺少或非法的 project 参数");
+            return;
+        }
+        Task task = TASKS.get(pid);
+        if (task != null && STATUS_RUNNING.equals(task.status) && !task.cancelled) {
+            respondError(response, "校审任务进行中，请先停止再删除");
+            return;
+        }
+        TASKS.remove(pid);
+        DataReviewTaskRegistry.remove(pid);
+        try {
+            if (ProjectManager.singleton.getProject(pid) != null) {
+                ProjectManager.singleton.deleteProject(pid);
+            }
+        } catch (Exception e) {
+            logger.warn("删除校审项目失败: {}", pid, e);
+        }
+        ObjectNode result = mapper.createObjectNode();
+        result.put("code", "ok");
         respondJSON(response, result);
     }
 
