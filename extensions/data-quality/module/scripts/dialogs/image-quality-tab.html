@@ -23,15 +23,12 @@
   <div class="iq-categories-container" bind="categoriesContainer" id="iq-categories-container">
   </div>
 
-  <!-- 资源定位方式 - 与文件资源关联检查tab一致 -->
-  <p class="quality-section-title" data-i18n="data-quality-extension/resource-location"></p>
-  <div class="quality-config-section">
+  <!-- 图像资源定位方式 - 与条目独立配置：同目录的资源定位方式 + 文件根目录 -->
+  <p class="quality-section-title" data-i18n="data-quality-extension/image-resource-location"></p>
+  <div class="quality-config-section quality-path-config-section">
     <div class="quality-path-config-row">
-      <span class="quality-path-preview" bind="resourceConfig" id="iq-resource-config" data-i18n="data-quality-extension/resource-not-configured"></span>
-      <span class="iq-resource-warning" bind="resourceWarning" id="iq-resource-warning" style="display: none;">
-        <span data-i18n="data-quality-extension/resource-warning"></span>
-        <a href="javascript:void(0)" class="iq-resource-link" bind="resourceLink" data-i18n="data-quality-extension/go-to-settings"></a>
-      </span>
+      <button class="button" bind="configurePathButton" data-i18n="data-quality-extension/configure-path"></button>
+      <span class="quality-path-preview" bind="resourceConfig" id="iq-resource-config" data-i18n="data-quality-extension/path-not-configured"></span>
     </div>
   </div>
 </div>

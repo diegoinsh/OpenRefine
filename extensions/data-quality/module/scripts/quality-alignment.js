@@ -1071,12 +1071,14 @@ QualityAlignment._renderCheckboxWithInput = function(container, id, label, check
 
 /**
  * Handle resource config change
+ * @param {string} target - 'entry' (default) or 'image'
  */
-QualityAlignment._onResourceConfigChange = function() {
+QualityAlignment._onResourceConfigChange = function(target) {
   this._hasUnsavedChanges = true;
   if (this._unsavedIndicator) {
     this._unsavedIndicator.show();
   }
+  // 条目与图像共用同一份资源路径配置：任一侧改动都要刷新两处预览
   this._updatePathPreview();
   if (typeof ImageQualityTab !== 'undefined') {
     ImageQualityTab._initResourceConfig();
@@ -1130,11 +1132,19 @@ QualityAlignment._updatePathPreview = function() {
 
 /**
  * Show path configuration dialog (same as export-bound-assets)
+ * @param {string} target - 'entry' (default) configures entry path; 'image' configures the image-specific path
  */
-QualityAlignment._showPathConfigDialog = function() {
+QualityAlignment._showPathConfigDialog = function(target) {
   var self = this;
+  var isImage = target === 'image';
   var columns = theProject.columnModel.columns;
   var defaultSep = this._getPathSeparator();
+
+  // 条目与图像共用同一份资源路径配置（同源）
+  var config = this._resourceConfig;
+
+  var fieldLabelKey = isImage ? 'image-resource-location' : 'select-path-fields';
+  var rootLabelKey = isImage ? 'file-root-path' : 'source-root-path';
 
   var frame = $('<div class="dialog-frame" style="width: 750px;"></div>');
   var header = $('<div class="dialog-header"></div>')
@@ -1148,7 +1158,7 @@ QualityAlignment._showPathConfigDialog = function() {
 
   // Header row
   var headerRow = $('<tr></tr>').appendTo(mainTableInner);
-  $('<td></td>').text($.i18n('data-quality-extension/select-path-fields')).appendTo(headerRow);
+  $('<td></td>').text($.i18n('data-quality-extension/' + fieldLabelKey)).appendTo(headerRow);
 
   // Left: Field list
   var fieldListRow = $('<tr></tr>').appendTo(mainTableInner);
@@ -1157,7 +1167,7 @@ QualityAlignment._showPathConfigDialog = function() {
   var fieldList = $('<ul class="path-field-list"></ul>').appendTo(fieldListContainer);
 
   // Pre-select fields from config and reorder
-  var selectedFields = (this._resourceConfig.pathFields || []).slice();
+  var selectedFields = (config.pathFields || []).slice();
   var columnNames = columns.map(function(c) { return c.name; });
 
   // First add selected fields in order, then add remaining
@@ -1208,12 +1218,12 @@ QualityAlignment._showPathConfigDialog = function() {
 
   // Separator option
   var sepRow = $('<tr></tr>').appendTo(joinTableInner);
-  var pathMode = this._resourceConfig.pathMode || 'separator';
+  var pathMode = config.pathMode || 'separator';
   $('<td width="1%"></td>').html('<input type="radio" name="path-config-mode" value="separator" id="path-mode-sep" ' + (pathMode === 'separator' ? 'checked' : '') + ' />').appendTo(sepRow);
   var sepLabelTd = $('<td></td>').appendTo(sepRow);
   $('<label for="path-mode-sep"></label>').text($.i18n('data-quality-extension/use-separator') + ' ').appendTo(sepLabelTd);
   var separatorInput = $('<input type="text" class="lightweight" size="5">')
-    .val(this._resourceConfig.separator || defaultSep)
+    .val(config.separator || defaultSep)
     .on('input', function() { updatePreview(); })
     .appendTo(sepLabelTd);
 
@@ -1223,7 +1233,7 @@ QualityAlignment._showPathConfigDialog = function() {
   var tplLabelTd = $('<td></td>').appendTo(tplRow);
   $('<label for="path-mode-tpl"></label>').text($.i18n('data-quality-extension/use-template') + ' ').appendTo(tplLabelTd);
   var templateInput = $('<input type="text" class="lightweight" size="30">')
-    .val(this._resourceConfig.template || '')
+    .val(config.template || '')
     .attr('placeholder', '{0}/{1}/{2}')
     .on('input', function() { updatePreview(); })
     .appendTo(tplLabelTd);
@@ -1233,7 +1243,7 @@ QualityAlignment._showPathConfigDialog = function() {
 
   // Source root path
   var rootRow1 = $('<tr></tr>').appendTo(optionsTableInner);
-  $('<td colspan="2" style="padding-top: 15px;"></td>').text($.i18n('data-quality-extension/source-root-path')).appendTo(rootRow1);
+  $('<td colspan="2" style="padding-top: 15px;"></td>').text($.i18n('data-quality-extension/' + rootLabelKey)).appendTo(rootRow1);
 
   var rootRow2 = $('<tr></tr>').appendTo(optionsTableInner);
   var rootTd = $('<td></td>').appendTo(rootRow2);
@@ -1241,7 +1251,7 @@ QualityAlignment._showPathConfigDialog = function() {
   var rootTableInner = rootTable.find('table');
   var rootInputRow = $('<tr></tr>').appendTo(rootTableInner);
   $('<td width="100%"></td>').html('<input type="text" class="lightweight" style="width: 100%;" id="source-root-input" />').appendTo(rootInputRow);
-  var sourceRootInput = rootTd.find('#source-root-input').val(this._resourceConfig.basePath || '').on('input', function() { updatePreview(); });
+  var sourceRootInput = rootTd.find('#source-root-input').val(config.basePath || '').on('input', function() { updatePreview(); });
   $('<td width="1%"></td>').html('<button class="button">' + $.i18n('data-quality-extension/browse') + '</button>').appendTo(rootInputRow);
   rootInputRow.find('button').on('click', function() {
     var path = prompt($.i18n('data-quality-extension/enter-directory-path') || '请输入目录路径：', sourceRootInput.val());
@@ -1287,7 +1297,8 @@ QualityAlignment._showPathConfigDialog = function() {
     });
 
     if (orderedFields.length === 0) {
-      previewPane.text($.i18n('data-quality-extension/no-fields-selected'));
+      // 图像模式允许只配根目录（不选字段即按根目录定位）
+      previewPane.text(isImage && sourceRoot ? sourceRoot : $.i18n('data-quality-extension/no-fields-selected'));
       return;
     }
 
@@ -1328,17 +1339,17 @@ QualityAlignment._showPathConfigDialog = function() {
     .text($.i18n('data-quality-extension/confirm'))
     .on('click', function() {
       // Save config
-      self._resourceConfig.basePath = sourceRootInput.val().trim();
-      self._resourceConfig.pathMode = optionsPane.find('input[name="path-config-mode"]:checked').val();
-      self._resourceConfig.separator = separatorInput.val() || defaultSep;
-      self._resourceConfig.template = templateInput.val();
-      self._resourceConfig.pathFields = [];
+      config.basePath = sourceRootInput.val().trim();
+      config.pathMode = optionsPane.find('input[name="path-config-mode"]:checked').val();
+      config.separator = separatorInput.val() || defaultSep;
+      config.template = templateInput.val();
+      config.pathFields = [];
       fieldList.find('li').each(function() {
         if ($(this).find('input[type=checkbox]').prop('checked')) {
-          self._resourceConfig.pathFields.push($(this).data('column'));
+          config.pathFields.push($(this).data('column'));
         }
       });
-      self._onResourceConfigChange();
+      self._onResourceConfigChange(isImage ? 'image' : 'entry');
       DialogSystem.dismissUntil(level - 1);
     })
     .appendTo(footer);
@@ -3876,6 +3887,11 @@ QualityAlignment._saveRules = function(callback, silent) {
     aimpConfig: this._aimpConfig
   };
 
+  // 图像规则（含图像专用路径配置）随全局保存一并提交，避免覆盖时丢配置
+  if (typeof ImageQualityTab !== 'undefined' && ImageQualityTab._isSetUp && typeof ImageQualityTab._collectRuleFromUI === 'function') {
+    rules.imageQualityRule = ImageQualityTab._collectRuleFromUI();
+  }
+
   console.log('Saving rules:', rules);
 
   Refine.postCSRF(
@@ -3946,6 +3962,9 @@ QualityAlignment._loadRules = function() {
           self._refreshFormatRulesTable();
           self._renderResourceCheckTab();
           self._refreshContentRulesTable();
+          if (typeof ImageQualityTab !== 'undefined') {
+            ImageQualityTab._initResourceConfig();
+          }
         }
 
         // If AIMP service URL is configured, test connection to update status
@@ -4484,6 +4503,9 @@ QualityAlignment.onProjectUpdate = function(options) {
             self._refreshFormatRulesTable();
             self._renderResourceCheckTab();
             self._refreshContentRulesTable();
+            if (typeof ImageQualityTab !== 'undefined') {
+              ImageQualityTab._initResourceConfig();
+            }
           }
         }
       },

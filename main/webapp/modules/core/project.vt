@@ -41,6 +41,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     <script type="text/javascript">
       const urlParams = new URLSearchParams(window.location.search);
       var theProject = { id : urlParams.get("project") };
+      // 嵌入形态（?view=quality-rules）：在 <head> 阶段就给 <html> 打标记。
+      // 规则样式紧跟其后注入，隐藏规则因此立即生效——否则要等页面脚本执行完才加类，
+      // 顶栏（logo / 项目名 / 导航按钮）会先渲染出来闪一下再消失。
+      if (urlParams.get("view") === "quality-rules") {
+        document.documentElement.classList.add("ruyi-embed-quality");
+      }
     </script>
     <script type="text/javascript" src="wirings.js"></script>
     $scriptInjection

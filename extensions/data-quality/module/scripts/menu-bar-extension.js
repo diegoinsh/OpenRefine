@@ -59,7 +59,8 @@ $(function() {
       // 嵌入形态（?view=quality-rules）：只显示规则面板，隐藏顶栏/左侧面/数据网格，
       // 供业务系统 iframe 直接嵌入；规则保存后对之后启动的检查任务生效。
       if (isQualityEmbedRequest()) {
-        document.body.classList.add('ruyi-embed-quality');
+        // 标记打在 <html> 上（project.vt 的 <head> 脚本已提前加过，这里兜底）
+        document.documentElement.classList.add('ruyi-embed-quality');
         // 必须先拉取项目已存规则再渲染：直接 launch 只会搭出空面板，
         // 客户一保存就会把原有规则覆盖成空。该入口加载完规则后自动切到规则页签。
         QualityAlignment.autoLaunchIfNeededWithTarget('rules');

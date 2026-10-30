@@ -10,8 +10,6 @@ var ImageQualityTab = {
   _currentRule: null,
   _checkResult: null,
 
-  _resourceConfig: null,
-
   _categoryTypes: [
     { code: 'all', name: 'all-categories' },
     { code: 'authenticity', name: 'authenticity' },
@@ -199,15 +197,15 @@ ImageQualityTab._initFilterDropdowns = function() {
 };
 
 ImageQualityTab._initResourceConfig = function() {
-  var self = this;
+  if (!this._elmts) return;
 
   var resourceConfigElmt = this._elmts.resourceConfig;
-  var resourceWarning = this._elmts.resourceWarning;
-  var resourceLink = this._elmts.resourceLink;
+  if (!resourceConfigElmt || resourceConfigElmt.length === 0) return;
 
-  this._resourceConfig = QualityAlignment._resourceConfig || {};
-
-  var config = this._resourceConfig;
+  // 资源路径与「文件资源关联检查」同源：共用 QualityAlignment._resourceConfig
+  var config = (typeof QualityAlignment !== 'undefined' && QualityAlignment._resourceConfig)
+    ? QualityAlignment._resourceConfig
+    : {};
   var pathFields = config.pathFields || [];
   if (pathFields.length > 0 || config.basePath) {
     var defaultSep = QualityAlignment._getPathSeparator ? QualityAlignment._getPathSeparator() : '\\';
@@ -225,13 +223,14 @@ ImageQualityTab._initResourceConfig = function() {
       formattedPath += pathFields.map(function(f) { return '{' + f + '}'; }).join(sep);
     }
     resourceConfigElmt.text(formattedPath);
-    resourceWarning.hide();
   } else {
-    resourceConfigElmt.text($.i18n('data-quality-extension/resource-not-configured'));
-    resourceWarning.show();
+    resourceConfigElmt.text($.i18n('data-quality-extension/path-not-configured'));
+  }
 
-    resourceLink.off('click').on('click', function() {
-      QualityAlignment._switchSubTab('resource-check');
+  var configurePathButton = this._elmts.configurePathButton;
+  if (configurePathButton && configurePathButton.length > 0) {
+    configurePathButton.off('click').on('click', function() {
+      QualityAlignment._showPathConfigDialog('image');
     });
   }
 };

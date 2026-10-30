@@ -34,30 +34,36 @@
 }
 
 /* ===== 嵌入形态（?view=quality-rules）：只保留规则面板 =====
-   平台对外地址 /app/project?project=<id>&view=quality-rules 供业务系统 iframe 直接嵌入，
-   隐藏顶栏、左侧面、数据网格与结果页签；不带该参数时以下规则不生效。 */
-body.ruyi-embed-quality #header,
-body.ruyi-embed-quality #left-panel,
-body.ruyi-embed-quality #summary-bar,
-body.ruyi-embed-quality #extension-bar,
-body.ruyi-embed-quality #view-panel,
-body.ruyi-embed-quality #notification-container,
-body.ruyi-embed-quality .main-view-panel-tab-header.quality-data-tab,
-body.ruyi-embed-quality .main-view-panel-tab-header[href="#quality-results-panel"] {
+   平台对外地址 /app/project?project=<id>&view=quality-rules 供业务系统 iframe 直接嵌入。
+   除规则面板外全部隐藏：顶栏、左侧面、数据网格、页签栏（数据表页签 / 质量规则 / 结果）
+   与左侧面展开按钮；不带该参数时以下规则不生效。
+   标记打在 <html> 上（project.vt 的 <head> 内联脚本最先执行），保证顶栏不会先闪一下。 */
+html.ruyi-embed-quality #header,
+html.ruyi-embed-quality #left-panel,
+html.ruyi-embed-quality #tool-panel,
+html.ruyi-embed-quality #view-panel,
+html.ruyi-embed-quality #notification-container {
   display: none !important;
 }
 
-body.ruyi-embed-quality #body {
+html.ruyi-embed-quality #body {
   top: 0 !important;
 }
 
-body.ruyi-embed-quality #right-panel {
-  margin-left: 0 !important;
+/* #right-panel 是 fixed 定位：top 取自页头高度、padding-left + chrome 底色构成左侧色带，
+   这里一并归零，让规则面板贴满整个嵌入区域。 */
+html.ruyi-embed-quality #right-panel {
+  top: 0 !important;
   left: 0 !important;
   width: 100% !important;
+  height: 100vh !important;
+  padding-left: 0 !important;
+  background: var(--background-primary) !important;
+  border-top-left-radius: 0 !important;
+  box-shadow: none !important;
 }
 
-body.ruyi-embed-quality #quality-rules-panel {
+html.ruyi-embed-quality #quality-rules-panel {
   width: 100% !important;
 }
 
