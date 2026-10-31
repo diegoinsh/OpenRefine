@@ -8,6 +8,7 @@ var ReviewProjectPanel = (function() {
 
   var panel = null;
   var tab = null;
+  var dataTab = null;
   var state = null;
   var initialized = false;
   var currentTask = null;
@@ -36,13 +37,70 @@ var ReviewProjectPanel = (function() {
       // 切回 tab 时不强制重载，避免覆盖未保存的编辑
     }, 6);
 
+    // 与数据质量扩展同构：数据网格需要一个独立的「数据」页签（指向 #view-panel）。
+    // 质量扩展初始化有延迟时它可能还没建这个页签，切到校审参数后就回不到数据界面，
+    // 因此本组先补一个；质量扩展稍后建好同名页签时，由下面的观察器移除我们补的那个。
+    ensureDataTab();
+
     positionPanel();
     $(window).on('resize.reviewParams', positionPanel);
+    // 质量扩展可能在本面板之后才注册页签；页签增删或换行会改变工具条实际高度，
+    // 监听变化重新对齐，避免面板盖住新增的那一行页签。
+    if (window.MutationObserver) {
+      new MutationObserver(function() {
+        // 质量扩展晚于本面板初始化时会再建一个「数据」页签，去掉我们临时补的那个
+        if (dataTab && $('#tool-panel .quality-data-tab').length > 1) {
+          dropDataTab();
+        }
+        positionPanel();
+      }).observe($('#tool-panel')[0], {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'style']
+      });
+    }
     initialized = true;
   }
 
   /**
-   * 让面板贴住数据网格区域：top 跟随 #tool-panel 实际高度。
+   * 补一个「数据」页签（与数据质量扩展 quality-alignment 的 _dataTab 同构）。
+   * 质量扩展已初始化时它已建好并注册在 quality-tabs，直接复用，不重复建。
+   */
+  function ensureDataTab() {
+    if (dataTab || $('#tool-panel .quality-data-tab').length > 0) {
+      return;
+    }
+    dataTab = $('<div></div>')
+      .addClass('main-view-panel-tab-header')
+      .addClass('quality-data-tab')
+      .attr('href', '#view-panel')
+      .text('数据')
+      .insertBefore('#summary-bar');
+    TabManager.registerTab('review-tabs', dataTab, '#view-panel', function() {
+      // 只是回到数据网格，不需要额外动作
+    }, 0);
+  }
+
+  /** 质量扩展已接管「数据」页签：撤掉本组临时补的那个，避免出现两个同名页签 */
+  function dropDataTab() {
+    if (!dataTab) {
+      return;
+    }
+    dataTab.off('click.tabmanager');
+    var group = TabManager._tabGroups['review-tabs'];
+    if (group) {
+      group.tabs = group.tabs.filter(function(tabData) {
+        return !tabData.tab.is(dataTab);
+      });
+    }
+    dataTab.remove();
+    dataTab = null;
+  }
+
+  /**
+   * 让面板贴住数据网格区域：top 取工具条各页签的实际底边（#tool-panel 高度固定为 34px，
+   * 页签多到换行时会溢出到下方，只看 outerHeight 会盖住第二行页签，导致点不回数据界面）。
    * 面板是绝对定位的（见 review-project-panel.css），不依赖 #view-panel 是否已被
    * TabManager 隐藏——质量扩展初始化有延迟时，view-panel 仍占满右侧面板，
    * 正常流里的面板会被挤到可视区下方（表现为「tab 出现了但没有任何内容」）。
@@ -51,8 +109,20 @@ var ReviewProjectPanel = (function() {
     if (!panel) {
       return;
     }
-    var top = $('#tool-panel').outerHeight() || 0;
-    panel.css('top', top + 'px');
+    var bottom = 0;
+    $('#tool-panel').children().each(function() {
+      if (!$(this).is(':visible')) {
+        return;
+      }
+      var childBottom = this.offsetTop + $(this).outerHeight();
+      if (childBottom > bottom) {
+        bottom = childBottom;
+      }
+    });
+    if (bottom <= 0) {
+      bottom = $('#tool-panel').outerHeight() || 0;
+    }
+    panel.css('top', bottom + 'px');
   }
 
   /** 从校审任务登记表取当前项目的参数（没有则空对象）。 */
