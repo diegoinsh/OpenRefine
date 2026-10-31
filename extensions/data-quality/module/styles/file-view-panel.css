@@ -374,6 +374,13 @@
   margin-bottom: 4px;
 }
 
+/* 当前预览页不是标注所属页时的提示行（框只画在标注页上） */
+.file-view-ann-legend-page {
+  color: #888;
+  margin-bottom: 4px;
+  white-space: nowrap;
+}
+
 /* 图例分组：检出标签 / 缺失标签 */
 .file-view-ann-legend-group + .file-view-ann-legend-group {
   margin-top: 6px;

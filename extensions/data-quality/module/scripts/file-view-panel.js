@@ -1290,9 +1290,9 @@ var FileViewPanel = {};
     if (!ann || !ann.items || !ann.items.length) {
       return;
     }
-    if (ann.f && file && ann.f !== file.name) {
-      return;
-    }
+    // 框的坐标属于 ann.f 这张原图，翻到同目录其它页时不能画框（会对不上位置）；
+    // 但图例是「本行/本件的校审结论」，与当前预览的是哪一页无关，翻页后不该整块消失。
+    var matchesFile = !(ann.f && file && ann.f !== file.name);
 
     // 标注分两类：detected = 视觉级检出（有 bbox，画框），missing = 视觉级缺项（无 bbox，单独列出）
     var detected = [];
@@ -1313,13 +1313,14 @@ var FileViewPanel = {};
       // bbox 与检测所用图像同像素系：优先用后端记录的宽高，缺省时退回原图自然尺寸
       var natW = (ann.w && ann.w > 0) ? ann.w : el.naturalWidth;
       var natH = (ann.h && ann.h > 0) ? ann.h : el.naturalHeight;
-      if (detected.length > 0 && (!natW || !natH)) {
+      if (matchesFile && detected.length > 0 && (!natW || !natH)) {
         return;
       }
 
-      // 标注层与图片同步缩放/平移：图片用 transform 缩放，标注层套用同一变换即可保持对齐
+      // 标注层与图片同步缩放/平移：图片用 transform 缩放，标注层套用同一变换即可保持对齐。
+      // 当前预览页不是标注所属页时不建层（框会落在错误的位置），图例照常展示。
       var layer = null;
-      if (detected.length > 0) {
+      if (matchesFile && detected.length > 0) {
         layer = $('<div>').addClass('file-view-ann-layer').css({
           left: el.offsetLeft + 'px',
           top: el.offsetTop + 'px',
@@ -1328,9 +1329,18 @@ var FileViewPanel = {};
         }).appendTo(imgContainer);
       }
 
+      // 图例统计与画框拆开：只有标注所属页才画框，图例（本行校审结论）在任何页都展示
       var types = {};
       detected.forEach(function(item) {
         var key = item.color || 'other';
+        if (!types[key]) {
+          types[key] = { label: item.label || '问题', count: 0 };
+        }
+        types[key].count++;
+
+        if (!layer) {
+          return;
+        }
         var box = $('<div>').addClass('file-view-ann-box file-view-ann-box-' + key).css({
           left: (item.x / natW * 100) + '%',
           top: (item.y / natH * 100) + '%',
@@ -1339,17 +1349,18 @@ var FileViewPanel = {};
         });
         $('<span>').addClass('file-view-ann-tag').text(item.label || '问题').appendTo(box);
         layer.append(box);
-
-        if (!types[key]) {
-          types[key] = { label: item.label || '问题', count: 0 };
-        }
-        types[key].count++;
       });
 
       // 标签图例分两组：检出标签（类型色块 + 数量）／缺失标签（逐项列出）
       container.find('.file-view-ann-legend').remove();
       if (Object.keys(types).length > 0 || missing.length > 0) {
         var legend = $('<div>').addClass('file-view-ann-legend').appendTo(container);
+        if (!matchesFile) {
+          // 框只画在标注所属页上：翻到同目录其它页时明确告诉用户标注属于哪张
+          $('<div>').addClass('file-view-ann-legend-page')
+              .text('标注页 ' + (ann.f || '') + (ann.p ? '（第 ' + ann.p + ' 页）' : ''))
+              .appendTo(legend);
+        }
         if (Object.keys(types).length > 0) {
           var detectedGroup = $('<div>').addClass('file-view-ann-legend-group').appendTo(legend);
           $('<div>').addClass('file-view-ann-legend-title')

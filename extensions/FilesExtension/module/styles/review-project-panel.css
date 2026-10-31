@@ -2,8 +2,17 @@
 #review-params-panel {
   background-color: var(--background-primary);
   overflow-y: auto;
-  height: 100%;
   font-size: 13px;
+  /* 绝对定位在数据网格区域之上：#view-panel 尚未被 TabManager 纳入管理时（质量扩展
+     初始化有延迟），它仍占满右侧面板，正常流里的面板会被挤到可视区下方（表现为
+     「tab 出现了但没有内容」）。绝对定位不依赖 view-panel 是否被隐藏，top 由脚本
+     按 #tool-panel 高度设置。 */
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: 0;
+  z-index: 5;
 }
 
 .review-params-form {

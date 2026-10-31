@@ -36,7 +36,23 @@ var ReviewProjectPanel = (function() {
       // 切回 tab 时不强制重载，避免覆盖未保存的编辑
     }, 6);
 
+    positionPanel();
+    $(window).on('resize.reviewParams', positionPanel);
     initialized = true;
+  }
+
+  /**
+   * 让面板贴住数据网格区域：top 跟随 #tool-panel 实际高度。
+   * 面板是绝对定位的（见 review-project-panel.css），不依赖 #view-panel 是否已被
+   * TabManager 隐藏——质量扩展初始化有延迟时，view-panel 仍占满右侧面板，
+   * 正常流里的面板会被挤到可视区下方（表现为「tab 出现了但没有任何内容」）。
+   */
+  function positionPanel() {
+    if (!panel) {
+      return;
+    }
+    var top = $('#tool-panel').outerHeight() || 0;
+    panel.css('top', top + 'px');
   }
 
   /** 从校审任务登记表取当前项目的参数（没有则空对象）。 */
@@ -150,6 +166,8 @@ var ReviewProjectPanel = (function() {
       return;
     }
     TabManager.switchTab('review-tabs', tab);
+    // 新 tab 加入后 #tool-panel 高度可能变化，切到本 tab 时重新对齐面板顶部
+    positionPanel();
     fetchTask(render);
   }
 
