@@ -52,6 +52,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
       if (embedView === "review-params" || embedView === "review-preview") {
         document.documentElement.classList.add("ruyi-embed-review");
       }
+      // 抽取参数的嵌入形态：只显示「抽取参数」面板（?view=extraction-params）
+      if (embedView === "extraction-params") {
+        document.documentElement.classList.add("ruyi-embed-extraction");
+      }
     </script>
     <script type="text/javascript" src="wirings.js"></script>
     $scriptInjection

@@ -85,6 +85,7 @@ public class FilesExtensionSpi implements RefineModuleSpi {
                 "scripts/extraction-project-panel.js",
                 "scripts/review-project-panel.js",
                 "scripts/review-embed.js",
+                "scripts/extraction-embed.js",
                 "scripts/dialogs/extraction-rules-dialog.js",
                 "scripts/menu-bar-extension.js");
 
