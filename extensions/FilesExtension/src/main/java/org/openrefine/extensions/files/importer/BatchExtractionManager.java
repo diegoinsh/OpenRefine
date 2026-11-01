@@ -120,6 +120,17 @@ public class BatchExtractionManager {
     public static final String PAGE_TYPE_MAP_KEY = "__page_types__";
 
     /**
+     * 页映射的保留键「逐页清单」：{行号: [{fileName, pageIndex, pageNo?, filePage?}]}。
+     *
+     * <p>「起止页号」只是展示口径（文件名解析页号优先，解析不到回退列表序号），
+     * 不能作为稳定的页身份。这里把每件的真实页清单登记下来：
+     * {@code fileName} 为含扩展名的完整文件名（业务身份），{@code pageIndex} 为卷内自然序
+     * 1-based 位置（技术定位），{@code pageNo} 为文件名解析出的展示页号（可空），
+     * {@code filePage} 为 PDF 文件内页序（仅 PDF 模式有）。下游按页调整时以此为准。</p>
+     */
+    public static final String PIECE_PAGES_KEY = "__piece_pages__";
+
+    /**
      * 诉讼档案单批并发页数。需与以下两处对齐，否则以最小值生效：
      * Ollama 的 OLLAMA_NUM_PARALLEL、AIMP 的 config/single_gpu_config.yaml 中
      * pipeline.max_workers，当前三者均为 4。
@@ -2325,6 +2336,7 @@ public class BatchExtractionManager {
         accumulateVolumeSummary(task, unit, piece, responsibleParty, documentDate, values,
                 candidates, pieceStart);
         recordPageMap(task, rowIndex, candidates, pieceStart);
+        recordPiecePages(task, rowIndex, unit, piece, fileName);
         // 每落一行就刷新内存中的页映射：前端在任务进行中轮询时也能定位到正确页。
         // 此前只在每 SAVE_EVERY_ROWS 行落盘时顺带刷新，中间态缺一段映射，前端点击会退化为
         // "第 1 页"（实测：第一卷已出结果、第二卷仍在提取时，第一卷中段各件点击均回到第一页，
@@ -2375,6 +2387,48 @@ public class BatchExtractionManager {
         if (rowNode.size() == 0) return;
         synchronized (task.pageMap) {
             task.pageMap.set(String.valueOf(rowIndex), rowNode);
+        }
+    }
+
+    /**
+     * 登记本件的逐页清单（见 {@link #PIECE_PAGES_KEY}）。
+     *
+     * <p>图片模式按卷内自然序切片，文件名取真实文件名（含扩展名）；PDF 模式一件即一份 PDF，
+     * {@code pageIndex} 是卷内全局页序、{@code filePage} 是 PDF 文件内页序。</p>
+     */
+    private void recordPiecePages(Task task, int rowIndex, UnitScanner.Volume unit,
+                                  TitleSplitter.Piece piece, String fileName) {
+        if (unit == null || piece == null) return;
+        ArrayNode arr = mapper.createArrayNode();
+        if (unit.pdfMode) {
+            for (int i = piece.startPage; i <= piece.endPage; i++) {
+                ObjectNode n = arr.addObject();
+                n.put("fileName", fileName == null ? "" : fileName);
+                n.put("pageIndex", i);
+                n.put("filePage", i - piece.startPage + 1);
+            }
+        } else {
+            for (int i = piece.startPage; i <= piece.endPage; i++) {
+                int idx = i - 1;
+                if (idx < 0 || idx >= unit.pages.size()) continue;
+                ObjectNode n = arr.addObject();
+                n.put("fileName", new File(unit.pages.get(idx)).getName());
+                n.put("pageIndex", i);
+                Integer no = idx < unit.pageNos.size() ? unit.pageNos.get(idx) : null;
+                if (no != null) n.put("pageNo", no);
+            }
+        }
+        if (arr.size() == 0) return;
+        synchronized (task.pageMap) {
+            ObjectNode root;
+            JsonNode node = task.pageMap.get(PIECE_PAGES_KEY);
+            if (node instanceof ObjectNode) {
+                root = (ObjectNode) node;
+            } else {
+                root = mapper.createObjectNode();
+                task.pageMap.set(PIECE_PAGES_KEY, root);
+            }
+            root.set(String.valueOf(rowIndex), arr);
         }
     }
 

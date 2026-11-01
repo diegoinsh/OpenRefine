@@ -107,6 +107,10 @@ public class ExtractionResultCommand extends Command {
         }
 
         ArrayNode rowArr = result.putArray("rows");
+        // 逐页清单（可选）：{fileName, pageIndex, pageNo?, filePage?}，按行号索引。
+        // 默认不返回，避免卷宗页数多时响应体积膨胀；调用方传 withPages=true 才带出。
+        JsonNode piecePages = "true".equalsIgnoreCase(request.getParameter("withPages"))
+                ? readPiecePages(project) : null;
         // 卷级表：每行按项目登记的卷级要素列清单补 missingFields（缺值要素），
         // 随案（在办）卷据此表达「卷级要素尚未形成」，与「抽取没抽到」区分开
         boolean volumeSheet = BatchExtractionCommand.SUMMARY_SHEET_ID.equals(sheet.sheetId);
@@ -127,9 +131,39 @@ public class ExtractionResultCommand extends Command {
             if (!volumeFields.isEmpty()) {
                 appendMissingFields(obj, row, sheet.columnModel, volumeFields);
             }
+            if (piecePages != null) {
+                JsonNode pages = piecePages.get(String.valueOf(i));
+                if (pages instanceof ArrayNode) {
+                    obj.set("pages", pages);
+                }
+            }
         }
 
         respondJSON(response, result);
+    }
+
+    /**
+     * 读取项目登记的逐页清单（{@link BatchExtractionManager#PIECE_PAGES_KEY}）。
+     * 未做过批量提取或旧项目返回 {@code null}，调用方按「无页清单」降级。
+     */
+    private static JsonNode readPiecePages(Project project) {
+        if (project.getMetadata() == null) {
+            return null;
+        }
+        Object stored = project.getMetadata().getCustomMetadata(BatchExtractionManager.PAGE_MAP_KEY);
+        if (!(stored instanceof String) || ((String) stored).isEmpty()) {
+            return null;
+        }
+        try {
+            JsonNode node = mapper.readTree((String) stored);
+            if (!node.isObject()) {
+                return null;
+            }
+            JsonNode pages = node.get(BatchExtractionManager.PIECE_PAGES_KEY);
+            return pages != null && pages.isObject() ? pages : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** 卷级要素列：{@code key} 为要素键（如 jiean_fangshi），{@code name} 为结果列名 */
