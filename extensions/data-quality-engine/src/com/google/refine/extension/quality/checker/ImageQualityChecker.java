@@ -872,6 +872,47 @@ public class ImageQualityChecker {
                imageRule.getItemByCode("duplicate") != null;
     }
 
+    /**
+     * 按候选键名依次读取整数参数：规则模板（ImageCheckStandard/平台合规模板）用 stainThreshold、
+     * holeThreshold、edgeThreshold，旧的项目内规则配置用 stainValue、holeValue、edgeValue，
+     * 两种键名都要能取到，否则会静默回落到硬编码默认值。
+     */
+    static Integer readIntParameter(ImageCheckItem item, String... keys) {
+        if (item == null) {
+            return null;
+        }
+        for (String key : keys) {
+            Object value = item.getParameter(key, Object.class);
+            if (value == null) {
+                continue;
+            }
+            String text = value.toString().trim();
+            if (text.isEmpty()) {
+                continue;
+            }
+            try {
+                return Integer.valueOf(text);
+            } catch (NumberFormatException e) {
+                logger.warn("[ImageQualityChecker] 参数 {} 的值无法解析为整数: {}", key, text);
+            }
+        }
+        return null;
+    }
+
+    /** 按候选键名依次读取字符串参数（黑边检测模式：detectionMode / checkMode） */
+    static String readStringParameter(ImageCheckItem item, String... keys) {
+        if (item == null) {
+            return null;
+        }
+        for (String key : keys) {
+            Object value = item.getParameter(key, Object.class);
+            if (value != null && !value.toString().trim().isEmpty()) {
+                return value.toString().trim();
+            }
+        }
+        return null;
+    }
+
     private AiCheckParams buildCheckParams(ImageQualityRule imageRule) {
         AiCheckParams params = new AiCheckParams();
 
@@ -923,24 +964,23 @@ public class ImageQualityChecker {
                     break;
                 case "stain":
                     params.setCheckStain(true);
-                    Object stainValue = item.getParameter("stainValue", Object.class);
-                    if (stainValue != null) {
-                        params.setStainThreshold(Integer.parseInt(stainValue.toString()));
+                    Integer stainThresholdValue = readIntParameter(item, "stainThreshold", "stainValue");
+                    if (stainThresholdValue != null) {
+                        params.setStainThreshold(stainThresholdValue);
                     }
                     break;
                 case "hole":
                 case "binding-hole":
                     params.setCheckHole(true);
-                    Object holeValue = item.getParameter("holeValue", Object.class);
-                    if (holeValue != null) {
-                        params.setHoleThreshold(Integer.parseInt(holeValue.toString()));
+                    Integer holeThresholdValue = readIntParameter(item, "holeThreshold", "holeValue");
+                    if (holeThresholdValue != null) {
+                        params.setHoleThreshold(holeThresholdValue);
                     }
                     break;
                 case "edge":
                     params.setCheckEdge(true);
-                    Object edgeValue = item.getParameter("checkMode", Object.class);
-                    if (edgeValue != null) {
-                        String edgeMode = edgeValue.toString();
+                    String edgeMode = readStringParameter(item, "detectionMode", "checkMode");
+                    if (edgeMode != null) {
                         if ("strict".equals(edgeMode)) {
                             params.setEdgeStrictMode(2);
                         } else if ("standard".equals(edgeMode)) {
@@ -1036,11 +1076,9 @@ public class ImageQualityChecker {
             int stainThreshold = 10;
             if (imageRule != null) {
                 ImageCheckItem stainItem = imageRule.getItemByCode("stain");
-                if (stainItem != null) {
-                    Object stainValue = stainItem.getParameter("stainValue", Object.class);
-                    if (stainValue != null) {
-                        stainThreshold = Integer.parseInt(stainValue.toString());
-                    }
+                Integer configured = readIntParameter(stainItem, "stainThreshold", "stainValue");
+                if (configured != null) {
+                    stainThreshold = configured;
                 }
             }
             
@@ -1081,17 +1119,16 @@ public class ImageQualityChecker {
             error.setErrorType("hole");
             error.setCategory("image_quality");
             
-            int holeThreshold = 10;
+            // 装订孔默认阈值与规则标准/AiCheckParams 保持一致（1），此前误用污点的 10
+            int holeThreshold = 1;
             if (imageRule != null) {
                 ImageCheckItem holeItem = imageRule.getItemByCode("hole");
                 if (holeItem == null) {
                     holeItem = imageRule.getItemByCode("binding-hole");
                 }
-                if (holeItem != null) {
-                    Object holeValue = holeItem.getParameter("holeValue", Object.class);
-                    if (holeValue != null) {
-                        holeThreshold = Integer.parseInt(holeValue.toString());
-                    }
+                Integer configured = readIntParameter(holeItem, "holeThreshold", "holeValue");
+                if (configured != null) {
+                    holeThreshold = configured;
                 }
             }
             
@@ -1135,11 +1172,9 @@ public class ImageQualityChecker {
             int edgeThreshold = 10;
             if (imageRule != null) {
                 ImageCheckItem edgeItem = imageRule.getItemByCode("edge");
-                if (edgeItem != null) {
-                    Object edgeValue = edgeItem.getParameter("edgeValue", Object.class);
-                    if (edgeValue != null) {
-                        edgeThreshold = Integer.parseInt(edgeValue.toString());
-                    }
+                Integer configured = readIntParameter(edgeItem, "edgeThreshold", "edgeValue");
+                if (configured != null) {
+                    edgeThreshold = configured;
                 }
             }
             

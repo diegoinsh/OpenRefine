@@ -109,6 +109,9 @@ public class DataReviewCommand extends Command {
         try {
             String rootPath = trim(request.getParameter("rootPath"));
             String projectName = trim(request.getParameter("projectName"));
+            // 可选：沿用已存在的引擎项目（平台侧绑定表里的项目号）。
+            // 重新校审必须写回同一个项目号，下游嵌入的界面地址（project=<引擎号>）才不会失效。
+            String reuseProject = trim(request.getParameter("project"));
             String rulesJson = request.getParameter("rules");
             String aimpUrl = aimpUrl(request.getParameter("aimpUrl"));
             double confidence = parseDouble(request.getParameter("confidence"), 0.5);
@@ -149,7 +152,7 @@ public class DataReviewCommand extends Command {
             int totalFiles = 0;
             for (UnitScanner.Volume unit : units) totalFiles += unit.pages.size();
 
-            Project project = createEmptyProject(projectName, units);
+            Project project = prepareProject(projectName, reuseProject);
             Task task = new Task(project.id, rootPath, aimpUrl, confidence, rules, units, totalFiles);
             TASKS.put(project.id, task);
 
@@ -240,7 +243,7 @@ public class DataReviewCommand extends Command {
         return units;
     }
 
-    private Project createEmptyProject(String projectName, List<UnitScanner.Volume> units) throws Exception {
+    private Project createEmptyProject(String projectName) throws Exception {
         Project project = new Project();
         addColumns(project.columnModel, COLUMNS);
         project.update();
@@ -250,6 +253,50 @@ public class DataReviewCommand extends Command {
         metadata.setEncoding("UTF-8");
         ProjectManager.singleton.registerProject(project, metadata);
         return project;
+    }
+
+    /**
+     * 取本次校审要写入的项目：带 {@code project} 参数且项目存在时**沿用它**（清空旧行与
+     * 旧 pageMap 后重跑），否则新建。
+     *
+     * <p>复用时项目号保持不变——平台侧据此把「外部项目号 → 引擎项目号」的绑定保持稳定。</p>
+     */
+    private Project prepareProject(String projectName, String reuseProject) throws Exception {
+        if (!reuseProject.isEmpty()) {
+            try {
+                long pid = Long.parseLong(reuseProject);
+                Project existing = ProjectManager.singleton.getProject(pid);
+                if (existing != null) {
+                    Task running = TASKS.get(pid);
+                    if (running != null && STATUS_RUNNING.equals(running.status) && !running.cancelled) {
+                        running.cancelled = true;
+                    }
+                    resetForRerun(existing, projectName);
+                    return existing;
+                }
+                logger.warn("校审复用项目不存在，改为新建: {}", pid);
+            } catch (NumberFormatException e) {
+                logger.warn("校审 project 参数非法，改为新建: {}", reuseProject);
+            }
+        }
+        return createEmptyProject(projectName);
+    }
+
+    /** 复用项目前清掉上一轮结果（行数据与 pageMap），保留项目号与其它元信息。 */
+    private static void resetForRerun(Project project, String projectName) {
+        synchronized (project) {
+            project.rows.clear();
+            project.getMetadata().setCustomMetadata(BatchExtractionManager.PAGE_MAP_KEY, null);
+            if (!projectName.isEmpty()) {
+                project.getMetadata().setName(projectName);
+            }
+            project.update();
+            try {
+                ProjectManager.singleton.ensureProjectSaved(project.id);
+            } catch (Exception e) {
+                logger.warn("清空校审项目旧结果后落盘失败: {}", project.id, e);
+            }
+        }
     }
 
     private static void addColumns(ColumnModel columnModel, List<String> names) throws Exception {
