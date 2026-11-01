@@ -76,11 +76,29 @@
     FileViewPanel.show(rowIndex, -1);
   }
 
+  /**
+   * 校审参数面板要等项目页的界面初始化完成后再打开。
+   * 项目数据由 onLoad 异步取回后才建界面；抢在前面注册页签会与随后的 initializeUI
+   * 争抢 #tool-panel / #view-panel（页签被提前切走、数据表格建在隐藏容器里），
+   * 表现为页面空白、面板不可见。与预览入口同口径，用轮询等就绪。
+   */
+  function openParamsWhenReady(attempts) {
+    attempts = attempts || 0;
+    var ready = (typeof ui !== 'undefined' && ui && ui.dataTableView);
+    if (!ready && attempts < 150) {
+      setTimeout(function() {
+        openParamsWhenReady(attempts + 1);
+      }, 100);
+      return;
+    }
+    if (typeof ReviewProjectPanel !== 'undefined') {
+      ReviewProjectPanel.open();
+    }
+  }
+
   $(function() {
     if (view === 'review-params') {
-      if (typeof ReviewProjectPanel !== 'undefined') {
-        ReviewProjectPanel.open();
-      }
+      openParamsWhenReady(0);
     } else {
       openPreview(param('seq'));
     }

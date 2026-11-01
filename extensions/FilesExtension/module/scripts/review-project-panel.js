@@ -44,20 +44,50 @@ var ReviewProjectPanel = (function() {
 
     positionPanel();
     $(window).on('resize.reviewParams', positionPanel);
-    // 质量扩展可能在本面板之后才注册页签；页签增删或换行会改变工具条实际高度，
+    // 质量扩展可能在本面板之后才注册页签；页签增删会改变工具条实际高度，
     // 监听变化重新对齐，避免面板盖住新增的那一行页签。
+    //
+    // 只监听 childList：绝不能监听 attributes。positionPanel 自身会写面板样式，
+    // 而工具条的 style/class 又会被预览面板等模块反复改写（预览打开时压缩宽度、
+    // 关闭时清空），两者互相触发会形成无限反馈环——实测 8 秒内触发 2000+ 次，
+    // 主线程被占满，页面白屏且完全无响应。
     if (window.MutationObserver) {
-      new MutationObserver(function() {
+      var positionScheduled = false;
+      var schedulePosition = function() {
+        if (positionScheduled) {
+          return;
+        }
+        positionScheduled = true;
+        var run = function() {
+          positionScheduled = false;
+          positionPanel();
+        };
+        if (window.requestAnimationFrame) {
+          window.requestAnimationFrame(run);
+        } else {
+          setTimeout(run, 16);
+        }
+      };
+      new MutationObserver(function(mutations) {
+        // 只在子节点增删时重排；属性变化一律忽略
+        var structural = false;
+        for (var i = 0; i < mutations.length; i++) {
+          if (mutations[i].type === 'childList') {
+            structural = true;
+            break;
+          }
+        }
+        if (!structural) {
+          return;
+        }
         // 质量扩展晚于本面板初始化时会再建一个「数据」页签，去掉我们临时补的那个
         if (dataTab && $('#tool-panel .quality-data-tab').length > 1) {
           dropDataTab();
         }
-        positionPanel();
+        schedulePosition();
       }).observe($('#tool-panel')[0], {
         childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['class', 'style']
+        subtree: true
       });
     }
     initialized = true;
@@ -109,8 +139,17 @@ var ReviewProjectPanel = (function() {
     if (!panel) {
       return;
     }
+    // 嵌入形态把整个工具条隐藏了（display:none），此时面板应从顶部铺满整块区域，
+    // 不能再去取工具条高度——隐藏元素的 outerHeight 不可靠，会让面板整体下移一条。
+    var toolPanel = $('#tool-panel');
+    if (toolPanel.length === 0 || toolPanel.css('display') === 'none') {
+      if (panel[0].style.top !== '0px') {
+        panel.css('top', '0px');
+      }
+      return;
+    }
     var bottom = 0;
-    $('#tool-panel').children().each(function() {
+    toolPanel.children().each(function() {
       if (!$(this).is(':visible')) {
         return;
       }
@@ -122,7 +161,11 @@ var ReviewProjectPanel = (function() {
     if (bottom <= 0) {
       bottom = $('#tool-panel').outerHeight() || 0;
     }
-    panel.css('top', bottom + 'px');
+    // 值没变就不写：写样式会触发订阅工具条变化的观察者，无谓的样式写入会放大反馈环
+    var top = bottom + 'px';
+    if (panel[0].style.top !== top) {
+      panel.css('top', top);
+    }
   }
 
   /** 从校审任务登记表取当前项目的参数（没有则空对象）。 */

@@ -218,17 +218,26 @@ Refine.reinitializeProjectData = function(f, fError) {
     if (status === "error") {
       alert(message);
       if (fError) {
-        fError();
+        fError(message);
       }
       return true;
     }
     return false;
   }
 
+  // 逐个请求记录失败原因：$.when 只在全部成功时进 done，任一失败就静默跳过，
+  // 表现为「白屏 + 加载图标一直转」。必须把失败显式上报，否则无从定位。
+  var failures = [];
+  function tracked(url) {
+    return $.getJSON(url, null).fail(function(xhr) {
+      failures.push(url.split("?")[0] + " → HTTP " + ((xhr && xhr.status) || 0));
+    });
+  }
+
   $.when(
-    $.getJSON("command/core/get-project-metadata?" + $.param({ project: theProject.id }), null),
-    $.getJSON("command/core/get-models?" + $.param({ project: theProject.id }), null),
-    $.getJSON("command/core/get-all-preferences", null),
+    tracked("command/core/get-project-metadata?" + $.param({ project: theProject.id })),
+    tracked("command/core/get-models?" + $.param({ project: theProject.id })),
+    tracked("command/core/get-all-preferences")
   ).done(function(metadata, models, preferences) {
     metadata = metadata[0], models = models[0], preferences = preferences[0];
     if (
@@ -252,6 +261,12 @@ Refine.reinitializeProjectData = function(f, fError) {
     }
 
     f();
+  }).fail(function() {
+    var detail = failures.length > 0 ? failures.join("；") : "请求未完成";
+    Refine.reportException("项目数据初始化失败：" + detail);
+    if (fError) {
+      fError("项目数据初始化失败：" + detail);
+    }
   });
 };
 
@@ -628,6 +643,31 @@ Refine.getPermanentLink = function() {
  * Loader
  */
 
+/**
+ * 项目页加载失败/超时的可见提示。
+ * 原来失败时只是把加载图标隐藏（或干脆什么都不做），页面停在空白状态，
+ * 用户既看不到原因也没法重试——这里改成在加载区就地显示失败原因与重试入口。
+ */
+function showProjectLoadError(detail) {
+  var el = $("#loading-message");
+  if (!el.length) {
+    alert(detail);
+    return;
+  }
+  el.show().empty();
+  $('<div></div>').css({
+    margin: '80px auto', maxWidth: '560px', padding: '20px 24px',
+    background: '#fff', border: '1px solid #e0b4b4', borderRadius: '8px',
+    color: '#333', textAlign: 'left', lineHeight: '1.8'
+  })
+    .append($('<div></div>').css({ fontSize: '16px', fontWeight: '600', marginBottom: '8px' })
+      .text('项目加载失败'))
+    .append($('<div></div>').css({ fontSize: '13px', color: '#555' }).text(detail))
+    .append($('<a href="javascript:location.reload()"></a>')
+      .css({ display: 'inline-block', marginTop: '12px' }).text('重试'))
+    .appendTo(el);
+}
+
 function onLoad() {
   var params = URLUtil.getParameters();
   if ("project" in params) {
@@ -639,12 +679,25 @@ function onLoad() {
       }
     }
 
+    // 初始化请求若卡住不返回，jQuery 不会报错也不会回调，界面会一直停在加载图标上。
+    // 加一个超时兜底，先给出可见提示；请求后续即使返回，仍会正常初始化并覆盖提示。
+    var timer = setTimeout(function() {
+      showProjectLoadError('等待项目数据超时（30 秒无响应）。请检查引擎状态或网络连接后重试。');
+    }, 30000);
+
     Refine.reinitializeProjectData(
       function() {
-        initializeUI(uiState);
+        clearTimeout(timer);
+        try {
+          initializeUI(uiState);
+        } catch (e) {
+          Refine.reportException(e);
+          showProjectLoadError('界面初始化异常：' + ((e && e.message) ? e.message : e));
+        }
       },
-      function() {
-        $("#loading-message").hide();
+      function(detail) {
+        clearTimeout(timer);
+        showProjectLoadError(detail || '项目数据加载失败。');
       }
     );
   }
