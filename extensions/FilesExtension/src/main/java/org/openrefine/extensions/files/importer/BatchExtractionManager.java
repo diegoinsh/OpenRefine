@@ -1461,6 +1461,9 @@ public class BatchExtractionManager {
                     // 逐页「本页是否被判跳过 LLM」：层2 件级完整性校验靠它区分「真缺要素」与
                     // 「当初这一页压根没送 LLM」，层3 也据此把回抽范围锁在跳过的页上
                     List<Boolean> pageSkipped = new ArrayList<>();
+                    // 逐页页型（AIMP document_status.page_type）：判卷尾材料时与题名、跳过标记
+                    // 联合使用——有正文的续页即便无题名也不能当卷尾材料剔除
+                    List<String> pageTypes = new ArrayList<>();
                     // 逐页版面标题块数量（l0.pt label=10，与印章检测共用同一次推理）：
                     // 分件层判「件首」的强证据，与题名置信度联合使用（见 TitleSplitter.split 重载）
                     List<Integer> pageTitleRegions = new ArrayList<>();
@@ -1496,6 +1499,7 @@ public class BatchExtractionManager {
                             pageQualityFlags.add(ok ? r.qualityFlags : null);
                             pageQualityFeatures.add(ok ? r.qualityFeatures : null);
                             pageSkipped.add(ok && r.skipped);
+                            pageTypes.add(ok && r.pageType != null ? r.pageType : "");
                             pageTitleRegions.add(ok ? r.titleRegionCount : 0);
                             if (ok) task.recordPageType(unit.path, pageNo, r.pageType, r.skipped);
                             // processedPages 已在并发过程中按批累加，此处不重复计数
@@ -1549,6 +1553,7 @@ public class BatchExtractionManager {
                             pageQualityFlags.add(r.success ? r.qualityFlags : null);
                             pageQualityFeatures.add(r.success ? r.qualityFeatures : null);
                             pageSkipped.add(r.success && r.skipped);
+                            pageTypes.add(r.success && r.pageType != null ? r.pageType : "");
                             pageTitleRegions.add(r.success ? r.titleRegionCount : 0);
                             if (r.success) task.recordPageType(unit.path, i + 1, r.pageType, r.skipped);
                             task.processedPages++;
@@ -1579,7 +1584,8 @@ public class BatchExtractionManager {
                         // 其他门类（如文书档案）保持原有的归并行为，不影响已测试通过的效果。
                         boolean litigationArchive = isLitigationArchive(task);
                         List<Integer> itemIndexes = litigationArchive
-                                ? itemPageIndexes(unit, titles) : allPageIndexes(unit.pages.size());
+                                ? itemPageIndexes(unit, titles, pageSkipped, pageTypes, pageValues)
+                                : allPageIndexes(unit.pages.size());
                         List<String> itemTitles = new ArrayList<>(itemIndexes.size());
                         for (int idx : itemIndexes) itemTitles.add(titles.get(idx));
 
@@ -1625,6 +1631,13 @@ public class BatchExtractionManager {
                             pieces = TitleSplitter.split(
                                     titles, TitleSplitter.DEFAULT_SIMILARITY_THRESHOLD, false,
                                     pageConfidences, pageTitleRegions, TITLE_START_CONFIDENCE);
+                        }
+                        // 分件（卷级 LLM 或字符串相似度）只按件首/件末给出区间，可能漏掉末尾或
+                        // 中间的条目页（实测 SD01-2025-M1-5273 末件停在 0029，0030 的笔录续页
+                        // 无人认领）。把条目页集合里未被任何件覆盖的页并入其前一件：这些页本就
+                        // 在卷内条目范围内，漏掉只会让页既不进条目、又拿不到件级归并。
+                        if (litigationArchive && !itemIndexes.isEmpty()) {
+                            appendUncoveredItemPages(pieces, itemIndexes, unit);
                         }
                         // 审级取卷级多数票：上诉需附一审判决书、上诉案件移送函等前审材料，
                         // 卷内会同时出现两类案号，逐页推断会被前审材料拉成"一审"
@@ -2069,7 +2082,9 @@ public class BatchExtractionManager {
      * 2) 卷尾材料：备考表、证物袋、卷底，排在卷末、不列入条目。
      * 本卷文件名若都是普通命名（解析不出卷内页号），则只按题名排除，行为与改造前一致。
      */
-    private static List<Integer> itemPageIndexes(UnitScanner.Volume unit, List<String> titles) {
+    static List<Integer> itemPageIndexes(UnitScanner.Volume unit, List<String> titles,
+                                         List<Boolean> pageSkipped, List<String> pageTypes,
+                                         List<Map<String, String>> pageValues) {
         List<Integer> indexes = new ArrayList<>();
         for (int i = 0; i < unit.pages.size(); i++) {
             if (unit.numberedPages && i < unit.pageNos.size() && unit.pageNos.get(i) == null) continue;
@@ -2080,16 +2095,50 @@ public class BatchExtractionManager {
 
         // 卷尾不计页材料（备考表、证物袋、卷底）在扫描件里常是空白页或纯表格页，识别不出题名，
         // 只按题名拦不住，会整段并入最后一件——实测 JZ07-2024-M2-0158 的"退卷函回执"件被撑到
-        // 4 页，而它的真身只有"退卷函稿 + 退卷函回执"2 页。故按位置兜底：把结尾处连续的无题名页
-        // 判为卷尾材料。
-        // 只兜底"连续不超过 MAX_TRAILING_BLANK_PAGES 页"的情形：长文书（判决书、笔录）的正文
+        // 4 页，而它的真身只有"退卷函稿 + 退卷函回执"2 页。故按位置兜底：把结尾处连续的、
+        // **本身没有正文内容**的无题名页判为卷尾材料。
+        //
+        // 只看"无题名"会误伤末件的正文续页/落款页：实测 SD01-2025-M1-5273 的末件"庭审笔录"
+        // 第 2 页（0030.jpg）无题名但有正文（AIMP 判为 content_page、未跳过），被当卷尾材料
+        // 剔除后整卷末件只剩 1 页，该页既不进条目也拿不到件级归并。故必须联合页型与跳过标记：
+        // 判跳过（空白页走短文本短路）或页型为表格/短文本页，才认作卷尾材料。
+        // 仍保留"连续不超过 MAX_TRAILING_BLANK_PAGES 页"的上限：长文书（判决书、笔录）的正文
         // 续页同样无题名，但它们必然是连续多页，页数超过这个上限，不会被误切。
         int trailing = 0;
-        while (trailing < indexes.size() - 1 && !isTitled(titles, indexes.get(indexes.size() - 1 - trailing))) {
+        while (trailing < indexes.size() - 1
+                && !isTitled(titles, indexes.get(indexes.size() - 1 - trailing))
+                && isTailMaterialPage(pageSkipped, pageTypes, pageValues,
+                        indexes.get(indexes.size() - 1 - trailing))) {
             trailing++;
         }
         if (trailing == 0 || trailing > MAX_TRAILING_BLANK_PAGES) return indexes;
         return new ArrayList<>(indexes.subList(0, indexes.size() - trailing));
+    }
+
+    /**
+     * 无题名页是否具备「卷尾不计页材料」的特征（空白页、纯表格页），而非某份文书的续页。
+     *
+     * <p>三类证据按优先级取：①判页层判定可跳过 LLM（空白页/极短文本页走短文本短路）；
+     * ②页型明确为表格页/短文本页；③无页型信息时（分类器未启用）回退到「本页没抽到任何要素值」。
+     * 有页型且为正文类（content_page/signature_page/tail_page/attachment_page）时一律返回 false——
+     * 这类页是文书的一部分，即便无题名也不能从条目页里剔除。</p>
+     */
+    private static boolean isTailMaterialPage(List<Boolean> pageSkipped, List<String> pageTypes,
+                                              List<Map<String, String>> pageValues, int index) {
+        if (index >= 0 && index < pageSkipped.size() && Boolean.TRUE.equals(pageSkipped.get(index))) {
+            return true;
+        }
+        String type = index >= 0 && index < pageTypes.size() ? pageTypes.get(index) : null;
+        if (type != null && !type.trim().isEmpty()) {
+            String t = type.trim();
+            return "short_text".equals(t) || "table_content_page".equals(t) || "blank_page".equals(t);
+        }
+        Map<String, String> values = index >= 0 && index < pageValues.size() ? pageValues.get(index) : null;
+        if (values == null) return true;
+        for (String value : values.values()) {
+            if (value != null && !value.trim().isEmpty()) return false;
+        }
+        return true;
     }
 
     private static boolean isTitled(List<String> titles, int index) {
@@ -2135,6 +2184,44 @@ public class BatchExtractionManager {
             pieces.add(mapped);
         }
         return pieces;
+    }
+
+    /**
+     * 把条目页集合里「未被任何件覆盖」的页并入其前一件（页序靠前的第一件之前则前移件首）。
+     *
+     * <p>分件结果（尤其卷级 LLM 的件区间）只回答"哪些连续页属于同一件"，不保证区间并集恰好
+     * 等于全部条目页：末件的续页可能整页无人认领，件与件之间也可能留缝。这些页既不是卷前/
+     * 卷尾材料（已由 {@link #itemPageIndexes} 排除），就必须落到某个件里，否则会在结果表里
+     * 凭空缺失。落位口径与人工调整一致——续页归属前一文书，故并入前一件而非另起新件。</p>
+     */
+    static void appendUncoveredItemPages(List<TitleSplitter.Piece> pieces,
+                                         List<Integer> itemIndexes,
+                                         UnitScanner.Volume unit) {
+        if (pieces == null || pieces.isEmpty()) return;
+        boolean[] covered = new boolean[unit.pages.size()];
+        for (TitleSplitter.Piece p : pieces) {
+            int from = Math.max(0, p.startPage - 1);
+            int to = Math.min(p.endPage - 1, covered.length - 1);
+            for (int i = from; i <= to; i++) covered[i] = true;
+        }
+        for (int idx : itemIndexes) {
+            if (idx < 0 || idx >= covered.length || covered[idx]) continue;
+            TitleSplitter.Piece host = null;
+            for (TitleSplitter.Piece p : pieces) {
+                if (p.startPage - 1 <= idx) host = p;
+                else break;
+            }
+            if (host == null) {
+                // 落在第一件之前：把件首前移，避免该页被排除在条目外
+                host = pieces.get(0);
+                host.startPage = idx + 1;
+                host.startPageNo = pageNoAt(unit, idx);
+            } else {
+                host.endPage = Math.max(host.endPage, idx + 1);
+                host.endPageNo = pageNoAt(unit, host.endPage - 1);
+            }
+            covered[idx] = true;
+        }
     }
 
     private static int clampIndex(int index, int size) {
