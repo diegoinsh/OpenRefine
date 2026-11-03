@@ -1,4 +1,4 @@
-# JinRefine kernel golden verification.
+﻿# JinRefine kernel golden verification.
 # Usage: powershell -File .\scripts\verify_kernel_golden.ps1 -BaseUrl http://127.0.0.1:3533
 # Assumes a server is already running and the golden baseline exists under docs/ruyi/design/golden-release1.
 

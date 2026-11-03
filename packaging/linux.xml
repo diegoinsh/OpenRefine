@@ -18,6 +18,10 @@
       <outputDirectory>webapp</outputDirectory>
 
         <excludes>
+    <!-- webapp/extensions 由下方 extensions/ fileSet 单独装配；main/webapp 下的
+         extensions 子树是历史手工副本（旧代码），必须排除，否则会先占位导致打包
+         打进的始终是旧前端（见 2026-11-03 发布阻断问题）。 -->
+    <exclude>extensions/**</exclude>
     <exclude>node_modules/**</exclude>
     <exclude>package.json</exclude>
     <exclude>package-lock.json</exclude>

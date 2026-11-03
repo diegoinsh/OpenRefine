@@ -226,6 +226,9 @@ Refine.LocalDirectorySourceUI.prototype.attachUI = function (bodyDiv) {
     extras.forEach(function (el) {
       self._elmts.extractionElementsExtraOptions.append(
           buildElementOption(el.key, $.i18n('files-import/' + el.nameKey), el.checked, el));
+      // 默认勾选的扩展要素（原告/被告）也要立即补上自定义要素行，
+      // 否则首次打开时复选框是勾上的却没有提取要求行，提交时这两个字段会被漏掉
+      if (el.checked) syncOptionalElement(el, true);
     });
   }
 
