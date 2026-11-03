@@ -75,7 +75,10 @@ public enum ExtractionTemplate {
      */
     public static final Set<String> VOLUME_LEVEL_ELEMENT_KEYS = new LinkedHashSet<>(Arrays.asList(
             "anyou", "dangshiren", "shenji", "jiean_fangshi", "baoguan_qixian",
-            "miji", "kaifang_zhuangtai"));
+            "miji", "kaifang_zhuangtai",
+            // 原告 / 被告：卷级由案卷文书首部的角色栏汇总而来（二审按「原审原告/被告」优先归并），
+            // 见 docs/design/party-role-extraction-design.md 3.4
+            "yuangao", "beigao"));
 
     public static boolean isVolumeLevelElement(String key) {
         return key != null && VOLUME_LEVEL_ELEMENT_KEYS.contains(key);

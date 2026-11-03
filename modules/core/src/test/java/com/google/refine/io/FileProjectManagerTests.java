@@ -29,7 +29,9 @@ package com.google.refine.io;
 
 import static org.mockito.Mockito.mock;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotEquals;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.assertTrue;
 
@@ -159,6 +161,24 @@ public class FileProjectManagerTests {
         // Reload our intentionally corrupted workspace.
         manager = new FileProjectManager(workspaceDir);
         assertEquals(manager.getProjectID("B"), idB);
+    }
+
+    /**
+     * 读路径不应创建项目目录：项目被删除/隔离后仍有请求带旧 id 时，也会出现
+     * 「load metadata failed … metadata.json（找不到文件）」告警，并在工作区留下空 *.project 目录。
+     */
+    @Test
+    public void loadingMissingProjectDoesNotCreateDirectory() {
+        FileProjectManager manager = new FileProjectManagerStub(workspaceDir);
+        long missingId = 4242L;
+        File projectDir = new File(workspaceDir, missingId + ".project");
+        assertFalse(projectDir.exists(), "前置条件：目录不应存在");
+
+        assertFalse(manager.loadProjectMetadata(missingId), "缺失项目的元数据加载应返回 false");
+        assertFalse(projectDir.exists(), "加载元数据不应创建空项目目录");
+
+        assertNull(manager.loadProject(missingId), "缺失项目应返回 null");
+        assertFalse(projectDir.exists(), "读取项目不应创建空项目目录");
     }
 
     @Test

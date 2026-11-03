@@ -18,6 +18,8 @@ ExtractionRulesDialog.LABELS = {
   kaifang_zhuangtai: '开放状态',
   anyou: '案由',
   dangshiren: '当事人',
+  yuangao: '原告',
+  beigao: '被告',
   shenji: '审级',
   jiean_fangshi: '结案方式',
   baoguan_qixian: '保管期限'

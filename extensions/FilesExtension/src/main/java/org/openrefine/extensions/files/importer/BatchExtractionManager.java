@@ -8,6 +8,7 @@ import com.google.refine.ProjectManager;
 import com.google.refine.model.Cell;
 import com.google.refine.model.Column;
 import com.google.refine.model.ColumnModel;
+import com.google.refine.model.ModelException;
 import com.google.refine.model.Project;
 import com.google.refine.model.Row;
 import com.google.refine.model.SheetData;
@@ -444,11 +445,43 @@ public class BatchExtractionManager {
          * 故「从未同件共现」是判断二者互为错字的关键判据。
          */
         private final Map<String, Set<Integer>> partyNamePieces = new LinkedHashMap<>();
+        /**
+         * 角色栏抽取结果：角色 → 姓名 → 出现过的件序号集合。
+         *
+         * <p>来源是页级内部键 {@code party_roles}（AIMP 纯规则从文书首部角色栏解析，不落数据列）。
+         * 记件序号而非件数：同一件里多页重复出现同一姓名只算一件，跨件计数才反映一致性——
+         * 同名的两列冲突消解正是按件数裁决。
+         */
+        private final Map<String, Map<String, Set<Integer>>> roleNamePieces = new LinkedHashMap<>();
+        /**
+         * 卷级「原告」列的角色归并顺序：取**第一个非空角色**的名单，不跨角色并集。
+         * 二审卷的「上诉人」可能原本是被告，与原审原告并到一列会把双方混起来；
+         * 故优先原审角色，取不到才退回上诉人称谓。口径见
+         * docs/design/party-role-extraction-design.md 3.4；调整口径只改这两张表。
+         */
+        private static final List<String> PLAINTIFF_ROLE_ORDER = Arrays.asList(
+                "公诉机关", "自诉人", "原告", "原审原告", "上诉人", "申请执行人", "申请人");
+        /** 卷级「被告」列的角色归并顺序，规则同 {@link #PLAINTIFF_ROLE_ORDER} */
+        private static final List<String> DEFENDANT_ROLE_ORDER = Arrays.asList(
+                "被告人", "被告", "原审被告", "被上诉人", "被申请执行人", "被执行人");
         /** 卷级要素的来源页：key → 取值 → 候选页，跨件累加，供「卷级」表点击定位 */
         private final Map<String, Map<String, List<AimpLlmClient.ElementCandidate>>> elementPageSources =
                 new LinkedHashMap<>();
         /** 件成文日期 → 来源候选页：卷级「起始时间／终止时间」点回取到该日期的那一页 */
         private final Map<String, List<AimpLlmClient.ElementCandidate>> datePageSources = new LinkedHashMap<>();
+        /**
+         * 件级「原告」「被告」取值：件序号 → 该件中出现过的卷级原告/被告名单成员（全角逗号分隔）。
+         *
+         * <p>判定是统一逻辑：卷级名单落定后，用「该件内出现过的姓名」与卷级原告/被告名单求交，
+         * 适用于全部材料（起诉状/答辩状/判决书/笔录/证件等），不限于笔录。
+         * 双方都出现的件（判决书、答辩状含对方姓名等）两列都填；一个都不出现的件两列留空。</p>
+         */
+        private final Map<Integer, String> piecePlaintiffs = new LinkedHashMap<>();
+        private final Map<Integer, String> pieceDefendants = new LinkedHashMap<>();
+        /** 件内页级当事人名：件序号 → 姓名集合（AIMP 页级 dangshiren 候选，含笔录页的被询问人） */
+        private final Map<Integer, Set<String>> piecePagePartyNames = new LinkedHashMap<>();
+        /** 件序号 → 卷内表行号：卷级名单落定后回填件级两列用 */
+        private final Map<Integer, Integer> pieceRowIndexes = new LinkedHashMap<>();
         /** 本卷首件的首页候选：卷级行点击要素以外的列时定位到这里 */
         ObjectNode firstPieceStart;
         /** 本卷第 1 页文件名：首件首页信息缺失（如 PDF 模式）时的兜底定位，保证每卷都能点回一页 */
@@ -481,8 +514,18 @@ public class BatchExtractionManager {
                  Map<String, String> values,
                  Map<String, List<AimpLlmClient.ElementCandidate>> candidates,
                  ObjectNode pieceStart) {
+            add(responsibleParty, date, pages, title, values, candidates, pieceStart, -1);
+        }
+
+        void add(String responsibleParty, String date, int pages, String title,
+                 Map<String, String> values,
+                 Map<String, List<AimpLlmClient.ElementCandidate>> candidates,
+                 ObjectNode pieceStart, int rowIndex) {
             // 每落一件就是卷内的一份文件：卷内文件份数按件累加（见 docs 3.4）
             pieceCount++;
+            if (rowIndex >= 0) {
+                pieceRowIndexes.put(pieceCount, rowIndex);
+            }
             if (firstPieceStart == null && pieceStart != null) {
                 firstPieceStart = pieceStart;
             }
@@ -515,6 +558,10 @@ public class BatchExtractionManager {
                     docTypes.add(causeAndDocType[1]);
                 }
             }
+            // 角色栏是页级内部键，不在卷级要素清单里：单独累加，供卷级原告/被告归并
+            collectPartyRoles(values, candidates);
+            // 件内出现过的当事人名（页级候选）：卷级名单落定后按它判定本件属于原告方还是被告方
+            collectPiecePageParties(candidates);
             if (values != null) {
                 for (String key : ExtractionTemplate.VOLUME_LEVEL_ELEMENT_KEYS) {
                     String v = trimToNull(values.get(key));
@@ -577,11 +624,13 @@ public class BatchExtractionManager {
 
         /** 取该要素最终取值对应的来源候选页（按页去重保序），供「卷级」表点击定位到页 */
         List<AimpLlmClient.ElementCandidate> pageSourcesFor(String key) {
-            Map<String, List<AimpLlmClient.ElementCandidate>> byValue = elementPageSources.get(key);
+            // 原告/被告由页级内部键 party_roles 汇总而来，来源页登记在它名下
+            String sourceKey = isPartyColumn(key) ? "party_roles" : key;
+            Map<String, List<AimpLlmClient.ElementCandidate>> byValue = elementPageSources.get(sourceKey);
             String value = volumeElements.get(key);
             if (byValue == null || value == null) return Collections.emptyList();
-            // 当事人是多值并集：按名单顺序把每个人的来源页合并去重
-            List<String> keys = "dangshiren".equals(key)
+            // 多值并集（当事人、原告、被告）：按名单顺序把每个人的来源页合并去重
+            List<String> keys = isMultiPartyKey(key)
                     ? Arrays.asList(value.split("，")) : Collections.singletonList(value);
             List<AimpLlmClient.ElementCandidate> merged = new ArrayList<>();
             Set<String> seen = new LinkedHashSet<>();
@@ -788,6 +837,274 @@ public class BatchExtractionManager {
             List<String> names = mergePartyNames(distinctPartyNames());
             if (!names.isEmpty()) {
                 volumeElements.put("dangshiren", String.join("，", names));
+            }
+            // 交叉校验基线用归并后的最终名单，与卷级「当事人」列同源：
+            // 已从当事人列剔除的噪声不得再放行角色栏姓名
+            resolvePartyRoles(names);
+        }
+
+        /** 卷级原告/被告列：由角色栏汇总而来，取值为多值名单；来源页也登记在 party_roles 名下 */
+        private static boolean isPartyColumn(String key) {
+            return "yuangao".equals(key) || "beigao".equals(key);
+        }
+
+        /** 按全角逗号拆分的多值要素：当事人、原告、被告 */
+        private static boolean isMultiPartyKey(String key) {
+            return "dangshiren".equals(key) || isPartyColumn(key);
+        }
+
+        /**
+         * 累加本件的角色栏：逐页解析 {@code party_roles}（角色 → 姓名数组的 JSON）。
+         *
+         * <p>取<b>全部页候选</b>而不是件级合并后的单一值：件级合并只保留置信度最高那一页，
+         * 而一件内的多份文书（如判决书＋送达回证）可能各自带角色栏，全部解析才能召回完整名单。
+         * 件序号用同一件的当前 {@code pieceCount}，多页重复不会重复计件。
+         */
+        private void collectPartyRoles(Map<String, String> values,
+                                       Map<String, List<AimpLlmClient.ElementCandidate>> candidates) {
+            List<String> texts = new ArrayList<>();
+            if (candidates != null) {
+                for (AimpLlmClient.ElementCandidate c : candidates.getOrDefault(
+                        "party_roles", Collections.emptyList())) {
+                    String v = trimToNull(c.value);
+                    if (v != null && !texts.contains(v)) texts.add(v);
+                }
+            }
+            if (texts.isEmpty() && values != null) {
+                String v = trimToNull(values.get("party_roles"));
+                if (v != null) texts.add(v);
+            }
+            for (String text : texts) {
+                for (Map.Entry<String, List<String>> e : parsePartyRoles(text).entrySet()) {
+                    Map<String, Set<Integer>> byName =
+                            roleNamePieces.computeIfAbsent(e.getKey(), k -> new LinkedHashMap<>());
+                    for (String name : e.getValue()) {
+                        byName.computeIfAbsent(name, k -> new LinkedHashSet<>()).add(pieceCount);
+                        // 来源页：按「候选取值（整页角色栏 JSON）包含该姓名」筛出该姓名所在页
+                        collectElementPages("party_roles", name, candidates, name);
+                    }
+                }
+            }
+        }
+
+        /**
+         * 记录本件页级当事人候选（AIMP 页级 {@code dangshiren}，可能带「原告」「被告」称谓）。
+         * 笔录类件的页级当事人就是被询问人本人，正是件级区分原被告所需的信息。
+         */
+        private void collectPiecePageParties(
+                Map<String, List<AimpLlmClient.ElementCandidate>> candidates) {
+            if (candidates == null) return;
+            Set<String> names = new LinkedHashSet<>();
+            for (AimpLlmClient.ElementCandidate c :
+                    candidates.getOrDefault("dangshiren", Collections.emptyList())) {
+                String v = trimToNull(c.value);
+                if (v == null) continue;
+                for (String name : normalizePartyNames(v).split("，")) {
+                    if (!name.isEmpty()) names.add(name);
+                }
+            }
+            if (!names.isEmpty()) {
+                piecePagePartyNames.put(pieceCount, names);
+            }
+        }
+
+        /** 解析角色栏 JSON（{@code {"原告":["张三"],"被告":["李四"]}}）；非法文本按无角色处理 */
+        private static Map<String, List<String>> parsePartyRoles(String json) {
+            Map<String, List<String>> roles = new LinkedHashMap<>();
+            try {
+                JsonNode node = mapper.readTree(json);
+                if (node == null || !node.isObject()) return roles;
+                Iterator<Map.Entry<String, JsonNode>> it = node.fields();
+                while (it.hasNext()) {
+                    Map.Entry<String, JsonNode> e = it.next();
+                    String role = e.getKey() == null ? "" : e.getKey().trim();
+                    JsonNode arr = e.getValue();
+                    if (role.isEmpty() || arr == null || !arr.isArray()) continue;
+                    List<String> names = roles.computeIfAbsent(role, k -> new ArrayList<>());
+                    for (JsonNode n : arr) {
+                        String name = n.asText("").trim();
+                        if (!name.isEmpty() && !names.contains(name)) names.add(name);
+                    }
+                }
+            } catch (Exception e) {
+                logger.debug("party_roles 不是合法 JSON，已忽略: {}", json);
+            }
+            return roles;
+        }
+
+        /**
+         * 按审级/案件类型把角色栏归并到卷级「原告」「被告」（映射见设计文档 3.4）。
+         *
+         * <p>每个列只取**第一个非空角色**的名单，不跨角色并集：二审卷的「上诉人」可能原本是
+         * 被告，把上诉人与原审原告并成一列会把双方混起来。同名同时落入两列时，以件数多者为准；
+         * 件数相同则两列都丢弃（宁空勿错）。
+         *
+         * @param knownParties 归并后的卷级当事人名单（与「当事人」列同源）；空名单表示不校验
+         */
+        private void resolvePartyRoles(List<String> knownParties) {
+            List<String> plaintiffs = firstRoleNames(PLAINTIFF_ROLE_ORDER);
+            List<String> defendants = firstRoleNames(DEFENDANT_ROLE_ORDER);
+            if (plaintiffs.isEmpty() && defendants.isEmpty()) return;
+            List<String> keptPlaintiffs = new ArrayList<>();
+            List<String> keptDefendants = new ArrayList<>();
+            for (String name : plaintiffs) {
+                Set<Integer> pieces = rolePieceSet(PLAINTIFF_ROLE_ORDER, name);
+                Set<Integer> other = rolePieceSet(DEFENDANT_ROLE_ORDER, name);
+                if (other.isEmpty() || pieces.size() > other.size()) {
+                    keptPlaintiffs.add(name);
+                } else {
+                    logger.info("卷 {} 角色栏姓名「{}」同时出现在原告/被告两列且件数不占优，已丢弃", caseNo, name);
+                }
+            }
+            for (String name : defendants) {
+                Set<Integer> pieces = rolePieceSet(DEFENDANT_ROLE_ORDER, name);
+                Set<Integer> other = rolePieceSet(PLAINTIFF_ROLE_ORDER, name);
+                if (other.isEmpty() || pieces.size() > other.size()) {
+                    keptDefendants.add(name);
+                }
+            }
+            List<String> finalPlaintiffs = keepKnownParties(keptPlaintiffs, "原告", knownParties);
+            List<String> finalDefendants = keepKnownParties(keptDefendants, "被告", knownParties);
+            putPartyColumn("yuangao", "原告", finalPlaintiffs);
+            putPartyColumn("beigao", "被告", finalDefendants);
+            // 卷级名单落定后再判件级两列：件级与卷级同源，避免两处口径分叉
+            resolvePiecePartyColumns(finalPlaintiffs, finalDefendants);
+        }
+
+        /**
+         * 件级「原告」「被告」：卷级最终名单落定后，按「该件内出现过的姓名」与名单求交。
+         *
+         * <p>统一适用于正卷/副卷的全部材料：起诉状→原告列、答辩状→被告列、判决书双方两列都填、
+         * 笔录按被询问人归属；名单为空则不判（与卷级两列准入条件同源，不臆造）。</p>
+         */
+        private void resolvePiecePartyColumns(List<String> plaintiffs, List<String> defendants) {
+            piecePlaintiffs.clear();
+            pieceDefendants.clear();
+            if (plaintiffs.isEmpty() && defendants.isEmpty()) return;
+            for (int piece = 1; piece <= pieceCount; piece++) {
+                List<String> hitPlaintiffs = new ArrayList<>();
+                for (String name : plaintiffs) {
+                    if (pieceHasName(piece, name)) hitPlaintiffs.add(name);
+                }
+                List<String> hitDefendants = new ArrayList<>();
+                for (String name : defendants) {
+                    if (pieceHasName(piece, name)) hitDefendants.add(name);
+                }
+                if (!hitPlaintiffs.isEmpty()) {
+                    piecePlaintiffs.put(piece, String.join("，", hitPlaintiffs));
+                }
+                if (!hitDefendants.isEmpty()) {
+                    pieceDefendants.put(piece, String.join("，", hitDefendants));
+                }
+            }
+        }
+
+        /** 该件是否出现过该姓名：件级当事人、页级候选、角色栏三种来源任一命中 */
+        private boolean pieceHasName(int piece, String name) {
+            Set<Integer> pieces = partyNamePieces.get(name);
+            if (pieces != null && pieces.contains(piece)) return true;
+            Set<String> pageNames = piecePagePartyNames.get(piece);
+            if (pageNames != null && pageNames.contains(name)) return true;
+            for (Map<String, Set<Integer>> byName : roleNamePieces.values()) {
+                Set<Integer> rolePieces = byName.get(name);
+                if (rolePieces != null && rolePieces.contains(piece)) return true;
+            }
+            return false;
+        }
+
+        /** 件级两列取值（回填与测试用） */
+        String piecePlaintiffsOf(int piece) {
+            return piecePlaintiffs.getOrDefault(piece, "");
+        }
+
+        String pieceDefendantsOf(int piece) {
+            return pieceDefendants.getOrDefault(piece, "");
+        }
+
+        /** 件序号 → 卷内表行号 */
+        Map<Integer, Integer> pieceRowIndexes() {
+            return pieceRowIndexes;
+        }
+
+        /** 按角色顺序取第一个非空角色的姓名名单（保序） */
+        private List<String> firstRoleNames(List<String> roleOrder) {
+            for (String role : roleOrder) {
+                Map<String, Set<Integer>> byName = roleNamePieces.get(role);
+                if (byName != null && !byName.isEmpty()) {
+                    return new ArrayList<>(byName.keySet());
+                }
+            }
+            return new ArrayList<>();
+        }
+
+        /** 某姓名在给定角色集合里出现过的件序号并集（同一件多页只算一件） */
+        private Set<Integer> rolePieceSet(List<String> roleOrder, String name) {
+            Set<Integer> pieces = new LinkedHashSet<>();
+            for (String role : roleOrder) {
+                Map<String, Set<Integer>> byName = roleNamePieces.get(role);
+                if (byName == null) continue;
+                Set<Integer> own = byName.get(name);
+                if (own != null) pieces.addAll(own);
+            }
+            return pieces;
+        }
+
+        /**
+         * 角色栏姓名与卷级当事人名单交叉校验（防 OCR 幻觉/正文误抽）。
+         *
+         * <p>当事人名单为空时不做校验：整卷当事人抽取失败，角色栏就是唯一来源。
+         * 名单非空时，角色栏姓名必须在名单中出现；一字之差且只有唯一近邻时按名单正字纠正
+         * （手写材料错字），无匹配或近邻有歧义的一律丢弃。
+         *
+         * <p><b>基线必须是 mergePartyNames 之后的最终名单</b>：与卷级「当事人」列同源。
+         * 用未归并的原始累积集合会让「当事人」列已剔除的噪声继续放行角色栏姓名
+         * （实测 SZ05-2025-M1-4821 的法定代表人王振华由此混入被告列）。
+         *
+         * @param knownParties 归并后的卷级当事人名单（与「当事人」列同源）
+         */
+        private List<String> keepKnownParties(List<String> names, String columnLabel,
+                                              List<String> knownParties) {
+            if (names.isEmpty() || knownParties.isEmpty()) return names;
+            List<String> kept = new ArrayList<>();
+            for (String name : names) {
+                String canonical = canonicalPartyName(name, knownParties);
+                if (canonical == null) {
+                    logger.info("卷 {} 角色栏姓名「{}」未在件级当事人名单中出现，按疑似误抽丢弃（{} 列）",
+                            caseNo, name, columnLabel);
+                    continue;
+                }
+                if (!kept.contains(canonical)) kept.add(canonical);
+            }
+            return kept;
+        }
+
+        /** 角色栏姓名对齐到卷级当事人名单的规范名：精确命中优先，其次唯一的一字之差近邻；无匹配返回 null */
+        private String canonicalPartyName(String name, List<String> knownParties) {
+            if (knownParties.contains(name)) return name;
+            String matched = null;
+            for (String other : knownParties) {
+                // 只认等长的「一字之差」（替换），不比插入/删除，避免把名字长短不同的人并掉
+                if (other.length() != name.length() || editDistance(name, other) != 1) continue;
+                if (matched != null) return null;   // 多个近邻：裁决不了谁是正字，宁空勿错
+                matched = other;
+            }
+            return matched;
+        }
+
+        /**
+         * 写入卷级原告/被告列并留痕：日志记下实际取用的角色与件数，便于后续调整二审、
+         * 刑事等口径时核对（口径调整只改 PLAINTIFF_ROLE_ORDER / DEFENDANT_ROLE_ORDER）。
+         */
+        private void putPartyColumn(String key, String label, List<String> names) {
+            if (names.isEmpty()) return;
+            volumeElements.put(key, String.join("，", names));
+            List<String> roleOrder = "yuangao".equals(key) ? PLAINTIFF_ROLE_ORDER : DEFENDANT_ROLE_ORDER;
+            for (String role : roleOrder) {
+                Map<String, Set<Integer>> byName = roleNamePieces.get(role);
+                if (byName != null && byName.keySet().containsAll(names)) {
+                    logger.info("卷 {} 卷级{}列取自角色「{}」", caseNo, label, role);
+                    break;
+                }
             }
         }
 
@@ -1603,7 +1920,7 @@ public class BatchExtractionManager {
                             List<String> itemParties = new ArrayList<>(itemIndexes.size());
                             for (int idx : itemIndexes) {
                                 Map<String, String> vals = idx < pageValues.size() ? pageValues.get(idx) : null;
-                                itemParties.add(vals == null ? "" : vals.getOrDefault("responsible_party", ""));
+                                itemParties.add(vals == null ? "" : partyForPiece(vals));
                             }
                             long tSplit0 = System.nanoTime();
                             AimpLlmClient.SplitResult split = client.splitVolumePieces(
@@ -2146,6 +2463,33 @@ public class BatchExtractionManager {
         return title != null && !title.trim().isEmpty();
     }
 
+    /**
+     * 件首页的页级当事人：笔录页取首部「被询问人」名单，其他页取责任者。
+     *
+     * 同卷两份询问笔录（如 0158 上诉人、被上诉人各一份）按被询问人分别制作，责任者都是
+     * 法院，卷级分件无法据此区分方别；笔录首部的「被询问人：上诉人×××」才是区分两份
+     * 同名笔录的信号（AIMP 页级解析后写入 party_roles）。
+     */
+    private static String partyForPiece(Map<String, String> values) {
+        String party = values.getOrDefault("responsible_party", "");
+        String title = values.getOrDefault("title", "");
+        if (title == null || !title.contains("笔录")) return party;
+        String roles = values.get("party_roles");
+        if (roles == null || roles.trim().isEmpty()) return party;
+        try {
+            JsonNode asked = mapper.readTree(roles).get("被询问人");
+            if (asked == null || !asked.isArray() || asked.size() == 0) return party;
+            List<String> names = new ArrayList<>();
+            for (JsonNode node : asked) {
+                String name = node.asText("").trim();
+                if (!name.isEmpty()) names.add(name);
+            }
+            return names.isEmpty() ? party : String.join("、", names);
+        } catch (Exception e) {
+            return party;
+        }
+    }
+
     /** 卷宗封面页抽到的原/被告名单（JSON 字符串）：整卷只有封面页带该字段，取第一个非空值。 */
     private static String firstPartyRoles(List<Map<String, String>> pageValues) {
         if (pageValues == null) return null;
@@ -2421,7 +2765,7 @@ public class BatchExtractionManager {
         int rowIndex = appendRow(task, project, row);
         ObjectNode pieceStart = pieceStartNode(unit, piece);
         accumulateVolumeSummary(task, unit, piece, responsibleParty, documentDate, values,
-                candidates, pieceStart);
+                candidates, pieceStart, rowIndex);
         recordPageMap(task, rowIndex, candidates, pieceStart);
         recordPiecePages(task, rowIndex, unit, piece, fileName);
         // 每落一行就刷新内存中的页映射：前端在任务进行中轮询时也能定位到正确页。
@@ -2435,7 +2779,7 @@ public class BatchExtractionManager {
                                          String responsibleParty, String documentDate,
                                          Map<String, String> values,
                                          Map<String, List<AimpLlmClient.ElementCandidate>> candidates,
-                                         ObjectNode pieceStart) {
+                                         ObjectNode pieceStart, int rowIndex) {
         if (task.summarySheet == null) return;
         VolumeSummary summary = task.volumeSummaries.get(unit.name);
         if (summary == null) {
@@ -2447,7 +2791,7 @@ public class BatchExtractionManager {
             summary.firstPageFileName = new File(unit.pages.get(0)).getName();
         }
         summary.add(responsibleParty, documentDate, piece.pageCount(), piece.title,
-                values, candidates, pieceStart);
+                values, candidates, pieceStart, rowIndex);
     }
 
     /** 把该行各抽取要素的候选页按列名写入项目 metadata，供前端点击单元格时定位到取值所在页 */
@@ -2857,7 +3201,59 @@ public class BatchExtractionManager {
             } else {
                 rows.add(row);
             }
+            // 卷级名单已落定：把该卷各件的「原告」「被告」写回卷内表（幂等，可重复刷新）
+            applyPiecePartyColumns(task, summary);
         }
+    }
+
+    /**
+     * 件级「原告」「被告」回填：卷级名单落定后，按「该件内出现过的姓名」判定所属方。
+     *
+     * <p>两列若未由模板自定义要素（{@code piece_yuangao}/{@code piece_beigao}）创建，按需补建后
+     * 再回填——件级原被告是定制规则 {@code {角色}}/{@code {责任者}} 的取数依据，缺列时
+     * 「询问笔录」这类责任者写成法院名的材料无法判定归属，题名只能拼出法院名。只在确有
+     * 归属可判时建列，无卷级当事人名单的卷不会凭空多出两列空列。</p>
+     */
+    private void applyPiecePartyColumns(Task task, VolumeSummary summary) {
+        if (task.innerSheet == null) return;
+        ColumnModel columnModel = task.innerSheet.columnModel;
+        List<Row> rows = task.innerSheet.rows;
+        boolean hasParty = false;
+        for (int piece : summary.pieceRowIndexes().keySet()) {
+            if (isFilled(summary.piecePlaintiffsOf(piece)) || isFilled(summary.pieceDefendantsOf(piece))) {
+                hasParty = true;
+                break;
+            }
+        }
+        if (!hasParty) return;
+        ensureInnerColumn(columnModel, "原告");
+        ensureInnerColumn(columnModel, "被告");
+        for (Map.Entry<Integer, Integer> e : summary.pieceRowIndexes().entrySet()) {
+            int rowIndex = e.getValue();
+            if (rowIndex < 0 || rowIndex >= rows.size()) continue;
+            Row row = rows.get(rowIndex);
+            put(columnModel, row, "原告", summary.piecePlaintiffsOf(e.getKey()));
+            put(columnModel, row, "被告", summary.pieceDefendantsOf(e.getKey()));
+        }
+    }
+
+    /**
+     * 卷内表补建列：追加在末尾（新的 cellIndex），不影响既有列的取值与位置。
+     * 已存在（模板自定义要素创建）时直接复用。
+     */
+    private static void ensureInnerColumn(ColumnModel columnModel, String name) {
+        if (columnModel.getColumnByName(name) != null) return;
+        try {
+            columnModel.addColumn(-1, new Column(columnModel.allocateNewCellIndex(), name), false);
+            columnModel.update();
+            logger.info("卷内表补建件级列「{}」", name);
+        } catch (ModelException e) {
+            logger.warn("卷内表补建列「{}」失败", name, e);
+        }
+    }
+
+    private static boolean isFilled(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 
     /** 卷级表里该卷所在的行号；没有则 -1（本任务此前未写过该卷的卷级行） */

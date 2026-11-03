@@ -381,7 +381,9 @@
       <groupId>org.apache.logging.log4j</groupId>
       <artifactId>log4j-core</artifactId>
       <version>${log4j.version}</version>
-      <scope>test</scope>
+      <!-- provided：运行期由 server 模块提供（log4j2.properties 在那里）；
+           这里只为编译 SetLogLevelCommand 的 Configurator 等 API -->
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.logging.log4j</groupId>

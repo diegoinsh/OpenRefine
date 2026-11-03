@@ -141,9 +141,15 @@ public class FileProjectManager extends ProjectManager {
     @Override
     public boolean loadProjectMetadata(long projectID) {
         synchronized (this) {
-            ProjectMetadata metadata = ProjectMetadataUtilities.load(getProjectDir(projectID));
+            // 读路径不得建目录：项目已被删除/隔离后，请求仍带旧 id 时会走到这里，
+            // createIfMissing 会在工作区留下一个空 *.project 目录（并伴随 load metadata failed 告警）。
+            File projectDir = new File(_workspaceDir, projectID + PROJECT_DIR_SUFFIX);
+            if (!projectDir.isDirectory()) {
+                return false;
+            }
+            ProjectMetadata metadata = ProjectMetadataUtilities.load(projectDir);
             if (metadata == null) {
-                metadata = ProjectMetadataUtilities.recover(getProjectDir(projectID), projectID);
+                metadata = ProjectMetadataUtilities.recover(projectDir, projectID);
             }
 
             if (metadata != null) {
@@ -163,7 +169,7 @@ public class FileProjectManager extends ProjectManager {
                 return true;
             }
             File dir = getProjectDir(projectID, false);
-            if (!dir.isDirectory()) {
+            if (dir == null || !dir.isDirectory()) {
                 return false;
             }
             if (!loadProjectMetadata(projectID)) {
@@ -216,7 +222,10 @@ public class FileProjectManager extends ProjectManager {
 
     @Override
     public void exportProject(long projectId, TarArchiveOutputStream tos) throws IOException {
-        File dir = this.getProjectDir(projectId);
+        File dir = this.getProjectDir(projectId, false);
+        if (dir == null) {
+            throw new IOException("Missing project directory for project " + projectId);
+        }
         this.tarDir("", dir, tos);
     }
 
@@ -281,7 +290,11 @@ public class FileProjectManager extends ProjectManager {
 
     @Override
     public Project loadProject(long id) {
-        return ProjectUtilities.load(getProjectDir(id), id);
+        File dir = new File(_workspaceDir, id + PROJECT_DIR_SUFFIX);
+        if (!dir.isDirectory()) {
+            return null;
+        }
+        return ProjectUtilities.load(dir, id);
     }
 
     /**
@@ -392,6 +405,12 @@ public class FileProjectManager extends ProjectManager {
         saveWorkspace();
     }
 
+    /** 目录是否为空（无任何条目）；读不到目录内容时按「非空」处理，避免误删。 */
+    static protected boolean isEmptyDir(File dir) {
+        File[] files = dir.listFiles();
+        return files != null && files.length == 0;
+    }
+
     static protected void deleteDir(File dir) {
         File[] files = dir.listFiles();
         if (files == null) return;
@@ -455,10 +474,21 @@ public class FileProjectManager extends ProjectManager {
                         if (loadProjectMetadata(id)) {
                             logger.info("Recovered project named {} in directory {}", getProjectMetadata(id).getName(), dirName);
                             recovered = true;
+                        } else if (isEmptyDir(file)) {
+                            // 空壳目录（历史读路径 createIfMissing 留下的）：直接清掉，不做隔离
+                            logger.warn("Removing empty project directory {}", dirName);
+                            deleteDir(file);
                         } else {
                             logger.warn("Failed to recover project in directory {}", dirName);
-
-                            file.renameTo(new File(file.getParentFile(), dirName + ".corrupted"));
+                            File target = new File(file.getParentFile(), dirName + ".corrupted");
+                            if (target.exists()) {
+                                // 同名隔离目录已存在（上次隔离过、目录又被重建）：换唯一后缀，避免 renameTo 静默失败
+                                target = new File(file.getParentFile(),
+                                        dirName + ".corrupted-" + System.currentTimeMillis());
+                            }
+                            if (!file.renameTo(target)) {
+                                logger.warn("Failed to quarantine project directory {}", dirName);
+                            }
                         }
                     }
                 }

@@ -895,6 +895,213 @@ public class VolumeSummaryTest {
         Assert.assertEquals(rowNode.get("终止时间").get(0).get("p").asInt(), 9);
     }
 
+    /** 一审卷：角色栏「原告 / 被告」直接落到卷级两列 */
+    @Test
+    public void resolvesPlaintiffAndDefendantFromRoleHeader() {
+        BatchExtractionManager.VolumeSummary summary =
+                new BatchExtractionManager.VolumeSummary("SZ05-2025-M1-4821", "D:\\cases\\4821");
+        summary.add("苏州市吴中区人民法院", "20230401", 2, "民事起诉状", mapOf(
+                "dangshiren", "沈建明，苏州恒盛精密机械有限公司",
+                "party_roles", "{\"原告\":[\"沈建明\"],\"被告\":[\"苏州恒盛精密机械有限公司\"]}"));
+        summary.add("苏州市吴中区人民法院", "20230618", 4, "民事判决书", mapOf(
+                "dangshiren", "沈建明，苏州恒盛精密机械有限公司",
+                "party_roles", "{\"原告\":[\"沈建明\"],\"被告\":[\"苏州恒盛精密机械有限公司\"]}"));
+        summary.resolveElements();
+
+        Assert.assertEquals(summary.volumeElements.get("yuangao"), "沈建明");
+        Assert.assertEquals(summary.volumeElements.get("beigao"), "苏州恒盛精密机械有限公司");
+    }
+
+    /** 二审卷：优先「原审原告 / 原审被告」，没有原审角色时才退回「上诉人 / 被上诉人」 */
+    @Test
+    public void prefersOriginalInstanceRolesOnAppeal() {
+        BatchExtractionManager.VolumeSummary summary =
+                new BatchExtractionManager.VolumeSummary("JZ07-2024-M2-0241", "D:\\cases\\0241");
+        summary.add("河北省张家口市中级人民法院", "20231218", 3, "民事上诉状", mapOf(
+                "dangshiren", "袁连顺，袁凤莲，袁凤仙，袁凤鸣",
+                "party_roles", "{\"上诉人\":[\"袁连顺\",\"袁凤莲\"],\"被上诉人\":[\"袁凤仙\",\"袁凤鸣\"],"
+                        + "\"原审原告\":[\"袁连顺\",\"袁凤莲\"],\"原审被告\":[\"袁凤仙\",\"袁凤鸣\"]}"));
+        summary.resolveElements();
+        Assert.assertEquals(summary.volumeElements.get("yuangao"), "袁连顺，袁凤莲");
+        Assert.assertEquals(summary.volumeElements.get("beigao"), "袁凤仙，袁凤鸣");
+
+        // 只有上诉称谓（卷内无原审文书）：退回上诉人 / 被上诉人
+        BatchExtractionManager.VolumeSummary noOriginal =
+                new BatchExtractionManager.VolumeSummary("SZ05-2025-M2-0316", "D:\\cases\\0316");
+        noOriginal.add("江苏省苏州市中级人民法院", "20250301", 2, "上诉状", mapOf(
+                "dangshiren", "秦国栋，苏州华骏精密机械有限公司",
+                "party_roles", "{\"上诉人\":[\"秦国栋\"],\"被上诉人\":[\"苏州华骏精密机械有限公司\"]}"));
+        noOriginal.resolveElements();
+        Assert.assertEquals(noOriginal.volumeElements.get("yuangao"), "秦国栋");
+        Assert.assertEquals(noOriginal.volumeElements.get("beigao"), "苏州华骏精密机械有限公司");
+    }
+
+    /** 两列同名按件数裁决；平票两列都丢；不在件级当事人名单的角色栏姓名按误抽丢弃 */
+    @Test
+    public void dropsAmbiguousAndUnknownRoleNames() {
+        BatchExtractionManager.VolumeSummary summary =
+                new BatchExtractionManager.VolumeSummary("卷1", "D:\\cases\\卷1");
+        // 「张伟」作为原告出现 2 件、作为被告 1 件；「李娜」反之
+        summary.add("x", "20240101", 1, "民事起诉状", mapOf(
+                "dangshiren", "张伟，李娜", "party_roles", "{\"原告\":[\"张伟\"],\"被告\":[\"李娜\"]}"));
+        summary.add("x", "20240102", 1, "结案登记表", mapOf(
+                "dangshiren", "张伟，李娜", "party_roles", "{\"原告\":[\"张伟\"],\"被告\":[\"李娜\"]}"));
+        summary.add("x", "20240103", 1, "民事判决书", mapOf(
+                "dangshiren", "张伟，李娜", "party_roles", "{\"原告\":[\"李娜\"],\"被告\":[\"张伟\"]}"));
+        // 角色栏出现「王五」，件级当事人名单里没有 → 疑似正文误抽，丢弃
+        // （本件不再记「被告：张伟」，否则张伟原告/被告各 2 件构成平票，属于下一个子用例的场景）
+        summary.add("x", "20240104", 1, "庭审笔录", mapOf(
+                "dangshiren", "张伟，李娜", "party_roles", "{\"原告\":[\"王五\"]}"));
+        summary.resolveElements();
+
+        Assert.assertEquals(summary.volumeElements.get("yuangao"), "张伟");
+        Assert.assertEquals(summary.volumeElements.get("beigao"), "李娜");
+
+        // 平票：同一姓名在两列各出现 1 件，裁决不了，两列都丢（宁空勿错）
+        BatchExtractionManager.VolumeSummary tie =
+                new BatchExtractionManager.VolumeSummary("卷2", "D:\\cases\\卷2");
+        tie.add("x", "20240101", 1, "民事起诉状", mapOf(
+                "dangshiren", "张伟", "party_roles", "{\"原告\":[\"张伟\"]}"));
+        tie.add("x", "20240102", 1, "结案登记表", mapOf(
+                "dangshiren", "张伟", "party_roles", "{\"被告\":[\"张伟\"]}"));
+        tie.resolveElements();
+        Assert.assertNull(tie.volumeElements.get("yuangao"));
+        Assert.assertNull(tie.volumeElements.get("beigao"));
+    }
+
+    /** 件级当事人名单整卷为空时不做交叉校验：角色栏就是唯一来源 */
+    @Test
+    public void keepsRoleNamesWhenPartyExtractionIsEmpty() {
+        BatchExtractionManager.VolumeSummary summary =
+                new BatchExtractionManager.VolumeSummary("卷1", "D:\\cases\\卷1");
+        summary.add("x", "20240101", 1, "民事起诉状", mapOf(
+                "party_roles", "{\"原告\":[\"沈建明\"],\"被告\":[\"苏州恒盛精密机械有限公司\"]}"));
+        summary.resolveElements();
+
+        Assert.assertEquals(summary.volumeElements.get("yuangao"), "沈建明");
+        Assert.assertEquals(summary.volumeElements.get("beigao"), "苏州恒盛精密机械有限公司");
+    }
+
+    /**
+     * 交叉校验基线必须是归并后的当事人名单（与卷级「当事人」列同源）：
+     * 只在某一件被误抽、且已被件间重复度过滤剔除的姓名，不得再从角色栏混进原告/被告列。
+     * 实测 SZ05-2025-M1-4821：法定代表人王振华只在「协议」一页被记成当事人，
+     * 卷级当事人列已剔除，却因基线用原始累积集合而被放行进被告列。
+     */
+    @Test
+    public void dropsRoleNamesOnlyPresentInUnmergedPartyNoise() {
+        BatchExtractionManager.VolumeSummary summary =
+                new BatchExtractionManager.VolumeSummary("SZ05-2025-M1-4821", "D:\\cases\\4821");
+        summary.add("x", "20230401", 1, "民事起诉状", mapOf(
+                "dangshiren", "沈建明，苏州恒盛精密机械有限公司",
+                "party_roles", "{\"原告\":[\"沈建明\"],\"被告\":[\"苏州恒盛精密机械有限公司\"]}"));
+        summary.add("x", "20230618", 1, "民事判决书", mapOf(
+                "dangshiren", "沈建明，苏州恒盛精密机械有限公司",
+                "party_roles", "{\"原告\":[\"沈建明\"],\"被告\":[\"苏州恒盛精密机械有限公司\"]}"));
+        // 协议落款页：件级当事人误抽到法定代表人，角色栏也把它记成被告（二者均只出现一次）
+        summary.add("x", "20230720", 1, "协议", mapOf(
+                "dangshiren", "王振华",
+                "party_roles", "{\"被告\":[\"王振华\"]}"));
+        summary.resolveElements();
+
+        Assert.assertEquals(summary.volumeElements.get("dangshiren"),
+                "沈建明，苏州恒盛精密机械有限公司");
+        Assert.assertEquals(summary.volumeElements.get("yuangao"), "沈建明");
+        Assert.assertEquals(summary.volumeElements.get("beigao"), "苏州恒盛精密机械有限公司");
+    }
+
+    /** 卷级原告/被告列可点击定位到角色栏所在页 */
+    @Test
+    public void mapsSummaryPartyColumnsToRoleHeaderPages() throws Exception {
+        List<CustomElementType> elements = Arrays.asList(
+                new CustomElementType("原告", "yuangao", CustomElementType.ACTION_INCLUDE, ""),
+                new CustomElementType("被告", "beigao", CustomElementType.ACTION_INCLUDE, ""));
+
+        BatchExtractionManager.Task task = new BatchExtractionManager.Task(
+                9L, "n/a", ExtractionTemplate.BATCH_TITLE_VOLUME,
+                elements, null, null, Collections.emptyList(),
+                Collections.emptyList(), false, false, null);
+
+        List<String> columns = ExtractionTemplate.volumeSummaryColumns();
+        columns.addAll(columns.size() - 1, Arrays.asList("原告", "被告"));
+        SheetData summarySheet = new SheetData(BatchExtractionCommand.SUMMARY_SHEET_ID,
+                BatchExtractionCommand.SUMMARY_SHEET_NAME, "");
+        for (int i = 0; i < columns.size(); i++) {
+            summarySheet.columnModel.addColumn(i, new Column(i, columns.get(i)), false);
+        }
+        summarySheet.columnModel.update();
+        task.summarySheet = summarySheet;
+
+        BatchExtractionManager.VolumeSummary summary =
+                new BatchExtractionManager.VolumeSummary("卷1", "D:\\cases\\卷1");
+        summary.add("苏州市吴中区人民法院", "20230401", 2, "民事起诉状", mapOf(
+                        "dangshiren", "沈建明，苏州恒盛精密机械有限公司"),
+                candidatesOf("party_roles",
+                        "{\"原告\":[\"沈建明\"],\"被告\":[\"苏州恒盛精密机械有限公司\"]}", 2),
+                pieceStartNode(2));
+        task.volumeSummaries.put("卷1", summary);
+
+        BatchExtractionManager.get().rebuildVolumeSummary(task);
+
+        Row row = summarySheet.rows.get(0);
+        Assert.assertEquals(cellText(row, summarySheet, "原告"), "沈建明");
+        Assert.assertEquals(cellText(row, summarySheet, "被告"), "苏州恒盛精密机械有限公司");
+        JsonNode rowNode = task.pageMap.get(BatchExtractionManager.SUMMARY_PAGE_MAP_PREFIX + 0);
+        Assert.assertNotNull(rowNode, "卷级行应按「表id:行号」写入页映射");
+        Assert.assertEquals(rowNode.get("原告").get(0).get("p").asInt(), 2);
+        Assert.assertEquals(rowNode.get("被告").get(0).get("p").asInt(), 2);
+    }
+
+    /**
+     * 件级「原告」「被告」：卷级名单落定后按「件内出现过的姓名」求交。
+     * 统一适用于全部材料（起诉状/答辩状/判决书/询问笔录），不是只对笔录类件特判。
+     */
+    @Test
+    public void resolvesPieceLevelPartyColumnsByNamesInPiece() {
+        BatchExtractionManager.VolumeSummary summary =
+                new BatchExtractionManager.VolumeSummary("卷1", "D:\\cases\\卷1");
+        // 件1 起诉状：只出现原告
+        summary.add("x", "20240101", 2, "民事起诉状", mapOf(
+                "dangshiren", "沈建明",
+                "party_roles", "{\"原告\":[\"沈建明\"]}"));
+        // 件2 答辩状：只出现被告
+        summary.add("x", "20240102", 2, "民事答辩状", mapOf(
+                "dangshiren", "苏州恒盛精密机械有限公司",
+                "party_roles", "{\"被告\":[\"苏州恒盛精密机械有限公司\"]}"));
+        // 件3 判决书：双方都出现，两列都填
+        summary.add("x", "20240103", 3, "民事判决书", mapOf(
+                "dangshiren", "沈建明，苏州恒盛精密机械有限公司",
+                "party_roles", "{\"原告\":[\"沈建明\"],\"被告\":[\"苏州恒盛精密机械有限公司\"]}"));
+        // 件4 询问笔录：件级当事人未抽到，仅页级当事人候选是被询问人本人
+        summary.add("x", "20240104", 1, "询问笔录", mapOf(),
+                candidatesOf("dangshiren", "沈建明", 4), pieceStartNode(4));
+        summary.resolveElements();
+
+        Assert.assertEquals(summary.volumeElements.get("yuangao"), "沈建明");
+        Assert.assertEquals(summary.volumeElements.get("beigao"), "苏州恒盛精密机械有限公司");
+        Assert.assertEquals(summary.piecePlaintiffsOf(1), "沈建明");
+        Assert.assertEquals(summary.pieceDefendantsOf(1), "");
+        Assert.assertEquals(summary.piecePlaintiffsOf(2), "");
+        Assert.assertEquals(summary.pieceDefendantsOf(2), "苏州恒盛精密机械有限公司");
+        Assert.assertEquals(summary.piecePlaintiffsOf(3), "沈建明");
+        Assert.assertEquals(summary.pieceDefendantsOf(3), "苏州恒盛精密机械有限公司");
+        Assert.assertEquals(summary.piecePlaintiffsOf(4), "沈建明");
+        Assert.assertEquals(summary.pieceDefendantsOf(4), "");
+    }
+
+    /** 卷级名单为空时件级两列同样留空，不臆造 */
+    @Test
+    public void leavesPiecePartyColumnsEmptyWhenVolumeNamesAreEmpty() {
+        BatchExtractionManager.VolumeSummary summary =
+                new BatchExtractionManager.VolumeSummary("卷1", "D:\\cases\\卷1");
+        summary.add("x", "20240101", 1, "情况说明", mapOf("dangshiren", "沈建明"));
+        summary.resolveElements();
+        Assert.assertNull(summary.volumeElements.get("yuangao"));
+        Assert.assertNull(summary.volumeElements.get("beigao"));
+        Assert.assertEquals(summary.piecePlaintiffsOf(1), "");
+        Assert.assertEquals(summary.pieceDefendantsOf(1), "");
+    }
+
     private static ObjectNode pieceStartNode(int page) {
         ObjectNode node = new ObjectMapper().createObjectNode();
         node.put("v", "0001.jpg");

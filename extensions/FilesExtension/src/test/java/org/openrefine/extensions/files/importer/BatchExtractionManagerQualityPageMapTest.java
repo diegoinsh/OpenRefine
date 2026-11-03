@@ -40,7 +40,8 @@ public class BatchExtractionManagerQualityPageMapTest {
     @BeforeMethod
     public void setup() throws Exception {
         accumulateByConfidence = BatchExtractionManager.class.getDeclaredMethod(
-                "accumulateByConfidence", List.class, List.class, int.class, List.class, List.class);
+                "accumulateByConfidence", List.class, List.class, int.class, List.class, List.class,
+                List.class);
         accumulateByConfidence.setAccessible(true);
         markWinners = BatchExtractionManager.class.getDeclaredMethod(
                 "markWinners", Map.class, Map.class, Map.class, Map.class);
@@ -60,7 +61,7 @@ public class BatchExtractionManagerQualityPageMapTest {
     private Object merge(List<Map<String, String>> values, List<Map<String, Double>> confidences,
                          int startPage, List<Map<String, Double>> scores,
                          List<Map<String, List<String>>> flags) throws Exception {
-        return accumulateByConfidence.invoke(null, values, confidences, startPage, scores, flags);
+        return accumulateByConfidence.invoke(null, values, confidences, startPage, scores, flags, null);
     }
 
     @SuppressWarnings("unchecked")

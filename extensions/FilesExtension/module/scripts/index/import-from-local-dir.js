@@ -70,6 +70,9 @@ Refine.OPTIONAL_ELEMENTS = [
 Refine.EXTRA_ELEMENTS = [
   { key: 'anyou', nameKey: 'el-case-cause', promptKey: 'el-case-cause-prompt', checked: false },
   { key: 'dangshiren', nameKey: 'el-party', promptKey: 'el-party-prompt', checked: false },
+  // 原告/被告由文书首部角色栏纯规则汇总（AIMP 侧不请求模型），故默认勾选、不增加提取耗时
+  { key: 'yuangao', nameKey: 'el-plaintiff', promptKey: 'el-plaintiff-prompt', checked: true },
+  { key: 'beigao', nameKey: 'el-defendant', promptKey: 'el-defendant-prompt', checked: true },
   { key: 'shenji', nameKey: 'el-trial-level', promptKey: 'el-trial-level-prompt', checked: false },
   { key: 'jiean_fangshi', nameKey: 'el-closing-method', promptKey: 'el-closing-method-prompt', checked: false },
   { key: 'baoguan_qixian', nameKey: 'el-retention', promptKey: 'el-retention-prompt', checked: false }

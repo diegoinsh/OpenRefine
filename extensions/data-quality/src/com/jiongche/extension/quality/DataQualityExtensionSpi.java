@@ -152,7 +152,8 @@ public class DataQualityExtensionSpi implements RefineModuleSpi {
                 "scripts/dialogs/run-check-dialog.js",
                 "scripts/dialogs/image-quality-tab.js",
                 "scripts/dialogs/regex-editor-dialog.js",
-                "scripts/file-view-panel.js");
+                "scripts/file-view-panel.js",
+                "scripts/quality-preview-embed.js");
 
         // 注入 /project 页的样式
         ctx.addClientSidePaths(

@@ -56,6 +56,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
       if (embedView === "extraction-params") {
         document.documentElement.classList.add("ruyi-embed-extraction");
       }
+      // 合规检查结果的图像预览嵌入形态：只显示图像预览与检出标注（?view=quality-preview）
+      if (embedView === "quality-preview") {
+        document.documentElement.classList.add("ruyi-embed-quality-preview");
+      }
     </script>
     <script type="text/javascript" src="wirings.js"></script>
     $scriptInjection

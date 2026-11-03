@@ -629,6 +629,23 @@ Refine.ExtractionConsoleUI.prototype._renderTaskForm = function(elmts, task, pro
     return savedFixed ? savedFixed.indexOf(key) >= 0 : fallback;
   }
 
+  // 已保存的自定义要素：勾选态必须以任务记录为准。若按默认值回显，项目页会出现
+  // 「案由/当事人等显示未勾选、实际却已提取」的错觉（模板里这些要素是 include）。
+  var savedCustom = [];
+  if (task.customElements) {
+    try { savedCustom = JSON.parse(task.customElements) || []; } catch (e) { savedCustom = []; }
+  }
+  function customHas(key) {
+    for (var i = 0; i < savedCustom.length; i++) {
+      if (savedCustom[i] && savedCustom[i].key === key) return true;
+    }
+    return false;
+  }
+  // 有保存记录按记录回填；无记录（新建任务）才用默认勾选
+  function elementChecked(el) {
+    return savedCustom.length > 0 ? customHas(el.key) : el.checked;
+  }
+
   // 根目录：只读，来自任务记录
   elmts.rootPathInput.val(task.rootPath || '');
   elmts.batchProjectName.val(task.projectName || project.name || '');
@@ -710,7 +727,7 @@ Refine.ExtractionConsoleUI.prototype._renderTaskForm = function(elmts, task, pro
     elmts.extractionElementsExtraOptions.empty();
     extras.forEach(function(el) {
       elmts.extractionElementsExtraOptions.append(
-          buildElementOption(el.key, $.i18n('files-import/' + el.nameKey), el.checked, el));
+          buildElementOption(el.key, $.i18n('files-import/' + el.nameKey), elementChecked(el), el));
     });
   }
 
@@ -760,8 +777,8 @@ Refine.ExtractionConsoleUI.prototype._renderTaskForm = function(elmts, task, pro
   });
   Refine.OPTIONAL_ELEMENTS.forEach(function(el) {
     elmts.extractionElementsOptions.append(
-        buildElementOption(el.key, $.i18n('files-import/' + el.nameKey), el.checked, el));
-    if (el.checked) syncOptionalElement(el, true);
+        buildElementOption(el.key, $.i18n('files-import/' + el.nameKey), elementChecked(el), el));
+    if (elementChecked(el)) syncOptionalElement(el, true);
   });
 
   elmts.archiveCategorySelect.val(desiredCategory || elmts.archiveCategorySelect.val());
@@ -769,10 +786,6 @@ Refine.ExtractionConsoleUI.prototype._renderTaskForm = function(elmts, task, pro
   refreshSubCategory();
 
   // 已保存的自定义要素（下次编辑时回填）
-  var savedCustom = [];
-  if (task.customElements) {
-    try { savedCustom = JSON.parse(task.customElements) || []; } catch (e) { savedCustom = []; }
-  }
   savedCustom.forEach(function(item) {
     // 可选要素（密级/开放状态）默认勾选已同步生成同键行，这里跳过以免出现重复条目
     if (item && item.key && findCustomRowByKey(item.key).length > 0) return;

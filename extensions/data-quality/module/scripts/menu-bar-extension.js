@@ -19,6 +19,18 @@ function isQualityEmbedRequest() {
   }
 }
 
+/**
+ * 是否以「仅图像结果预览」的嵌入形态打开。
+ * 平台对外地址形如 /app/project?project=<id>&view=quality-preview&seq=<序号>。
+ */
+function isQualityPreviewEmbedRequest() {
+  try {
+    return new URLSearchParams(window.location.search).get('view') === 'quality-preview';
+  } catch (e) {
+    return false;
+  }
+}
+
 // Extend the ExtensionBar with Data Quality menu
 $(function() {
   ExtensionBar.MenuItems.push({
@@ -56,6 +68,14 @@ $(function() {
   setTimeout(function() {
     console.log('[menu-bar-extension] Timeout fired, QualityAlignment defined:', typeof QualityAlignment !== 'undefined');
     if (typeof QualityAlignment !== 'undefined') {
+      // 嵌入形态（?view=quality-preview）：只显示图像结果预览。
+      // 先加载项目已存规则与检查结果（预览的图片路径由规则里的资源根目录拼出），
+      // 再由 quality-preview-embed.js 按 seq 打开对应那一条的浮动预览。
+      if (isQualityPreviewEmbedRequest()) {
+        document.documentElement.classList.add('ruyi-embed-quality-preview');
+        QualityAlignment.autoLaunchIfNeededWithTarget('results');
+        return;
+      }
       // 嵌入形态（?view=quality-rules）：只显示规则面板，隐藏顶栏/左侧面/数据网格，
       // 供业务系统 iframe 直接嵌入；规则保存后对之后启动的检查任务生效。
       if (isQualityEmbedRequest()) {
