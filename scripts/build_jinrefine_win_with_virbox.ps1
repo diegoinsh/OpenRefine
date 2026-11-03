@@ -1,4 +1,4 @@
-<#
+﻿<#
 JinRefineWindows packaging + Virbox Java BCE protection build script.
 
 Prerequisites:
@@ -191,6 +191,18 @@ if (-not $recordsAssetsJar) {
 	throw "jinrefine.jar not found under $recordsAssetsLibDir."
 }
 
+# 授权门 LicenseGate 位于 ruyi-platform-sdk；不加壳就能被替换/反编译改写成放行，
+# 必须与 core 一起进加密体系（server 与 webapp 两份拷贝都覆盖）。
+$sdkServerJar = Get-ChildItem $serverLibDir -Filter 'ruyi-platform-sdk-*.jar' | Select-Object -First 1
+if (-not $sdkServerJar) {
+	throw "ruyi-platform-sdk-*.jar not found under $serverLibDir; refusing to ship an unprotected license gate."
+}
+
+$sdkWebJar = Get-ChildItem $webInfLibDir -Filter 'ruyi-platform-sdk-*.jar' | Select-Object -First 1
+if (-not $sdkWebJar) {
+	throw "ruyi-platform-sdk-*.jar not found under $webInfLibDir; refusing to ship an unprotected license gate."
+}
+
 # Specification for all jars that will be protected by Virbox (original path + stable name)
 $jarSpecs = @(
 	[pscustomobject]@{ Key = 'server';         OriginalPath = $serverJar.FullName;         StableName = $StableJarName },
@@ -198,7 +210,9 @@ $jarSpecs = @(
 	[pscustomobject]@{ Key = 'main';           OriginalPath = $mainJar.FullName;           StableName = 'jinrefine-main.jar' },
 	[pscustomobject]@{ Key = 'grel';           OriginalPath = $grelJar.FullName;           StableName = 'jinrefine-grel.jar' },
 	[pscustomobject]@{ Key = 'records-db';     OriginalPath = $recordsDbJar.FullName;      StableName = 'jinrefine-records-db.jar' },
-	[pscustomobject]@{ Key = 'records-assets'; OriginalPath = $recordsAssetsJar.FullName;  StableName = 'jinrefine-records-assets.jar' }
+	[pscustomobject]@{ Key = 'records-assets'; OriginalPath = $recordsAssetsJar.FullName;  StableName = 'jinrefine-records-assets.jar' },
+	[pscustomobject]@{ Key = 'sdk-server';     OriginalPath = $sdkServerJar.FullName;     StableName = 'jinrefine-sdk-server.jar' },
+	[pscustomobject]@{ Key = 'sdk-web';        OriginalPath = $sdkWebJar.FullName;        StableName = 'jinrefine-sdk-web.jar' }
 )
 
 Write-Host '[4/6] Preparing Virbox project/input/output directories...' -ForegroundColor Cyan
@@ -251,15 +265,13 @@ if (Test-Path $VirboxSSPPath) {
         $sspText = $sspText -replace '__JAVA_DS_PWD__', $JavaPassword
         Write-Host 'SSP: java password injected into temporary copy (value not echoed).' -ForegroundColor Gray
     } else {
-        $sspText = $sspText -replace '<password>__JAVA_DS_PWD__</password>', '<password></password>'
-        Write-Host '[WARN] -JavaPassword not supplied: ssp java password left EMPTY. Jars will protect fine but will fail at runtime with 0x13000038.' -ForegroundColor DarkYellow
+        throw '-JavaPassword not supplied: refusing to produce a release whose sjt_agent cannot bind the licence.'
     }
     if ($LicensePassword) {
         $sspText = $sspText -replace '__LICENSE_DS_PWD__', $LicensePassword
         Write-Host 'SSP: license password injected into temporary copy (value not echoed).' -ForegroundColor Gray
     } else {
-        $sspText = $sspText -replace '<password>__LICENSE_DS_PWD__</password>', '<password></password>'
-        Write-Host '[WARN] -LicensePassword not supplied: ssp license password left EMPTY.' -ForegroundColor DarkYellow
+        throw '-LicensePassword not supplied: refusing to produce a release whose sjt_agent cannot bind the licence.'
     }
     foreach ($ph in @('__JAVA_DS_PWD__', '__LICENSE_DS_PWD__')) {
         if ($sspText -match [regex]::Escape($ph)) {
@@ -328,11 +340,49 @@ Copy-Item $sjtAgent.FullName -Destination $serverLibDir -Force
 
 $iniFile = Get-ChildItem $rootDir.FullName -Filter '*.l4j.ini' -Recurse | Select-Object -First 1
 if ($iniFile) {
-    $content = Get-Content $iniFile.FullName -Raw
+    # 必须按 UTF-8 读、按 UTF-8(无 BOM) 写：PS 5.1 的 Get-Content/Set-Content 默认走 ANSI，
+    # 会把模板里的 UTF-8 BOM 解成 '?'（0x3F）留在首行，launch4j 于是把 '?' 当 VM 参数，
+    # 主类参数错位成 "?"，启动即 ClassNotFoundException（2026-11-03 现场故障）。
+    $content = [IO.File]::ReadAllText($iniFile.FullName, [Text.Encoding]::UTF8)
+    $content = $content.TrimStart([char]0xFEFF)
+    $content = $content -replace '^\?+', ''
     $content = $content -replace '#\s*-javaagent:server/target/lib/sjt_agent.jar', '-javaagent:server/target/lib/sjt_agent.jar'
-    Set-Content $iniFile.FullName $content -NoNewline
-    Write-Host "  Enabled -javaagent in $($iniFile.Name)" -ForegroundColor Green
+    [IO.File]::WriteAllText($iniFile.FullName, $content, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "  Enabled -javaagent in $($iniFile.Name) (UTF-8, no BOM)" -ForegroundColor Green
 }
+
+# 加壳记录：交付产物必须能自证"这些 jar 就是加壳后的那份"。
+# 发布前 verify_release_security.ps1 会逐项重算 SHA256 并与本记录比对；
+# 缺记录、文件被替换/回滚都会让构建门禁失败（部署态不存在未加密 jar）。
+function Get-RelPathUnder([string]$Base, [string]$Full) {
+    $baseFull = [System.IO.Path]::GetFullPath($Base).TrimEnd('\') + '\'
+    $fullPath = [System.IO.Path]::GetFullPath($Full)
+    if ($fullPath.StartsWith($baseFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $fullPath.Substring($baseFull.Length).Replace('\', '/')
+    }
+    return $fullPath
+}
+$protectedRecords = @()
+foreach ($spec in $jarSpecs) {
+    $protectedRecords += [pscustomobject]@{
+        key    = $spec.Key
+        path   = (Get-RelPathUnder $rootDir.FullName $spec.OriginalPath)
+        sha256 = (Get-FileHash $spec.OriginalPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        size   = (Get-Item $spec.OriginalPath).Length
+    }
+}
+$virboxRecordDir = Join-Path $rootDir.FullName 'virbox'
+if (-not (Test-Path $virboxRecordDir)) { New-Item $virboxRecordDir -ItemType Directory -Force | Out-Null }
+$virboxRecord = [ordered]@{
+    product     = 'jinrefine'
+    tool        = 'virbox-java-bce'
+    generatedAt = (Get-Date).ToString('o')
+    files       = $protectedRecords
+}
+[System.IO.File]::WriteAllText((Join-Path $virboxRecordDir 'protected_jars.json'),
+    (($virboxRecord | ConvertTo-Json -Depth 5) + "`r`n"),
+    (New-Object System.Text.UTF8Encoding($false)))
+Write-Host "  Wrote protection record: virbox\protected_jars.json ($($protectedRecords.Count) jars)" -ForegroundColor Green
 
 Write-Host '[6/6] Re-packaging protected Windows release zip...' -ForegroundColor Cyan
 

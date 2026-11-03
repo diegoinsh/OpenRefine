@@ -104,6 +104,17 @@
           <skip>true</skip>
         </configuration>
       </plugin>
+      <plugin>
+        <groupId>org.jvnet.localizer</groupId>
+        <artifactId>localizer-maven-plugin</artifactId>
+        <configuration>
+          <!-- server/src 下只有 log4j2.properties，没有本地化资源。该文件的
+               ${sys:ruyi.log.level:-warn} 含花括号，会被 localizer 当作
+               MessageFormat 参数号解析（默认扫描全部 .properties）而构建失败。
+               这里把处理范围限定到标准 messages 文件，日志配置不参与本地化生成。 -->
+          <fileMaskRegexp>.*[Mm]essages[^\\/]*\.properties</fileMaskRegexp>
+        </configuration>
+      </plugin>
     </plugins>
     <pluginManagement>
       <plugins>
