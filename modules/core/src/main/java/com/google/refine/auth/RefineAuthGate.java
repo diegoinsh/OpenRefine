@@ -21,6 +21,7 @@ import javax.servlet.http.HttpServletResponse;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jiongche.sdk.authz.LicenseGate;
 import com.jiongche.sdk.sso.SessionContract;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -128,7 +129,23 @@ public class RefineAuthGate {
         } catch (NumberFormatException e) {
             logger.warn("{} 取值非法，按 5 秒处理：{}", PROP_CACHE_SECONDS, e.getMessage());
         }
-        return new RefineAuthGate(parseMode(enforce), url, cache, null);
+        Mode mode = resolveMode(enforce, LicenseGate.isDevTree());
+        return new RefineAuthGate(mode, url, cache, null);
+    }
+
+    /**
+     * 三态解析 + 运行态收口：开发树尊重显式配置（缺省 block，off/log 可用）；
+     * 发布态**恒 block**——系统属性可被 {@code _JAVA_OPTIONS} 等外部注入，不能作为豁免。
+     */
+    static Mode resolveMode(String raw, boolean devTree) {
+        Mode mode = parseMode(raw);
+        if (!devTree) {
+            if (mode != Mode.BLOCK) {
+                logger.warn("发布态不接受 {}={}，强制 block（部署态无豁免）", PROP_ENFORCE, raw);
+            }
+            return Mode.BLOCK;
+        }
+        return mode;
     }
 
     /** 解析三态开关；无法识别时按 {@code block}（失败关闭）。 */

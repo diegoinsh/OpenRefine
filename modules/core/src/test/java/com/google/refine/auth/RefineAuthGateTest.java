@@ -125,6 +125,20 @@ public class RefineAuthGateTest {
         assertEquals(RefineAuthGate.parseMode("bogus"), RefineAuthGate.Mode.BLOCK);
     }
 
+    /** 部署态无豁免：发布包忽略 off/log（系统属性可被外部注入），恒 block。 */
+    @Test
+    public void testReleaseRuntimeNeverHonorsExemption() {
+        assertEquals(RefineAuthGate.resolveMode(null, false), RefineAuthGate.Mode.BLOCK);
+        assertEquals(RefineAuthGate.resolveMode("off", false), RefineAuthGate.Mode.BLOCK);
+        assertEquals(RefineAuthGate.resolveMode("log", false), RefineAuthGate.Mode.BLOCK);
+        assertEquals(RefineAuthGate.resolveMode("bogus", false), RefineAuthGate.Mode.BLOCK);
+        assertEquals(RefineAuthGate.resolveMode("block", false), RefineAuthGate.Mode.BLOCK);
+        // 开发树保持显式档位，缺省 block
+        assertEquals(RefineAuthGate.resolveMode("off", true), RefineAuthGate.Mode.OFF);
+        assertEquals(RefineAuthGate.resolveMode("log", true), RefineAuthGate.Mode.LOG);
+        assertEquals(RefineAuthGate.resolveMode(null, true), RefineAuthGate.Mode.BLOCK);
+    }
+
     @Test
     public void testMessageBundle() {
         String zh = RefineAuthGate.message("auth.loginRequired", Locale.SIMPLIFIED_CHINESE);
