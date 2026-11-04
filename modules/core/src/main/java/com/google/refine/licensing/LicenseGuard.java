@@ -100,9 +100,30 @@ public class LicenseGuard implements CommandGuard {
         this.reader = reader;
     }
 
-    /** 从 JVM 系统属性装配（{@code -Druyi.license.*}，如写在 refine.ini 的 JAVA_OPTIONS 中）。 */
+    /**
+     * 从 JVM 系统属性装配（{@code -Druyi.license.*}，如写在 refine.ini 的 JAVA_OPTIONS 中）。
+     *
+     * <p>锚点用启动类 {@code com.google.refine.Refine}：SDK 在开发态是以 jar 形态放在
+     * {@code server\target\lib}，{@link RefineServlet} 与授权类本身也都来自 jar，若按它们判定
+     * 会把开发树误判成发布态而恒 {@code block}，导致 IDE 里的开发树读狗失败；
+     * 启动类在开发态来自 {@code server\classes} 目录、发布态来自 jar（或目录但无源码标记）。
+     *
+     * <p>用反射加载以避免 core 模块对 server 模块的编译期依赖。
+     */
     public static LicenseGuard fromConfiguration() {
-        return new LicenseGuard(LicenseGate.fromSystemProperties());
+        Class<?> anchor = hostAnchor();
+        // 注入给 SDK：扩展/引擎侧（data-quality-engine、files-engine）用无参
+        // fromSystemProperties() 懒装配授权门，若不注入会按 SDK 自身 jar 判定成发布态。
+        LicenseGate.setHostAnchor(anchor);
+        return new LicenseGuard(LicenseGate.fromSystemProperties(anchor));
+    }
+
+    private static Class<?> hostAnchor() {
+        try {
+            return Class.forName("com.google.refine.Refine");
+        } catch (Throwable t) {
+            return RefineServlet.class;
+        }
     }
 
     static Mode parseMode(String raw) {
