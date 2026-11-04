@@ -20,7 +20,10 @@ I18NUtil.init = function (module) {
         type: "POST",
         async: false,
         data: {
-            module: module
+            module: module,
+            // 把浏览器语言作为候选传给服务端；服务端若已存 userLang 偏好仍以偏好为准。
+            // 否则全新安装（无 userLang）会只回退 en，导致中文环境下界面全英文。
+            lang: lang
         },
         success: function (data) {
             if (data && data['dictionary']) { dictionary = data['dictionary']; }
