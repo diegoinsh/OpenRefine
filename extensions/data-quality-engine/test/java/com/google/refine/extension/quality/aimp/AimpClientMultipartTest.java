@@ -9,12 +9,29 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.jiongche.sdk.authz.LicenseGate;
 import com.sun.net.httpserver.HttpServer;
 import org.testng.Assert;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 /** {@link AimpClient} 抽取上传的字节级契约（SDK Multipart 与旧手写布局一致）。 */
 public class AimpClientMultipartTest {
+
+    /**
+     * 单测里 SDK 以 jar 形式在 classpath 上，无宿主入口类会被判成发布态并强制 block；
+     * 以测试类（{@code target/test-classes} 目录）作锚点即可恢复开发树免狗口径。
+     */
+    @BeforeClass
+    public void enterDevTree() {
+        LicenseGate.setHostAnchor(AimpClientMultipartTest.class);
+    }
+
+    @AfterClass(alwaysRun = true)
+    public void restoreDevTree() {
+        LicenseGate.setHostAnchor(null);
+    }
 
     @Test
     public void extractUploadBodyMatchesLegacyByteLayout() throws Exception {

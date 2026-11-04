@@ -7,8 +7,10 @@ package com.google.refine.extension.quality.checker;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import com.jiongche.sdk.data.TableView;
 import org.slf4j.Logger;
@@ -66,6 +68,9 @@ public class QuantityImageChecker implements ImageChecker {
         }
 
         logger.info("开始遍历行数据");
+        // 同一资源目录可能被多行共享（仅图像上传时每行都指向同一个卷根目录），
+        // 逐行统计会把文件数、体积、文件夹数成倍放大，必须按规范化路径去重。
+        Set<String> visited = new HashSet<>();
         for (int i = 0; i < rowIndexes.size(); i++) {
             int rowIndex = rowIndexes.get(i);
             // logger.info("处理第 {} 行", i);
@@ -75,6 +80,11 @@ public class QuantityImageChecker implements ImageChecker {
                 File folder = new File(resourcePath);
                 logger.info("文件夹存在: {}, 是目录: {}", folder.exists(), folder.isDirectory());
                 if (folder.exists() && folder.isDirectory()) {
+                    String key = canonical(folder);
+                    if (!visited.add(key)) {
+                        logger.info("目录已在前面行统计过，跳过: {}", key);
+                        continue;
+                    }
                     statistics.incrementFolders(1);
                     logger.info("开始统计文件夹: {}", resourcePath);
                     countFilesInFolder(folder, statistics);
@@ -105,6 +115,11 @@ public class QuantityImageChecker implements ImageChecker {
 
         for (File item : items) {
             if (item.isDirectory()) {
+                // 跳过平台/引擎内部缓存目录（OR 的 .catalog 存缩略图与元数据），
+                // 它们不是卷宗影像，递归计入会把文件数/图片数显著虚高。
+                if (item.getName().startsWith(".")) {
+                    continue;
+                }
                 countFilesInFolder(item, statistics);
             } else if (item.isFile()) {
                 folderFileCount++;
@@ -121,6 +136,15 @@ public class QuantityImageChecker implements ImageChecker {
 
         if (folderFileCount == 0) {
             statistics.incrementEmptyFolders(1);
+        }
+    }
+
+    /** 目录去重键：优先规范路径（同一目录可能以不同写法出现）。 */
+    private static String canonical(File folder) {
+        try {
+            return folder.getCanonicalPath();
+        } catch (Exception e) {
+            return folder.getAbsolutePath();
         }
     }
 
