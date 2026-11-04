@@ -16,6 +16,9 @@ public class UnitScanner {
             "tif", "tiff", "jpg", "jpeg", "png", "bmp", "gif"));
     public static final Set<String> PDF_EXTENSIONS = new HashSet<>(Collections.singletonList("pdf"));
 
+    /** 向下找「含图的目录」的最大层数：根 → 卷 → 分类 → 件 已 3 层，留余量到 6。 */
+    private static final int MAX_DIR_DEPTH = 6;
+
     // 数字感知的自然排序：数字段按数值比较，避免无补零文件名"10"按字典序排在"2"前面
     public static final Comparator<String> NATURAL_ORDER = (a, b) -> {
         int i = 0, j = 0;
@@ -80,6 +83,17 @@ public class UnitScanner {
         public boolean numberedPages;
     }
 
+    /**
+     * 扫描待校审「卷」：根目录下每个子文件夹视为一卷。
+     *
+     * <p>兼容两种布局：
+     * <ul>
+     *   <li>一层：{@code 根/件/图片}——自动著录刚分件后的形态，每个件目录直接放图；</li>
+     *   <li>多层：{@code 根/正卷/分类/件/图片}——归档后的形态（2026-11 起自动著录会追加
+     *       「卷/分类」两级），中间层没有散图时逐级向下，把最深层含图像/PDF 的目录当作一个件单元。</li>
+     * </ul>
+     * 多层单元名取相对路径（{@code 卷/分类/件}），避免不同分类下的同名件互相覆盖。
+     */
     public static List<Volume> scanVolumes(String rootPath) {
         List<Volume> volumes = new ArrayList<>();
         File root = new File(rootPath);
@@ -87,12 +101,26 @@ public class UnitScanner {
         if (dirs == null) return volumes;
         Arrays.sort(dirs, Comparator.comparing(File::getName, NATURAL_ORDER));
         for (File dir : dirs) {
-            Volume v = scanDirectory(dir);
-            if (v != null && !v.mixedContent) {
-                volumes.add(v);
-            }
+            if (dir.getName().startsWith(".")) continue;   // .catalog 等内部目录
+            collectVolumes(dir, "", 0, volumes);
         }
         return volumes;
+    }
+
+    /** 递归收集含图像/PDF 的目录；中间层（卷/分类）没有散图时继续向下。 */
+    private static void collectVolumes(File dir, String prefix, int depth, List<Volume> out) {
+        File[] subs = dir.listFiles(f -> f.isDirectory() && !f.getName().startsWith("."));
+        if (subs != null && subs.length > 0 && depth < MAX_DIR_DEPTH) {
+            Arrays.sort(subs, Comparator.comparing(File::getName, NATURAL_ORDER));
+            for (File sub : subs) {
+                collectVolumes(sub, prefix + dir.getName() + "/", depth + 1, out);
+            }
+        }
+        Volume own = scanDirectory(dir);
+        if (own != null && !own.mixedContent) {
+            own.name = prefix + dir.getName();
+            out.add(own);
+        }
     }
 
     public static List<Volume> scanCases(String rootPath) {

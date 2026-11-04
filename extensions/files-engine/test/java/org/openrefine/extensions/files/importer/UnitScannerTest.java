@@ -64,6 +64,37 @@ public class UnitScannerTest {
         }
     }
 
+    /**
+     * 归档后的多层布局（卷/分类/件/图片）：中间层没有散图时继续向下，
+     * 以「件」为单元，名称取相对路径；.catalog 等内部目录不参与。
+     */
+    @Test
+    public void scanVolumesDescendsIntoArchivedLayout() throws Exception {
+        File root = Files.createTempDirectory("unit-scanner-archived").toFile();
+        try {
+            File piece1 = new File(root, "正卷/表明案件来源的材料/01 民事起诉状");
+            File piece2 = new File(root, "正卷/表明案件来源的材料/02 受理案件通知书");
+            assertTrue(piece1.mkdirs());
+            assertTrue(piece2.mkdirs());
+            touch(piece1, "0001.jpg");
+            touch(piece1, "0002.jpg");
+            touch(piece2, "0003.jpg");
+
+            File catalog = new File(root, ".catalog/thumbs");
+            assertTrue(catalog.mkdirs());
+            touch(catalog, "thumb.jpg");
+
+            List<UnitScanner.Volume> volumes = UnitScanner.scanVolumes(root.getAbsolutePath());
+            assertEquals(volumes.size(), 2);
+            assertEquals(volumes.get(0).name, "正卷/表明案件来源的材料/01 民事起诉状");
+            assertEquals(volumes.get(0).pages.size(), 2);
+            assertEquals(volumes.get(1).name, "正卷/表明案件来源的材料/02 受理案件通知书");
+            assertEquals(volumes.get(1).pages.size(), 1);
+        } finally {
+            deleteRecursively(root);
+        }
+    }
+
     @Test
     public void scanCasesTreatsRootPdfAsSingleCase() throws Exception {
         File root = Files.createTempDirectory("unit-scanner-cases").toFile();
