@@ -415,6 +415,187 @@
   background: #e53935;
 }
 
+/* 件级预览（内容组合类）：一组页的汇总结论。放右上角，与左侧页级图例并存不遮挡 */
+.file-view-piece-legend {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 5;
+  max-width: 340px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #c9d6e2;
+  border-left: 3px solid #1976d2;
+  border-radius: 4px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: #333;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+.file-view-piece-legend-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 5px;
+}
+
+.file-view-piece-legend-title {
+  font-weight: bold;
+  margin-right: 8px;
+}
+
+.file-view-piece-legend-result {
+  padding: 0 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.file-view-piece-legend-result.is-pass {
+  color: #1b5e20;
+  background: #e6f4ea;
+}
+
+.file-view-piece-legend-result.is-fail {
+  color: #b71c1c;
+  background: #fdecea;
+}
+
+.file-view-piece-legend-result.is-unknown {
+  color: #6d4c41;
+  background: #f2ece8;
+}
+
+.file-view-piece-legend-page {
+  color: #888;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.file-view-piece-legend-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+}
+
+.file-view-piece-legend-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.file-view-piece-legend-label {
+  color: #666;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.file-view-piece-legend-chip {
+  display: inline-block;
+  padding: 0 6px;
+  margin-right: 4px;
+  border-radius: 9px;
+  font-size: 11px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.file-view-piece-legend-chip.is-req {
+  color: #37474f;
+  background: #eceff1;
+}
+
+.file-view-piece-legend-chip.is-hit {
+  color: #1b5e20;
+  background: #e6f4ea;
+}
+
+.file-view-piece-legend-chip.is-miss {
+  color: #b71c1c;
+  background: #fdecea;
+}
+
+.file-view-piece-legend-chip.is-pass {
+  color: #1b5e20;
+  background: #e6f4ea;
+}
+
+.file-view-piece-legend-chip.is-muted {
+  color: #999;
+  background: transparent;
+}
+
+/* 逐页状态条：点一下跳到该页 */
+.file-view-piece-legend-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed #ddd;
+}
+
+.file-view-piece-page-chip {
+  display: inline-block;
+  min-width: 22px;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.file-view-piece-page-chip.is-pass {
+  color: #1b5e20;
+  background: #e6f4ea;
+  border-color: #b7dfc3;
+}
+
+.file-view-piece-page-chip.is-fail {
+  color: #b71c1c;
+  background: #fdecea;
+  border-color: #f3b9b5;
+}
+
+.file-view-piece-page-chip.is-unknown {
+  color: #6d4c41;
+  background: #f2ece8;
+  border-color: #d9cdc6;
+}
+
+.file-view-piece-page-chip:hover {
+  border-color: #1976d2;
+}
+
+/* 件级预览的缩略图角标：缺 / 无法判定 */
+.file-view-thumb-verdict {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 15px;
+  height: 15px;
+  font-size: 9px;
+  line-height: 15px;
+  border-radius: 50%;
+  text-align: center;
+  pointer-events: none;
+}
+
+.file-view-thumb-verdict.is-fail {
+  color: #b71c1c;
+  background: #fdecea;
+  border: 1px solid #f3b9b5;
+}
+
+.file-view-thumb-verdict.is-unknown {
+  color: #6d4c41;
+  background: #f2ece8;
+  border: 1px solid #d9cdc6;
+}
+
 .file-view-ann-swatch-fingerprint {
   background: #7b1fa2;
 }

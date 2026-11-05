@@ -69,6 +69,18 @@ public class DataReviewCommand extends Command {
      */
     public static final String ANNOTATION_KEY = "__review_ann__";
 
+    /**
+     * 件级预览的保留键（仅件级链路写入，旧链路不出现）：
+     * <ul>
+     *   <li>{@code __piece_pages__}：件内页组（有序），{@code [{f,p}]}，前端据此把缩略图限定为本件；</li>
+     *   <li>{@code __review_ann_pages__}：页 → 标注映射，{@code {"页号|文件名": ann}}，翻到件内任意页都能画框；</li>
+     *   <li>{@code __piece_legend__}：件级结论（要求项/命中项/缺失项 + 逐页状态），渲染在预览左上角。</li>
+     * </ul>
+     */
+    public static final String PIECE_PAGES_KEY = "__piece_pages__";
+    public static final String ANNOTATION_PAGES_KEY = "__review_ann_pages__";
+    public static final String PIECE_LEGEND_KEY = "__piece_legend__";
+
     private static final List<String> COLUMNS = Arrays.asList(
             "序号", "案卷号", "文件名", "页数", "规则分类", "校审规则",
             "校审结果", "印章数量", "指纹数量", "说明", FOLDER_PATH_COLUMN);
@@ -516,7 +528,7 @@ public class DataReviewCommand extends Command {
             PieceOutcome outcome = evaluatePiece(task, piece, refs, cache, keys);
             Row row = buildPieceRow(project.columnModel, rowIndex + 1, piece, refs, outcome);
             ObjectNode pageMapRow = refs.isEmpty() ? null
-                    : buildPiecePageMapRow(refs.get(0), piece, outcome, keys, cache);
+                    : buildPiecePageMapRow(refs, piece, outcome, keys, cache);
 
             synchronized (task) {
                 project.rows.add(row);
@@ -594,6 +606,18 @@ public class DataReviewCommand extends Command {
             }
             if (hit) {
                 out.hitNames.add(rule.name);
+            }
+            // 「有什么」：件内任一处检出即算存在，与结论口径（everyPage 需逐页满足）分开
+            boolean present = false;
+            for (PageRef ref : refs) {
+                Detection d = detectCached(task, ref.path, keys, cache);
+                if (d.ok && countOf(d, rule.key) > 0) {
+                    present = true;
+                    break;
+                }
+            }
+            if (present) {
+                out.presentNames.add(rule.name);
             }
             if (rule.required && !hit) {
                 out.missingNames.add(rule.name);
@@ -682,14 +706,19 @@ public class DataReviewCommand extends Command {
         put(columnModel, row, "件号", piece.pieceNo);
         put(columnModel, row, "件题名", piece.title);
         put(columnModel, row, "要求项", String.join("、", outcome.requiredNames));
-        put(columnModel, row, "命中项", String.join("、", outcome.hitNames));
+        put(columnModel, row, "命中项", String.join("、", outcome.presentNames));
         put(columnModel, row, "缺失项", String.join("、", outcome.missingNames));
         return row;
     }
 
-    private ObjectNode buildPiecePageMapRow(PageRef ref, PieceSpec piece, PieceOutcome outcome,
+    /**
+     * 件级预览行：额外写入件页组、逐页标注与件级图例，供前端把「一张」扩成「一组」。
+     * 旧键（{@code __piece_start__} / {@code __review_ann__}）照旧写入，前端未升级时行为不变。
+     */
+    private ObjectNode buildPiecePageMapRow(List<PageRef> refs, PieceSpec piece, PieceOutcome outcome,
                                             String keys, Map<String, Detection> cache) {
-        Detection d = cache.get(ref.path);
+        if (refs == null || refs.isEmpty()) return null;
+        PageRef ref = refs.get(0);
         ObjectNode rowNode = mapper.createObjectNode();
         if (outcome != null) {
             ObjectNode cand = mapper.createObjectNode();
@@ -716,13 +745,68 @@ public class DataReviewCommand extends Command {
         start.put("p", ref.pageNo);
         start.put("f", ref.fileName);
         rowNode.set(BatchExtractionManager.PIECE_START_KEY, start);
-        if (d != null && d.ok) {
-            ObjectNode ann = buildAnnotation(ref.fileName, ref.pageNo, keys, d);
-            if (ann != null) {
-                rowNode.set(ANNOTATION_KEY, ann);
+
+        ArrayNode pages = mapper.createArrayNode();
+        ObjectNode annPages = mapper.createObjectNode();
+        ArrayNode legendPages = mapper.createArrayNode();
+        for (PageRef r : refs) {
+            ObjectNode page = pages.addObject();
+            page.put("f", r.fileName);
+            page.put("p", r.pageNo);
+
+            Detection d = cache.get(r.path);
+            boolean ok = d != null && d.ok;
+            if (ok) {
+                // 件级页只画检出框；缺项由件级图例按 coverage 判定，避免 piece 覆盖的件误标某页缺章
+                ObjectNode ann = buildAnnotation(r.fileName, r.pageNo, keys, d, false);
+                if (ann != null) {
+                    annPages.set(r.pageNo + "|" + r.fileName, ann);
+                    if (r == ref) rowNode.set(ANNOTATION_KEY, ann);
+                }
+            }
+            ObjectNode lp = legendPages.addObject();
+            lp.put("f", r.fileName);
+            lp.put("p", r.pageNo);
+            lp.put("ok", ok);
+            ArrayNode hits = lp.putArray("hits");
+            ArrayNode miss = lp.putArray("missing");
+            for (PieceRule rule : piece.rules) {
+                boolean hit = ok && countOf(d, rule.key) > 0;
+                if (hit) {
+                    if (!containsText(hits, rule.name)) hits.add(rule.name);
+                } else if (rule.required && "everyPage".equals(rule.coverage) && ok
+                        && !containsText(miss, rule.name)) {
+                    miss.add(rule.name);
+                }
             }
         }
+        rowNode.set(PIECE_PAGES_KEY, pages);
+        rowNode.set(ANNOTATION_PAGES_KEY, annPages);
+
+        ObjectNode legend = mapper.createObjectNode();
+        legend.put("pieceNo", piece.pieceNo);
+        legend.put("title", piece.title);
+        legend.put("result", outcome == null ? "无法判定" : outcome.resultLabel);
+        addNames(legend.putArray("required"), outcome == null ? null : outcome.requiredNames);
+        addNames(legend.putArray("hit"), outcome == null ? null : outcome.presentNames);
+        addNames(legend.putArray("missing"), outcome == null ? null : outcome.missingNames);
+        legend.set("pages", legendPages);
+        rowNode.set(PIECE_LEGEND_KEY, legend);
         return rowNode;
+    }
+
+    private static void addNames(ArrayNode array, List<String> names) {
+        if (names == null) return;
+        for (String n : names) {
+            if (n != null && !n.isEmpty() && !containsText(array, n)) array.add(n);
+        }
+    }
+
+    private static boolean containsText(ArrayNode array, String text) {
+        for (int i = 0; i < array.size(); i++) {
+            if (text.equals(array.get(i).asText())) return true;
+        }
+        return false;
     }
 
     private static String pieceRuleKeys(PieceSpec piece) {
@@ -845,6 +929,15 @@ public class DataReviewCommand extends Command {
 
     private static ObjectNode buildAnnotation(String fileName, int pageNo, String keys,
                                               Detection detection) {
+        return buildAnnotation(fileName, pageNo, keys, detection, true);
+    }
+
+    /**
+     * @param withMissing 是否把「所选规则未检出」写成缺失标签。件级预览传 false：
+     *                    缺项已由件级图例按 coverage 表达，避免 piece 覆盖的件被逐页误标。
+     */
+    private static ObjectNode buildAnnotation(String fileName, int pageNo, String keys,
+                                              Detection detection, boolean withMissing) {
         if (!detection.ok) {
             return null;
         }
@@ -858,14 +951,14 @@ public class DataReviewCommand extends Command {
                     String.format("检出疑似指纹，置信度 %.2f", box[4])));
         }
         // 视觉级缺项：所选规则预期「有」但未检出，单独归入「缺失标签」并列出
-        if (hasKey(keys, "seal") && detection.sealCount == 0) {
+        if (withMissing && hasKey(keys, "seal") && detection.sealCount == 0) {
             ObjectNode missing = items.addObject();
             missing.put("kind", "missing");
             missing.put("label", "印章");
             missing.put("color", "seal");
             missing.put("message", "未检出印章（可能存在漏章）");
         }
-        if (hasKey(keys, "fingerprint") && detection.fingerprintCount == 0) {
+        if (withMissing && hasKey(keys, "fingerprint") && detection.fingerprintCount == 0) {
             ObjectNode missing = items.addObject();
             missing.put("kind", "missing");
             missing.put("label", "指纹");
@@ -1260,6 +1353,8 @@ public class DataReviewCommand extends Command {
         int fpSum;
         final List<String> requiredNames = new ArrayList<>();
         final List<String> hitNames = new ArrayList<>();
+        /** 件内任一处检出（「有什么」），与 hitNames（结论口径）区分 */
+        final List<String> presentNames = new ArrayList<>();
         final List<String> missingNames = new ArrayList<>();
         final List<String> details = new ArrayList<>();
 

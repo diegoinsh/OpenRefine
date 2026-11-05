@@ -90,6 +90,16 @@ var FileViewPanel = {};
    */
   FileViewPanel.ANNOTATION_KEY = '__review_ann__';
 
+  /**
+   * 件级预览（内容组合类）的保留键，与后端 DataReviewCommand 保持一致：
+   * - PIECE_PAGES_KEY：件内页组 `[{f,p}]`，预览时把右侧文件列表限定为这一组；
+   * - ANNOTATION_PAGES_KEY：`{"页号|文件名": ann}`，翻到件内任意页都画出该页的框；
+   * - PIECE_LEGEND_KEY：件级结论 `{pieceNo,title,result,required,hit,missing,pages[{f,p,ok,hits,missing}]}`。
+   */
+  FileViewPanel.PIECE_PAGES_KEY = '__piece_pages__';
+  FileViewPanel.ANNOTATION_PAGES_KEY = '__review_ann_pages__';
+  FileViewPanel.PIECE_LEGEND_KEY = '__piece_legend__';
+
   /** 「卷级」汇总表 id，与后端 BatchExtractionCommand.SUMMARY_SHEET_ID 保持一致 */
   FileViewPanel.SUMMARY_SHEET_ID = 'batch#卷级';
 
@@ -395,16 +405,125 @@ var FileViewPanel = {};
     return candidate;
   };
 
+  /**
+   * 取该行的件页组与件级图例（仅件级校审行写入，旧链路返回 null）。
+   * 组信息用于把「右侧一张」扩成「一组」，并逐页挂上检出/缺失结论。
+   */
+  FileViewPanel._getRowPieceGroup = function(rowIndex) {
+    if (!FileViewPanel._pageMap) {
+      return null;
+    }
+    var rowNode = FileViewPanel._pageMap[FileViewPanel._pageMapKey(rowIndex)];
+    if (!rowNode) {
+      return null;
+    }
+    var pages = rowNode[FileViewPanel.PIECE_PAGES_KEY];
+    if (!pages || !pages.length) {
+      return null;
+    }
+    return {
+      pages: pages,
+      legend: rowNode[FileViewPanel.PIECE_LEGEND_KEY] || null,
+      node: rowNode
+    };
+  };
+
+  /**
+   * 件级预览时把目录清单收窄为件内页组（按件内顺序）。件页一个都没匹配上时退回全目录，
+   * 避免目录结构变化导致预览整块空白。
+   */
+  FileViewPanel._applyPieceGroup = function(files) {
+    var group = FileViewPanel._pieceGroup;
+    if (!group || !group.pages || !group.pages.length) {
+      return files;
+    }
+    var byName = {};
+    for (var i = 0; i < files.length; i++) {
+      byName[files[i].name] = files[i];
+    }
+    var ordered = [];
+    for (var j = 0; j < group.pages.length; j++) {
+      var hit = byName[group.pages[j].f];
+      if (hit) {
+        ordered.push(hit);
+      }
+    }
+    if (!ordered.length) {
+      console.log('[FileViewPanel] 件页组未在目录内匹配到文件，退回全目录预览');
+      return files;
+    }
+    return ordered;
+  };
+
+  /** 当前预览文件在件页组中的页码与页状态；非件级预览时返回 null */
+  FileViewPanel._currentPiecePage = function(file) {
+    var group = FileViewPanel._pieceGroup;
+    if (!group || !group.pages || !file) {
+      return null;
+    }
+    var legendPages = (group.legend && group.legend.pages) || [];
+    for (var i = 0; i < group.pages.length; i++) {
+      if (group.pages[i].f === file.name) {
+        return {
+          pageNo: parseInt(group.pages[i].p, 10) || 0,
+          index: i,
+          total: group.pages.length,
+          state: legendPages[i] || null
+        };
+      }
+    }
+    return null;
+  };
+
+  /** 取当前预览文件应画的标注：件级只认页映射（不回落，避免把件首页的框带到其它页） */
+  FileViewPanel._annotationForCurrentFile = function(rowNode, file) {
+    if (!rowNode) {
+      return null;
+    }
+    var map = rowNode[FileViewPanel.ANNOTATION_PAGES_KEY];
+    if (map) {
+      if (!file) {
+        return null;
+      }
+      var piecePage = FileViewPanel._currentPiecePage(file);
+      if (piecePage && piecePage.pageNo > 0) {
+        var byNo = map[piecePage.pageNo + '|' + file.name];
+        if (byNo) {
+          return byNo;
+        }
+      }
+      for (var key in map) {
+        if (map.hasOwnProperty(key) && map[key] && map[key].f === file.name) {
+          return map[key];
+        }
+      }
+      return null;
+    }
+    return rowNode[FileViewPanel.ANNOTATION_KEY];
+  };
+
   /** 取该单元格对应的候选页列表，供 _currentPage 与页签展示使用 */
   FileViewPanel._resolveCellCandidates = function(rowIndex, cellIndex) {
     FileViewPanel._pageCandidates = [];
     FileViewPanel._pieceStart = null;
+    FileViewPanel._pieceGroup = FileViewPanel._getRowPieceGroup(rowIndex);
     FileViewPanel._currentPage = 1;
     var list = cellIndex < 0 ? [] : FileViewPanel._getCellCandidates(rowIndex, cellIndex);
     if (list.length) {
       FileViewPanel._pageCandidates = list;
       var page = parseInt(list[0].p, 10);
       FileViewPanel._currentPage = page > 0 ? page : 1;
+      return;
+    }
+    // 件级校审行（内容组合类）：定位到件页组的第一页，右侧文件列表随后限定为该组
+    if (FileViewPanel._pieceGroup) {
+      var first = FileViewPanel._pieceGroup.pages[0];
+      var firstPage = parseInt(first.p, 10);
+      FileViewPanel._currentPage = firstPage > 0 ? firstPage : 1;
+      FileViewPanel._pieceStart = {
+        p: FileViewPanel._currentPage,
+        f: first.f
+      };
       return;
     }
     // 点击的不是抽取要素（行号、件号、页数等非要素列或行内空白）：定位到该件第一页
@@ -431,6 +550,7 @@ var FileViewPanel = {};
     FileViewPanel._currentPage = 1;
     FileViewPanel._pageCandidates = [];
     FileViewPanel._pieceStart = null;
+    FileViewPanel._pieceGroup = null;
     FileViewPanel._zoomLevel = 1;
     FileViewPanel._currentOffsetX = 0;
     FileViewPanel._currentOffsetY = 0;
@@ -483,9 +603,9 @@ var FileViewPanel = {};
           return;
         }
 
-        FileViewPanel._currentFiles = files;
+        FileViewPanel._currentFiles = FileViewPanel._applyPieceGroup(files);
         // 案卷 PDF 抽取：按该行「文件名」列直接定位到对应 PDF，而不是默认落到卷内第一个文件
-        FileViewPanel._currentFileIndex = FileViewPanel._resolveInitialFileIndex(files);
+        FileViewPanel._currentFileIndex = FileViewPanel._resolveInitialFileIndex(FileViewPanel._currentFiles);
         FileViewPanel._renderThumbnails();
         FileViewPanel._loadCurrentFile();
         FileViewPanel._scrollToThumbnail();
@@ -508,6 +628,7 @@ var FileViewPanel = {};
     FileViewPanel._currentPage = 1;
     FileViewPanel._pageCandidates = [];
     FileViewPanel._pieceStart = null;
+    FileViewPanel._pieceGroup = null;
     FileViewPanel._currentPreviewType = null;
     FileViewPanel._currentImageDataUrl = null;
     FileViewPanel._currentImageFileName = null;
@@ -966,6 +1087,24 @@ var FileViewPanel = {};
           .appendTo(thumb);
       }
 
+      // 件级校审：缩略图直接标出该页缺什么（缺项角标 + tooltip），扫一眼就能看出组内哪页有问题
+      var piecePage = FileViewPanel._currentPiecePage(file);
+      if (piecePage && piecePage.state) {
+        var pageState = piecePage.state;
+        var pageMissing = pageState.missing || [];
+        if (!pageState.ok) {
+          $('<span>').addClass('file-view-thumb-verdict is-unknown')
+              .text($.i18n('data-quality-extension/file-view-piece-unknown-badge') || '?')
+              .attr('title', '第 ' + (piecePage.pageNo || '?') + ' 页：无法判定')
+              .appendTo(thumb);
+        } else if (pageMissing.length) {
+          $('<span>').addClass('file-view-thumb-verdict is-fail')
+              .text($.i18n('data-quality-extension/file-view-piece-missing-badge') || '缺')
+              .attr('title', '第 ' + (piecePage.pageNo || '?') + ' 页缺：' + pageMissing.join('、'))
+              .appendTo(thumb);
+        }
+      }
+
       thumb.on('click', function() {
         FileViewPanel._currentFileIndex = index;
         FileViewPanel._zoomLevel = 1;
@@ -1272,11 +1411,100 @@ var FileViewPanel = {};
   };
 
   /**
+   * 件级汇总图例：件题名 + 结论 + 要求/命中/缺失 + 逐页状态。
+   * 用独立类名，避免与页级图例（.file-view-ann-legend）的增删互相干扰。
+   */
+  FileViewPanel._renderPieceLegend = function(container, file) {
+    var group = FileViewPanel._pieceGroup;
+    if (!group || !group.legend) {
+      return;
+    }
+    var legend = group.legend;
+    var pageInfo = FileViewPanel._currentPiecePage(file);
+    container.find('.file-view-piece-legend').remove();
+    var box = $('<div>').addClass('file-view-piece-legend').appendTo(container);
+
+    var head = $('<div>').addClass('file-view-piece-legend-head').appendTo(box);
+    $('<span>').addClass('file-view-piece-legend-title')
+        .text(($.i18n('data-quality-extension/file-view-piece') || '件')
+            + ' ' + (legend.pieceNo || '') + (legend.title ? ' ' + legend.title : ''))
+        .appendTo(head);
+    var result = legend.result || '';
+    var resultClass = result === '通过' ? 'is-pass' : (result === '不通过' ? 'is-fail' : 'is-unknown');
+    $('<span>').addClass('file-view-piece-legend-result ' + resultClass)
+        .text(result || '无法判定').appendTo(head);
+    if (pageInfo) {
+      $('<span>').addClass('file-view-piece-legend-page')
+          .text('第 ' + (pageInfo.index + 1) + '/' + pageInfo.total + ' 页'
+              + (pageInfo.pageNo > 0 ? '（卷内第 ' + pageInfo.pageNo + ' 页）' : ''))
+          .appendTo(head);
+    }
+
+    var line = $('<div>').addClass('file-view-piece-legend-line').appendTo(box);
+    FileViewPanel._pieceLegendGroup(line, '要求项', legend.required, 'req', false);
+    FileViewPanel._pieceLegendGroup(line, '已检出', legend.hit, 'hit', false);
+    FileViewPanel._pieceLegendGroup(line, '缺失项', legend.missing, 'miss', true);
+
+    var pages = legend.pages || [];
+    if (pages.length > 1) {
+      var strip = $('<div>').addClass('file-view-piece-legend-pages').appendTo(box);
+      pages.forEach(function(p, i) {
+        var miss = p.missing || [];
+        var cls = !p.ok ? 'is-unknown' : (miss.length ? 'is-fail' : 'is-pass');
+        var tip = '第 ' + (p.p || '?') + ' 页：'
+            + (!p.ok ? '无法判定' : (miss.length ? ('缺 ' + miss.join('、')) : '满足要求'));
+        var chip = $('<span>').addClass('file-view-piece-page-chip ' + cls)
+            .attr('title', tip)
+            .text('P' + (p.p || (i + 1)))
+            .appendTo(strip);
+        chip.on('click', function() {
+          FileViewPanel._gotoPiecePage(p.f);
+        });
+      });
+    }
+  };
+
+  /** 件级图例内的一个分组（要求项 / 已检出 / 缺失项） */
+  FileViewPanel._pieceLegendGroup = function(parent, title, names, kind, showEmpty) {
+    var g = $('<span>').addClass('file-view-piece-legend-group').appendTo(parent);
+    $('<span>').addClass('file-view-piece-legend-label').text(title + '：').appendTo(g);
+    if (!names || !names.length) {
+      if (showEmpty) {
+        $('<span>').addClass('file-view-piece-legend-chip is-pass')
+            .text($.i18n('data-quality-extension/file-view-piece-none') || '无')
+            .appendTo(g);
+      } else {
+        $('<span>').addClass('file-view-piece-legend-chip is-muted').text('-').appendTo(g);
+      }
+      return;
+    }
+    names.forEach(function(n) {
+      $('<span>').addClass('file-view-piece-legend-chip is-' + kind).text(n).appendTo(g);
+    });
+  };
+
+  /** 跳到件页组内指定文件（件级图例的逐页状态条点击） */
+  FileViewPanel._gotoPiecePage = function(fileName) {
+    for (var i = 0; i < FileViewPanel._currentFiles.length; i++) {
+      if (FileViewPanel._currentFiles[i].name === fileName) {
+        FileViewPanel._currentFileIndex = i;
+        FileViewPanel._loadCurrentFile();
+        FileViewPanel._scrollToThumbnail();
+        return;
+      }
+    }
+  };
+
+  /**
    * 在原图上渲染「校审标注」：问题位置框 + 错误类型标签 + 左上角图例。
    *
    * <p>数据来自页映射行节点的保留键 {@link FileViewPanel.ANNOTATION_KEY}（后端
    * DataReviewCommand 写入），坐标为原图像素。只在标注文件名与当前文件同名时生效——
    * 同一目录下翻到其它文件时不该残留上一页的框。</p>
+   *
+   * <p>件级校审（内容组合类）会先渲染件级汇总图例（要求/命中/缺失 + 逐页状态），
+   * 再按 {@link FileViewPanel.ANNOTATION_PAGES_KEY} 取当前页的框；右侧文件列表由
+   * {@link FileViewPanel.PIECE_PAGES_KEY} 收窄为该件的页组。</p>
    */
   FileViewPanel._renderAnnotations = function(container, imgContainer, img, file) {
     if (!FileViewPanel._pageMap || !img || !img[0]) {
@@ -1286,10 +1514,16 @@ var FileViewPanel = {};
     if (!rowNode) {
       return;
     }
-    var ann = rowNode[FileViewPanel.ANNOTATION_KEY];
-    if (!ann || !ann.items || !ann.items.length) {
+    var ann = FileViewPanel._annotationForCurrentFile(rowNode, file);
+    var piecePage = FileViewPanel._currentPiecePage(file);
+    if ((!ann || !ann.items || !ann.items.length) && !piecePage) {
       return;
     }
+    if (!ann || !ann.items) {
+      ann = { items: [] };
+    }
+    // 件级预览：先把件级结论画出来（缺什么/有什么），再画当前页的框
+    FileViewPanel._renderPieceLegend(container, file);
     // 框的坐标属于 ann.f 这张原图，翻到同目录其它页时不能画框（会对不上位置）；
     // 但图例是「本行/本件的校审结论」，与当前预览的是哪一页无关，翻页后不该整块消失。
     var matchesFile = !(ann.f && file && ann.f !== file.name);
