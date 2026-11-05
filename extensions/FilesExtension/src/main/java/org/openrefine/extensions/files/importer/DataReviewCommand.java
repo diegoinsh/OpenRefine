@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -72,6 +73,13 @@ public class DataReviewCommand extends Command {
             "序号", "案卷号", "文件名", "页数", "规则分类", "校审规则",
             "校审结果", "印章数量", "指纹数量", "说明", FOLDER_PATH_COLUMN);
 
+    /**
+     * 件级校审（内容组合类）在既有列之后追加的 5 列；仅在带 {@code pieceMap}
+     * 启动时加入，旧链路结果列与旧口径逐字一致。
+     */
+    private static final List<String> PIECE_COLUMNS = Arrays.asList(
+            "件号", "件题名", "要求项", "命中项", "缺失项");
+
     /** 内存任务表：进程重启即丢，历史任务由登记表兜底 */
     private static final Map<Long, Task> TASKS = new ConcurrentHashMap<>();
 
@@ -115,6 +123,8 @@ public class DataReviewCommand extends Command {
             String rulesJson = request.getParameter("rules");
             String aimpUrl = aimpUrl(request.getParameter("aimpUrl"));
             double confidence = parseDouble(request.getParameter("confidence"), 0.5);
+            // 件级校审（内部参数，平台按已抽取项目装配）：缺省为空 → 旧链路逐字不变
+            String pieceMapJson = trim(UnicodeText.decode(request.getParameter("pieceMap")));
 
             if (rootPath.isEmpty()) {
                 respondError(response, "缺少 rootPath 参数");
@@ -130,6 +140,27 @@ public class DataReviewCommand extends Command {
                 if (!"seal".equals(rule.key) && !"fingerprint".equals(rule.key)) {
                     respondError(response, "暂不支持的校审规则: " + rule.name);
                     return;
+                }
+            }
+
+            List<PieceSpec> pieces = null;
+            if (!pieceMapJson.isEmpty()) {
+                pieces = parsePieceMap(pieceMapJson);
+                if (pieces.isEmpty()) {
+                    respondError(response, "件级校审参数为空：未取得任何件");
+                    return;
+                }
+                for (PieceSpec piece : pieces) {
+                    if (piece.rules.isEmpty()) {
+                        respondError(response, "件级校审未配置能力: " + piece.title);
+                        return;
+                    }
+                    for (PieceRule rule : piece.rules) {
+                        if (!"seal".equals(rule.key) && !"fingerprint".equals(rule.key)) {
+                            respondError(response, "件级校审暂不支持的规则: " + rule.name);
+                            return;
+                        }
+                    }
                 }
             }
 
@@ -151,16 +182,21 @@ public class DataReviewCommand extends Command {
             }
             int totalFiles = 0;
             for (UnitScanner.Volume unit : units) totalFiles += unit.pages.size();
+            if (pieces != null) {
+                totalFiles = 0;
+                for (PieceSpec piece : pieces) totalFiles += piece.pages.size();
+            }
 
-            Project project = prepareProject(projectName, reuseProject);
+            Project project = prepareProject(projectName, reuseProject, pieces != null);
             Task task = new Task(project.id, rootPath, aimpUrl, confidence, rules, units, totalFiles);
+            task.pieces = pieces;
             TASKS.put(project.id, task);
 
             Map<String, Object> record = new LinkedHashMap<>();
             record.put("projectId", project.id);
             record.put("projectName", project.getMetadata() == null ? projectName : project.getMetadata().getName());
             record.put("rootPath", rootPath);
-            record.put("mode", "review-file");
+            record.put("mode", pieces == null ? "review-file" : "review-piece");
             record.put("rules", rulesJson == null ? "" : rulesJson);
             record.put("totalFiles", totalFiles);
             record.put("processedFiles", 0);
@@ -213,6 +249,59 @@ public class DataReviewCommand extends Command {
     }
 
     /**
+     * 解析平台下发的件级校审参数（内部结构，不由下游直传）：
+     * <pre>{ "pieces": [ { "volumeNo","pieceNo","title","pages":["0003.jpg"], 
+     *   "rules":[ {"key":"seal","name":"印章检测","required":true,"coverage":"piece"} ] } ] }</pre>
+     */
+    private static List<PieceSpec> parsePieceMap(String json) {
+        List<PieceSpec> out = new ArrayList<>();
+        if (json == null || json.trim().isEmpty()) {
+            return out;
+        }
+        try {
+            JsonNode root = mapper.readTree(json);
+            JsonNode pieces = root.isArray() ? root : root.path("pieces");
+            if (pieces == null || !pieces.isArray()) {
+                return out;
+            }
+            for (JsonNode p : pieces) {
+                PieceSpec piece = new PieceSpec();
+                piece.volumeNo = p.path("volumeNo").asText("");
+                piece.pieceNo = p.path("pieceNo").asText("");
+                piece.title = p.path("title").asText("");
+                JsonNode pages = p.path("pages");
+                if (pages.isArray()) {
+                    for (JsonNode n : pages) {
+                        String s = n.isTextual() ? n.asText("") : n.path("fileName").asText("");
+                        if (!s.trim().isEmpty()) {
+                            piece.pages.add(s.trim());
+                        }
+                    }
+                }
+                JsonNode rules = p.path("rules");
+                if (rules.isArray()) {
+                    for (JsonNode n : rules) {
+                        String key = n.path("key").asText("").trim();
+                        if (key.isEmpty()) continue;
+                        PieceRule rule = new PieceRule();
+                        rule.key = key;
+                        rule.name = n.path("name").asText(key);
+                        rule.category = n.path("category").asText("存在类");
+                        rule.required = n.path("required").asBoolean(true);
+                        rule.coverage = "everyPage".equalsIgnoreCase(
+                                n.path("coverage").asText("")) ? "everyPage" : "piece";
+                        piece.rules.add(rule);
+                    }
+                }
+                out.add(piece);
+            }
+        } catch (Exception e) {
+            logger.warn("件级校审参数不是合法 JSON，已忽略: " + e.getMessage());
+        }
+        return out;
+    }
+
+    /**
      * 扫描待校审单元：优先按「根目录下每个子文件夹为一卷」，其次按文件级目录，
      * 最后把根目录自身当作一卷（根目录下直接放图像的情况）。
      */
@@ -243,9 +332,10 @@ public class DataReviewCommand extends Command {
         return units;
     }
 
-    private Project createEmptyProject(String projectName) throws Exception {
+    private Project createEmptyProject(String projectName, boolean pieceMode) throws Exception {
         Project project = new Project();
-        addColumns(project.columnModel, COLUMNS);
+        List<String> cols = pieceMode ? pieceColumns() : COLUMNS;
+        addColumns(project.columnModel, cols);
         project.update();
 
         ProjectMetadata metadata = new ProjectMetadata();
@@ -255,13 +345,19 @@ public class DataReviewCommand extends Command {
         return project;
     }
 
+    private static List<String> pieceColumns() {
+        List<String> cols = new ArrayList<>(COLUMNS);
+        cols.addAll(PIECE_COLUMNS);
+        return cols;
+    }
+
     /**
      * 取本次校审要写入的项目：带 {@code project} 参数且项目存在时**沿用它**（清空旧行与
      * 旧 pageMap 后重跑），否则新建。
      *
      * <p>复用时项目号保持不变——平台侧据此把「外部项目号 → 引擎项目号」的绑定保持稳定。</p>
      */
-    private Project prepareProject(String projectName, String reuseProject) throws Exception {
+    private Project prepareProject(String projectName, String reuseProject, boolean pieceMode) throws Exception {
         if (!reuseProject.isEmpty()) {
             try {
                 long pid = Long.parseLong(reuseProject);
@@ -272,6 +368,9 @@ public class DataReviewCommand extends Command {
                         running.cancelled = true;
                     }
                     resetForRerun(existing, projectName);
+                    if (pieceMode) {
+                        ensurePieceColumns(existing);
+                    }
                     return existing;
                 }
                 logger.warn("校审复用项目不存在，改为新建: {}", pid);
@@ -279,7 +378,19 @@ public class DataReviewCommand extends Command {
                 logger.warn("校审 project 参数非法，改为新建: {}", reuseProject);
             }
         }
-        return createEmptyProject(projectName);
+        return createEmptyProject(projectName, pieceMode);
+    }
+
+    /** 复用时补齐件级列（从旧链路切到件级校审时列集合会变大）。 */
+    private static void ensurePieceColumns(Project project) throws Exception {
+        ColumnModel cm = project.columnModel;
+        for (String name : PIECE_COLUMNS) {
+            if (cm.getColumnByName(name) == null) {
+                int idx = cm.getMaxCellIndex() + 1;
+                cm.addColumn(idx, new Column(idx, name), false);
+            }
+        }
+        project.update();
     }
 
     /** 复用项目前清掉上一轮结果（行数据与 pageMap），保留项目号与其它元信息。 */
@@ -308,49 +419,16 @@ public class DataReviewCommand extends Command {
     /* ---------------- 后台执行 ---------------- */
 
     private void run(Task task) {
-        int rowIndex = 0;
-        int rowsSinceSave = 0;
         try {
             Project project = ProjectManager.singleton.getProject(task.projectId);
             if (project == null) {
                 finish(task, STATUS_FAILED, "项目不存在或已被删除");
                 return;
             }
-            for (UnitScanner.Volume unit : task.units) {
-                if (task.cancelled) break;
-                task.currentUnit = unit.name;
-                for (int i = 0; i < unit.pages.size(); i++) {
-                    if (task.cancelled) break;
-                    String pagePath = unit.pages.get(i);
-                    String fileName = new File(pagePath).getName();
-                    int pageNo = pageNoOf(unit, i);
-                    task.currentFile = fileName;
-
-                    Detection detection = detect(task, pagePath);
-                    Row row = buildRow(project.columnModel, rowIndex + 1, unit, fileName, task, detection);
-                    ObjectNode pageMapRow = buildPageMapRow(unit, fileName, pageNo, task, detection, row);
-
-                    synchronized (task) {
-                        project.rows.add(row);
-                        if (pageMapRow != null) {
-                            task.pageMap.set(String.valueOf(rowIndex), pageMapRow);
-                        }
-                        if (detection.ok) {
-                            if ("通过".equals(detection.resultLabel(task))) task.passed++;
-                            else task.failed++;
-                        } else {
-                            task.unknown++;
-                        }
-                        task.rowsAppended++;
-                        task.processedFiles++;
-                    }
-                    rowIndex++;
-                    flushPageMap(task);
-                    if (++rowsSinceSave >= SAVE_EVERY_ROWS) {
-                        rowsSinceSave = 0;
-                        saveProject(task);
-                    }
-                }
+            if (task.pieces != null) {
+                runPieces(task, project);
+            } else {
+                runFiles(task, project);
             }
             flushPageMap(task);
             saveProject(task);
@@ -360,6 +438,299 @@ public class DataReviewCommand extends Command {
             logger.error("data-review run failed", e);
             finish(task, STATUS_FAILED, e.getMessage() == null ? e.toString() : e.getMessage());
         }
+    }
+
+    /** 旧链路：按文件逐页校审（行为与引入件级校审前逐字一致）。 */
+    private void runFiles(Task task, Project project) {
+        int rowIndex = 0;
+        int rowsSinceSave = 0;
+        for (UnitScanner.Volume unit : task.units) {
+            if (task.cancelled) break;
+            task.currentUnit = unit.name;
+            for (int i = 0; i < unit.pages.size(); i++) {
+                if (task.cancelled) break;
+                String pagePath = unit.pages.get(i);
+                String fileName = new File(pagePath).getName();
+                int pageNo = pageNoOf(unit, i);
+                task.currentFile = fileName;
+
+                Detection detection = detect(task, pagePath);
+                Row row = buildRow(project.columnModel, rowIndex + 1, unit, fileName, task, detection);
+                ObjectNode pageMapRow = buildPageMapRow(unit, fileName, pageNo, task, detection, row);
+
+                synchronized (task) {
+                    project.rows.add(row);
+                    if (pageMapRow != null) {
+                        task.pageMap.set(String.valueOf(rowIndex), pageMapRow);
+                    }
+                    if (detection.ok) {
+                        if ("通过".equals(detection.resultLabel(task))) task.passed++;
+                        else task.failed++;
+                    } else {
+                        task.unknown++;
+                    }
+                    task.rowsAppended++;
+                    task.processedFiles++;
+                }
+                rowIndex++;
+                flushPageMap(task);
+                if (++rowsSinceSave >= SAVE_EVERY_ROWS) {
+                    rowsSinceSave = 0;
+                    saveProject(task);
+                }
+            }
+        }
+    }
+
+    /**
+     * 件级链路（内容组合类）：一件一行，按件内页清单做存在类检测。
+     *
+     * <p>{@code piece} 覆盖粒度判定「件内至少一处」，{@code everyPage} 判定「每页都有」；
+     * 页清单由平台按已抽取项目下发，引擎只按文件名与 {@code rootPath} 扫描结果匹配。</p>
+     */
+    private void runPieces(Task task, Project project) {
+        Map<String, PageRef> index = buildPageIndex(task);
+        Map<String, Detection> cache = new HashMap<>();
+        int rowIndex = 0;
+        int rowsSinceSave = 0;
+        for (PieceSpec piece : task.pieces) {
+            if (task.cancelled) break;
+            task.currentUnit = piece.volumeNo;
+            task.currentFile = piece.title;
+
+            List<PageRef> refs = new ArrayList<>();
+            for (String name : piece.pages) {
+                PageRef ref = index.get(piece.volumeNo + "|" + name);
+                if (ref == null) {
+                    ref = index.get("|" + name);
+                }
+                if (ref == null) {
+                    ref = index.get("|" + name.toLowerCase(Locale.ROOT));
+                }
+                if (ref != null && !refs.contains(ref)) {
+                    refs.add(ref);
+                }
+            }
+            String keys = pieceRuleKeys(piece);
+
+            PieceOutcome outcome = evaluatePiece(task, piece, refs, cache, keys);
+            Row row = buildPieceRow(project.columnModel, rowIndex + 1, piece, refs, outcome);
+            ObjectNode pageMapRow = refs.isEmpty() ? null
+                    : buildPiecePageMapRow(refs.get(0), piece, outcome, keys, cache);
+
+            synchronized (task) {
+                project.rows.add(row);
+                if (pageMapRow != null) {
+                    task.pageMap.set(String.valueOf(rowIndex), pageMapRow);
+                }
+                if (!outcome.unknown && "通过".equals(outcome.resultLabel)) {
+                    task.passed++;
+                } else if (outcome.unknown) {
+                    task.unknown++;
+                } else {
+                    task.failed++;
+                }
+                task.rowsAppended++;
+                task.processedFiles += Math.max(1, refs.size());
+            }
+            rowIndex++;
+            flushPageMap(task);
+            if (++rowsSinceSave >= SAVE_EVERY_ROWS) {
+                rowsSinceSave = 0;
+                saveProject(task);
+            }
+        }
+    }
+
+    /** 文件名 → 扫描页索引（卷名 + 文件名精确匹配优先，退回全局文件名）。 */
+    private static Map<String, PageRef> buildPageIndex(Task task) {
+        Map<String, PageRef> index = new HashMap<>();
+        for (UnitScanner.Volume unit : task.units) {
+            for (int i = 0; i < unit.pages.size(); i++) {
+                String path = unit.pages.get(i);
+                String name = new File(path).getName();
+                PageRef ref = new PageRef(unit, path, name, pageNoOf(unit, i));
+                index.putIfAbsent(unit.name + "|" + name, ref);
+                index.putIfAbsent("|" + name, ref);
+                index.putIfAbsent("|" + name.toLowerCase(Locale.ROOT), ref);
+            }
+        }
+        return index;
+    }
+
+    /** 单件评测：件内任意一页 vs 逐页（everyPage）。 */
+    private PieceOutcome evaluatePiece(Task task, PieceSpec piece, List<PageRef> refs,
+                                       Map<String, Detection> cache, String keys) {
+        PieceOutcome out = new PieceOutcome();
+        for (PieceRule rule : piece.rules) {
+            boolean hit = false;
+            boolean unknown = false;
+            if ("everyPage".equals(rule.coverage)) {
+                if (refs.isEmpty()) {
+                    unknown = true;
+                } else {
+                    hit = true;
+                    for (PageRef ref : refs) {
+                        Detection d = detectCached(task, ref.path, keys, cache);
+                        if (!d.ok) {
+                            unknown = true;
+                        } else if (countOf(d, rule.key) <= 0) {
+                            hit = false;
+                        }
+                    }
+                }
+            } else {
+                for (PageRef ref : refs) {
+                    Detection d = detectCached(task, ref.path, keys, cache);
+                    if (!d.ok) {
+                        unknown = true;
+                    } else if (countOf(d, rule.key) > 0) {
+                        hit = true;
+                    }
+                }
+                if (refs.isEmpty()) {
+                    unknown = true;
+                }
+            }
+            if (hit) {
+                out.hitNames.add(rule.name);
+            }
+            if (rule.required && !hit) {
+                out.missingNames.add(rule.name);
+                if (unknown) {
+                    out.unknown = true;
+                }
+            }
+            if (rule.required) {
+                out.requiredNames.add(rule.name);
+            }
+            out.details.add(describePieceRule(rule, refs, cache, hit, unknown));
+        }
+        for (PageRef ref : refs) {
+            Detection d = detectCached(task, ref.path, keys, cache);
+            if (d.ok) {
+                out.sealSum += d.sealCount;
+                out.fpSum += d.fingerprintCount;
+            }
+        }
+        if (out.missingNames.isEmpty()) {
+            out.resultLabel = "通过";
+        } else if (out.unknown) {
+            out.resultLabel = "无法判定";
+        } else {
+            out.resultLabel = "不通过";
+        }
+        if (refs.isEmpty()) {
+            out.detail = "件内页在源目录中未匹配到，无法判定";
+        } else {
+            out.detail = String.join("；", out.details);
+        }
+        return out;
+    }
+
+    private Detection detectCached(Task task, String path, String keys,
+                                   Map<String, Detection> cache) {
+        Detection d = cache.get(path);
+        if (d == null) {
+            d = detect(task, path, keys);
+            cache.put(path, d);
+        }
+        return d;
+    }
+
+    private static int countOf(Detection d, String key) {
+        return "fingerprint".equals(key) ? d.fingerprintCount : d.sealCount;
+    }
+
+    private static String describePieceRule(PieceRule rule, List<PageRef> refs,
+                                            Map<String, Detection> cache, boolean hit,
+                                            boolean unknown) {
+        int pages = refs.size();
+        if ("everyPage".equals(rule.coverage)) {
+            int hitPages = 0;
+            for (PageRef ref : refs) {
+                Detection d = cache.get(ref.path);
+                if (d != null && d.ok && countOf(d, rule.key) > 0) {
+                    hitPages++;
+                }
+            }
+            String s = rule.name + "：逐页检出 " + hitPages + "/" + pages + " 页";
+            return unknown && !hit ? s + "（部分页无法判定）" : s;
+        }
+        String s = rule.name + "：件内检出";
+        if (!hit) {
+            s = rule.name + "：件内未检出";
+        }
+        return unknown && !hit ? s + "（部分页无法判定）" : s;
+    }
+
+    private Row buildPieceRow(ColumnModel columnModel, int seq, PieceSpec piece,
+                              List<PageRef> refs, PieceOutcome outcome) {
+        Row row = new Row(columnModel.getMaxCellIndex() + 1);
+        PageRef first = refs.isEmpty() ? null : refs.get(0);
+        put(columnModel, row, "序号", seq);
+        put(columnModel, row, "案卷号", piece.volumeNo);
+        put(columnModel, row, "文件名", first == null ? "" : first.fileName);
+        put(columnModel, row, "页数", String.valueOf(piece.pages.size()));
+        put(columnModel, row, "规则分类", "存在类");
+        put(columnModel, row, "校审规则", String.join("、", outcome.ruleNames(piece)));
+        put(columnModel, row, "校审结果", outcome.resultLabel);
+        put(columnModel, row, "印章数量", String.valueOf(outcome.sealSum));
+        put(columnModel, row, "指纹数量", String.valueOf(outcome.fpSum));
+        put(columnModel, row, "说明", outcome.detail);
+        put(columnModel, row, FOLDER_PATH_COLUMN, first == null ? "" : first.unit.path);
+        put(columnModel, row, "件号", piece.pieceNo);
+        put(columnModel, row, "件题名", piece.title);
+        put(columnModel, row, "要求项", String.join("、", outcome.requiredNames));
+        put(columnModel, row, "命中项", String.join("、", outcome.hitNames));
+        put(columnModel, row, "缺失项", String.join("、", outcome.missingNames));
+        return row;
+    }
+
+    private ObjectNode buildPiecePageMapRow(PageRef ref, PieceSpec piece, PieceOutcome outcome,
+                                            String keys, Map<String, Detection> cache) {
+        Detection d = cache.get(ref.path);
+        ObjectNode rowNode = mapper.createObjectNode();
+        if (outcome != null) {
+            ObjectNode cand = mapper.createObjectNode();
+            cand.put("v", outcome.resultLabel);
+            cand.put("p", ref.pageNo);
+            cand.put("f", ref.fileName);
+            cand.put("w", 1);
+            rowNode.putArray("校审结果").add(cand);
+            ObjectNode sealCand = rowNode.putArray("印章数量").addObject();
+            sealCand.put("v", String.valueOf(outcome.sealSum));
+            sealCand.put("p", ref.pageNo);
+            sealCand.put("f", ref.fileName);
+            ObjectNode fpCand = rowNode.putArray("指纹数量").addObject();
+            fpCand.put("v", String.valueOf(outcome.fpSum));
+            fpCand.put("p", ref.pageNo);
+            fpCand.put("f", ref.fileName);
+            ObjectNode pieceCand = rowNode.putArray("件号").addObject();
+            pieceCand.put("v", piece.pieceNo);
+            pieceCand.put("p", ref.pageNo);
+            pieceCand.put("f", ref.fileName);
+        }
+        ObjectNode start = mapper.createObjectNode();
+        start.put("v", "校审原件");
+        start.put("p", ref.pageNo);
+        start.put("f", ref.fileName);
+        rowNode.set(BatchExtractionManager.PIECE_START_KEY, start);
+        if (d != null && d.ok) {
+            ObjectNode ann = buildAnnotation(ref.fileName, ref.pageNo, keys, d);
+            if (ann != null) {
+                rowNode.set(ANNOTATION_KEY, ann);
+            }
+        }
+        return rowNode;
+    }
+
+    private static String pieceRuleKeys(PieceSpec piece) {
+        List<String> keys = new ArrayList<>();
+        for (PieceRule rule : piece.rules) {
+            if (!keys.contains(rule.key)) keys.add(rule.key);
+        }
+        return String.join(",", keys);
     }
 
     /** 卷内页号：投放命名规范里解析出的页号优先，解析不出时用列表下标（从 1 起） */
@@ -412,6 +783,15 @@ public class DataReviewCommand extends Command {
         return false;
     }
 
+    /** 逗号分隔的能力键是否包含某项（用于件级结果标注/判定）。 */
+    private static boolean hasKey(String keys, String key) {
+        if (keys == null || keys.isEmpty()) return false;
+        for (String s : keys.split(",")) {
+            if (key.equals(s.trim())) return true;
+        }
+        return false;
+    }
+
     /**
      * 行 → 列 → 证据页：单元格点击据此定位到被校审的原件页。
      * 结构与批量抽取一致 {@code {v,c,p,f,w}}，另加行级兜底 {@code __piece_start__}。
@@ -460,6 +840,11 @@ public class DataReviewCommand extends Command {
      * @return 无任何标签时返回 null，避免为空行写入标注
      */
     private static ObjectNode buildAnnotation(String fileName, int pageNo, Task task, Detection detection) {
+        return buildAnnotation(fileName, pageNo, ruleKeyList(task), detection);
+    }
+
+    private static ObjectNode buildAnnotation(String fileName, int pageNo, String keys,
+                                              Detection detection) {
         if (!detection.ok) {
             return null;
         }
@@ -473,14 +858,14 @@ public class DataReviewCommand extends Command {
                     String.format("检出疑似指纹，置信度 %.2f", box[4])));
         }
         // 视觉级缺项：所选规则预期「有」但未检出，单独归入「缺失标签」并列出
-        if (hasRule(task, "seal") && detection.sealCount == 0) {
+        if (hasKey(keys, "seal") && detection.sealCount == 0) {
             ObjectNode missing = items.addObject();
             missing.put("kind", "missing");
             missing.put("label", "印章");
             missing.put("color", "seal");
             missing.put("message", "未检出印章（可能存在漏章）");
         }
-        if (hasRule(task, "fingerprint") && detection.fingerprintCount == 0) {
+        if (hasKey(keys, "fingerprint") && detection.fingerprintCount == 0) {
             ObjectNode missing = items.addObject();
             missing.put("kind", "missing");
             missing.put("label", "指纹");
@@ -542,6 +927,11 @@ public class DataReviewCommand extends Command {
 
     /** 调用 AIMP /review/element 做存在类检测（印章 / 指纹，同源出框后分流） */
     private Detection detect(Task task, String filePath) {
+        return detect(task, filePath, ruleKeyList(task));
+    }
+
+    /** 指定能力键的检测（件级校审按件下发，避免把别的件的能力带进来） */
+    private Detection detect(Task task, String filePath, String elementKeys) {
         Detection d = new Detection();
         d.pageCount = ext(filePath).equals("pdf") ? "" : "1";
         if (!UnitScanner.IMAGE_EXTENSIONS.contains(ext(filePath))) {
@@ -553,7 +943,7 @@ public class DataReviewCommand extends Command {
             byte[] bytes = Files.readAllBytes(file.toPath());
             Multipart multipart = Multipart.webKitBoundary()
                     .file("img", file.getName(), bytes)
-                    .field("element_type", ruleKeyList(task))
+                    .field("element_type", elementKeys)
                     .field("confidence", String.valueOf(task.confidence));
             AimpTransport.Response resp = new HttpAimpTransport(task.aimpUrl).execute(
                     AimpTransport.Request.post("/review/element", multipart.contentType(),
@@ -843,6 +1233,70 @@ public class DataReviewCommand extends Command {
         String name;
     }
 
+    /** 件级校审：一件 + 其页清单 + 该件要求的规则。 */
+    private static final class PieceSpec {
+        String volumeNo = "";
+        String pieceNo = "";
+        String title = "";
+        final List<String> pages = new ArrayList<>();
+        final List<PieceRule> rules = new ArrayList<>();
+    }
+
+    /** 件级规则：能力键 + 是否必需 + 覆盖粒度（piece / everyPage）。 */
+    private static final class PieceRule {
+        String key;
+        String name;
+        String category = "存在类";
+        boolean required = true;
+        String coverage = "piece";
+    }
+
+    /** 件级判定结果（供行写入与计数使用）。 */
+    private static final class PieceOutcome {
+        String resultLabel = "无法判定";
+        String detail = "";
+        boolean unknown;
+        int sealSum;
+        int fpSum;
+        final List<String> requiredNames = new ArrayList<>();
+        final List<String> hitNames = new ArrayList<>();
+        final List<String> missingNames = new ArrayList<>();
+        final List<String> details = new ArrayList<>();
+
+        List<String> ruleNames(PieceSpec piece) {
+            List<String> names = new ArrayList<>();
+            for (PieceRule rule : piece.rules) {
+                if (!names.contains(rule.name)) names.add(rule.name);
+            }
+            return names;
+        }
+    }
+
+    /** 扫描到的单页引用（卷、路径、文件名、卷内页号）。 */
+    private static final class PageRef {
+        final UnitScanner.Volume unit;
+        final String path;
+        final String fileName;
+        final int pageNo;
+
+        PageRef(UnitScanner.Volume unit, String path, String fileName, int pageNo) {
+            this.unit = unit;
+            this.path = path;
+            this.fileName = fileName;
+            this.pageNo = pageNo;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof PageRef && path.equals(((PageRef) o).path);
+        }
+
+        @Override
+        public int hashCode() {
+            return path.hashCode();
+        }
+    }
+
     private static final class Detection {
         boolean ok;
         /** 印章流框数（AIMP 按 gstd 分流后的印章框） */
@@ -900,6 +1354,8 @@ public class DataReviewCommand extends Command {
         final List<UnitScanner.Volume> units;
         final ObjectNode pageMap = mapper.createObjectNode();
         final long startedAt = System.currentTimeMillis();
+        /** 件级校审参数；null = 旧链路（按文件逐页校审） */
+        List<PieceSpec> pieces;
 
         String status = STATUS_RUNNING;
         String message = "";
