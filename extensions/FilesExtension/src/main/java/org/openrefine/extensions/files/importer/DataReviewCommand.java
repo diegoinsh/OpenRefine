@@ -108,7 +108,7 @@ public class DataReviewCommand extends Command {
     private void doStart(HttpServletRequest request, HttpServletResponse response) throws IOException {
         try {
             String rootPath = trim(request.getParameter("rootPath"));
-            String projectName = trim(request.getParameter("projectName"));
+            String projectName = trim(UnicodeText.decode(request.getParameter("projectName")));
             // 可选：沿用已存在的引擎项目（平台侧绑定表里的项目号）。
             // 重新校审必须写回同一个项目号，下游嵌入的界面地址（project=<引擎号>）才不会失效。
             String reuseProject = trim(request.getParameter("project"));

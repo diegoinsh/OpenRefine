@@ -69,7 +69,7 @@ public class BatchExtractionCommand extends Command {
         ObjectNode result = mapper.createObjectNode();
         try {
             String rootPath = request.getParameter("rootPath");
-            String projectName = request.getParameter("projectName");
+            String projectName = UnicodeText.decode(request.getParameter("projectName"));
             String templateParam = request.getParameter("template");
             String customElementsJson = request.getParameter("customElements");
             String archiveCategory = request.getParameter("archiveCategory");

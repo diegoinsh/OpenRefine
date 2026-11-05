@@ -36,6 +36,7 @@ package com.google.refine.licensing;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
+import static org.testng.Assert.assertSame;
 
 import java.util.List;
 import java.util.Locale;
@@ -43,6 +44,8 @@ import java.util.Set;
 
 import com.jiongche.sdk.authz.LicenseGate;
 import org.testng.annotations.Test;
+
+import com.google.refine.RefineServlet;
 
 /**
  * OR 侧模块授权守卫的单元测试：三态开关、命令映射、失败关闭与消息资源。
@@ -150,5 +153,22 @@ public class LicenseGuardTest {
         assertEquals(LicenseModuleMap.modulesFor("files/batch-extraction"), List.of("info_extraction", "aimp-chat"));
         assertEquals(LicenseModuleMap.modulesFor("unknown/command"), List.of());
         assertEquals(LicenseModuleMap.modulesFor(null), List.of());
+    }
+
+    /**
+     * 开发树判定锚点必须是 OR 的应用本体（启动类），不能落回 SDK 自身：
+     * SDK 在开发态也是 jar 形态，按它判定会把开发树误判成发布态而恒 block。
+     */
+    @Test
+    public void testHostAnchorIsOrApplicationClass() {
+        Class<?> startup;
+        try {
+            startup = Class.forName("com.google.refine.Refine");
+        } catch (Throwable t) {
+            startup = RefineServlet.class;
+        }
+        assertSame(startup, LicenseGuard.hostAnchor());
+        assertEquals(false, LicenseGuard.hostAnchor().getName().startsWith("com.jiongche.sdk"),
+                "锚点不能落回 SDK 自身：" + LicenseGuard.hostAnchor().getName());
     }
 }

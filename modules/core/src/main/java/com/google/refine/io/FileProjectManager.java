@@ -175,6 +175,10 @@ public class FileProjectManager extends ProjectManager {
             if (!loadProjectMetadata(projectID)) {
                 return false;
             }
+            // 项目集合发生了「新增」：saveWorkspace 只在有 dirty 项目 / 偏好变更 / projectRemoved
+            // 时才真正落盘，新加载的 metadata 不是 dirty，必须显式置位才写得进 workspace.json，
+            // 否则重启后该项目又会被判「目录缺失」并补建空项目。
+            projectRemoved = true;
             saveWorkspace();
             return true;
         }

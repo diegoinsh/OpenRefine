@@ -302,16 +302,10 @@ Refine.DataQualityUI.prototype._filterByTag = function(tag) {
  * 按搜索关键词过滤项目
  */
 Refine.DataQualityUI.prototype._filterProjectsBySearch = function(keyword) {
-  keyword = (keyword || '').toLowerCase();
-
-  this._elmt.find('#dq-table-body tr').each(function() {
-    var text = $(this).text().toLowerCase();
-    if (!keyword || text.indexOf(keyword) >= 0) {
-      $(this).show();
-    } else {
-      $(this).hide();
-    }
-  });
+  // 在数据层过滤后再分页：只过滤当前页 DOM 会漏掉不在本页的项目
+  this._searchKeyword = (keyword || '').trim().toLowerCase();
+  this._currentPage = 1;
+  this._renderProjectList();
 };
 
 /**
@@ -379,6 +373,16 @@ Refine.DataQualityUI.prototype._renderProjectList = function() {
   projectIds = projectIds.filter(function(pid) {
     return !!(self._tasks && self._tasks[pid]);
   });
+  // 搜索关键词同样在数据层过滤（对全部项目），再排序分页
+  var kw = (this._searchKeyword || '').trim().toLowerCase();
+  if (kw) {
+    projectIds = projectIds.filter(function(pid) {
+      var p = self._projects[pid] || {};
+      var hay = [p.name, Array.isArray(p.tags) ? p.tags.join(' ') : (p.tags || ''),
+                 p.creator, p.subject, p.description].join(' ').toLowerCase();
+      return hay.indexOf(kw) >= 0;
+    });
+  }
   projectIds.sort(function(a, b) {
     var ma = self._projects[a].modified ? new Date(self._projects[a].modified).getTime() : 0;
     var mb = self._projects[b].modified ? new Date(self._projects[b].modified).getTime() : 0;

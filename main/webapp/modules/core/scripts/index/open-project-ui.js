@@ -192,7 +192,12 @@ Refine.OpenProjectUI.prototype._openSearchInput = function() {
       input.hide();
       input.val('');
       icon.removeClass("magnifying-glass-open");
-      $("#tableBody").filterListSearch("");
+      // 清空搜索：恢复全量列表（数据层过滤，不依赖当前页 DOM）
+      if (Refine.OpenProjectUI._active) {
+        Refine.OpenProjectUI._active._searchText = '';
+        Refine.OpenProjectUI._active._currentPage = 1;
+        Refine.OpenProjectUI._active._renderProjectsWithPagination();
+      }
       $("#search-input").hide();
       // $("#tagsUl").show();
     }
@@ -200,6 +205,7 @@ Refine.OpenProjectUI.prototype._openSearchInput = function() {
 };
 
 Refine.OpenProjectUI.prototype._searchInput = function() {
+  var self = this;
   const input = $('#search-input');
   //setup before functions
   let typingTimer;                //timer identifier
@@ -234,8 +240,10 @@ Refine.OpenProjectUI.prototype._searchInput = function() {
   //user is "finished typing," do something
   function doneTyping () {
     const text = input.val();
-    // get the text, get back the projects that contains the text in the metadata
-    $("#tableBody").filterListSearch(text);
+    // 搜索在数据层过滤后再分页：只过滤 DOM 会把「不在当前页」的项目漏掉
+    self._searchText = text || '';
+    self._currentPage = 1;
+    self._renderProjectsWithPagination();
   }
 };
 
@@ -318,7 +326,17 @@ Refine.OpenProjectUI.prototype._renderProjects = function(data) {
  */
 Refine.OpenProjectUI.prototype._renderProjectsWithPagination = function() {
   var self = this;
+  Refine.OpenProjectUI._active = this;   // 供静态标签/关闭搜索等入口拿到当前实例
   var projects = this._allProjects || [];
+  // 搜索在数据层完成（对全部项目），再分页；否则只会过滤当前页的 DOM 行
+  var kw = (this._searchText || '').trim().toLowerCase();
+  if (kw) {
+    projects = projects.filter(function (p) {
+      var hay = [p.name, Array.isArray(p.tags) ? p.tags.join(' ') : (p.tags || ''),
+                 p.creator, p.subject, p.description].join(' ').toLowerCase();
+      return hay.indexOf(kw) >= 0;
+    });
+  }
   var data = { customMetadataColumns: this._customMetadataColumns || {} };
 
   var container = self._elmts.projectList.empty();

@@ -291,6 +291,19 @@ public class VolumeSummaryTest {
                 "苏州恒盛精密机械有限公司");
     }
 
+    /** 代理人取值轻校验：机构名不是自然人、超长串与重复项都要剔除，其余按原顺序保留 */
+    @Test
+    public void filtersInstitutionNamesFromAgentList() {
+        Assert.assertEquals(BatchExtractionManager.VolumeSummary.filterAgentNames(
+                        Arrays.asList("王五", "江苏恒盛律师事务所", "苏州恒盛精密机械有限公司",
+                                "王五", "欧阳明月", "某某市法律服务所")),
+                Arrays.asList("王五", "欧阳明月"));
+        // 空值 / 单字 / 超长（非正常姓名）都不取
+        Assert.assertEquals(BatchExtractionManager.VolumeSummary.filterAgentNames(
+                        Arrays.asList("", "  ", "王", "某某某区人民法院审判监督庭")),
+                Collections.emptyList());
+    }
+
     /** 身份证明类材料的责任者取证件本人／执照单位，模型回吐的签发机关要按无依据清空 */
     @Test
     public void dropsIssuerFromIdentityCertificateResponsibleParty() {

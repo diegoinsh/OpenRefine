@@ -78,7 +78,9 @@ public enum ExtractionTemplate {
             "miji", "kaifang_zhuangtai",
             // 原告 / 被告：卷级由案卷文书首部的角色栏汇总而来（二审按「原审原告/被告」优先归并），
             // 见 docs/design/party-role-extraction-design.md 3.4
-            "yuangao", "beigao"));
+            // 第三人 / 代理人同由角色栏规则解析：第三人取 party_roles 的「第三人」，
+            // 代理人取独立结果键 agent_roles（不在当事人名单，不做交叉校验）
+            "yuangao", "beigao", "disanren", "dailiren"));
 
     public static boolean isVolumeLevelElement(String key) {
         return key != null && VOLUME_LEVEL_ELEMENT_KEYS.contains(key);

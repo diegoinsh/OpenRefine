@@ -118,7 +118,13 @@ public class LicenseGuard implements CommandGuard {
         return new LicenseGuard(LicenseGate.fromSystemProperties(anchor));
     }
 
-    private static Class<?> hostAnchor() {
+    /**
+     * 宿主入口类：优先 {@code com.google.refine.Refine}（开发态来自 {@code server\classes} 目录），
+     * 取不到时退回本模块的 {@link RefineServlet}。
+     *
+     * <p>包内可见仅为便于单测断言「锚点没有落回 SDK 自身」。
+     */
+    static Class<?> hostAnchor() {
         try {
             return Class.forName("com.google.refine.Refine");
         } catch (Throwable t) {
@@ -157,7 +163,11 @@ public class LicenseGuard implements CommandGuard {
     /** 启动日志用的一句话说明。 */
     public String describe() {
         if (mode == Mode.OFF) {
-            return "模块授权校验：关闭（ruyi.license.enforce=off）";
+            // 开发树免狗时给出验证加密狗的开关提示，免得排查时还要翻文档
+            String hint = LicenseGate.isDevTree()
+                    ? "；开发树如需验证加密狗，加 -Druyi.license.dog=true"
+                    : "";
+            return "模块授权校验：关闭（ruyi.license.enforce=off" + hint + "）";
         }
         String source = reader != null
                 ? String.format("license-id=%d，读狗桥=%s", reader.licenseId(),
