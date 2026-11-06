@@ -88,8 +88,10 @@ Refine.SUB_CATEGORY_EXTRA_ELEMENTS = {
   '人民检察院诉讼档案': Refine.EXTRA_ELEMENTS
 };
 
-// 数据校审规则分类体系（5 大类）。当前已实现「存在类 · 印章检测 / 指纹检测」，
+// 数据校审规则分类体系（6 大类）。当前已实现「存在类 · 印章检测 / 指纹检测」，
 // 其余分类/规则仅为占位（置灰不可选），后续按能力逐个启用（见 docs/design/data-review-plugin-design.md）。
+// 「内容组合类」是空模板项：具体件清单/每件要求由平台按抽取项目号（pieceMode）或接口
+// 内联 presenceTemplate 下发，本地引擎不预置任何件数据。
 Refine.REVIEW_RULE_CATEGORIES = [
   {
     key: 'presence', name: '存在类', desc: '判断某件「有没有」：盖章、指纹、签字等',
@@ -128,6 +130,15 @@ Refine.REVIEW_RULE_CATEGORIES = [
     rules: [
       { key: 'date_order', name: '日期勾稽', enabled: false, desc: '成文日期与流程日期是否矛盾' },
       { key: 'amount_check', name: '金额勾稽', enabled: false, desc: '金额合计与明细是否一致' }
+    ]
+  },
+  {
+    // 内容组合类：条目单位是「件」（件清单由平台下发），此处只保留一个空项，
+    // 勾选表示期望件级结果；没有件清单（pieceMode=false）时该项不产生结果。
+    key: 'content', name: '内容组合类', desc: '按件校验件内材料组合；件清单由平台按抽取项目号下发（pieceMode）',
+    rules: [
+      { key: 'piece_combo', name: '按件内容组合', enabled: true, defaultChecked: false,
+        desc: '按件清单逐件校验材料组合；需项目已完成抽取并绑定抽取项目号，否则该项没有结果' }
     ]
   }
 ];

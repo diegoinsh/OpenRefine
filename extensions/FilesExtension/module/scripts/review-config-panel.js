@@ -46,7 +46,10 @@ var ReviewConfigPanelUI = (function() {
         if (!rule.enabled) {
           return;
         }
-        state.checked[rule.key] = saved ? !!saved[rule.key] : true;
+        // 未保存过规则时：默认勾选，但规则可声明 defaultChecked:false 表示「空项默认不勾」
+        // （如内容组合类依赖件清单，没有抽取项目号时不会产生结果，避免误勾）。
+        var fallback = rule.defaultChecked === false ? false : true;
+        state.checked[rule.key] = saved ? !!saved[rule.key] : fallback;
       });
     });
     return state;

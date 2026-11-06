@@ -81,6 +81,13 @@ public class DataReviewCommand extends Command {
     public static final String ANNOTATION_PAGES_KEY = "__review_ann_pages__";
     public static final String PIECE_LEGEND_KEY = "__piece_legend__";
 
+    /**
+     * 内容组合类（件级）的占位规则键：本身不产生文件级检测结果，
+     * 具体件清单与每件要求由平台按抽取项目号（pieceMode）或内联模板下发。
+     * 与前端 {@code REVIEW_RULE_CATEGORIES} 的 content / piece_combo 保持一致。
+     */
+    public static final String CONTENT_COMBO_KEY = "piece_combo";
+
     private static final List<String> COLUMNS = Arrays.asList(
             "序号", "案卷号", "文件名", "页数", "规则分类", "校审规则",
             "校审结果", "印章数量", "指纹数量", "说明", FOLDER_PATH_COLUMN);
@@ -149,12 +156,14 @@ public class DataReviewCommand extends Command {
                 return;
             }
             for (ReviewRule rule : rules) {
-                if (!"seal".equals(rule.key) && !"fingerprint".equals(rule.key)) {
+                if (!isReviewRuleKey(rule.key)) {
                     respondError(response, "暂不支持的校审规则: " + rule.name);
                     return;
                 }
             }
-
+            // 内容组合类（piece_combo）本身不产生文件级检测结果：件清单由平台按抽取项目号下发。
+            // 只勾它启动文件级校审会得到「全部通过」的假结果，故要求至少一项检测规则；
+            // 件级链路（带 pieceMap）由平台逐件下发，不受此限。
             List<PieceSpec> pieces = null;
             if (!pieceMapJson.isEmpty()) {
                 pieces = parsePieceMap(pieceMapJson);
@@ -174,6 +183,11 @@ public class DataReviewCommand extends Command {
                         }
                     }
                 }
+            }
+            if (pieces == null && !hasDetectionRule(rules)) {
+                respondError(response, "内容组合类需按件清单（由平台按抽取项目号下发），"
+                        + "不能单独启动文件级校审：请同时选择存在类规则，或由平台 startReview 按件启动");
+                return;
             }
 
             // AIMP 可达性：存在类检测走 /review/element，模块未启动时直接给出明确提示
@@ -843,10 +857,11 @@ public class DataReviewCommand extends Command {
         return row;
     }
 
-    /** 本次校审所选规则名（用于「校审规则」列） */
+    /** 本次校审所选规则名（用于「校审规则」列）；内容组合类不参与文件级检测，不出现在列里 */
     private static String ruleNameList(Task task) {
         List<String> names = new ArrayList<>();
         for (ReviewRule rule : task.rules) {
+            if (!isDetectionRuleKey(rule.key)) continue;
             if (!names.contains(rule.name)) names.add(rule.name);
         }
         return String.join("、", names);
@@ -863,6 +878,26 @@ public class DataReviewCommand extends Command {
     private static boolean hasRule(Task task, String key) {
         for (ReviewRule rule : task.rules) {
             if (key.equals(rule.key)) return true;
+        }
+        return false;
+    }
+
+    /** 全局规则清单允许的键：存在类检测能力 + 内容组合类占位项。 */
+    private static boolean isReviewRuleKey(String key) {
+        return isDetectionRuleKey(key) || CONTENT_COMBO_KEY.equals(key);
+    }
+
+    /** 会真正调用 AIMP 的检测规则键（件级 connectivity 同口径）。 */
+    private static boolean isDetectionRuleKey(String key) {
+        return "seal".equals(key) || "fingerprint".equals(key);
+    }
+
+    /** 是否有至少一项会真正调用 AIMP 的检测规则（piece_combo 不算）。 */
+    private static boolean hasDetectionRule(List<ReviewRule> rules) {
+        for (ReviewRule rule : rules) {
+            if (isDetectionRuleKey(rule.key)) {
+                return true;
+            }
         }
         return false;
     }
@@ -1152,7 +1187,7 @@ public class DataReviewCommand extends Command {
             return;
         }
         for (ReviewRule rule : rules) {
-            if (!"seal".equals(rule.key) && !"fingerprint".equals(rule.key)) {
+            if (!isReviewRuleKey(rule.key)) {
                 respondError(response, "暂不支持的校审规则: " + rule.name);
                 return;
             }

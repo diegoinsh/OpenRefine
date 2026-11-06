@@ -227,24 +227,40 @@ var ReviewProjectPanel = (function() {
 
     elmts.hint = $('<div class="review-params-hint"></div>').appendTo(form);
 
-    var running = (task.status === 'running');
-    if (running) {
-      elmts.hint.text('校审任务进行中，暂时不能修改参数；请等待完成或停止后再保存。');
-    } else if (!task.rootPath) {
-      elmts.hint.text('该项目尚未建立校审任务，请先在校审控制台创建校审项目。');
-    } else {
-      elmts.hint.text('保存后的规则对之后启动的校审任务生效，已完成的校审结果不会回写。');
-    }
+    refreshHint();
 
-    ReviewConfigPanelUI.render(elmts.tabs, elmts.list, elmts.note, state);
+    ReviewConfigPanelUI.render(elmts.tabs, elmts.list, elmts.note, state, refreshHint);
 
     var actions = $('<div class="review-params-actions"></div>').appendTo(panel);
+    var running = (task.status === 'running');
     elmts.saveButton = $('<button class="button"></button>')
       .text('保存')
       .prop('disabled', running || !task.rootPath)
       .on('click', save)
       .appendTo(actions);
     elmts.error = $('<span class="review-params-error"></span>').appendTo(actions);
+  }
+
+  /**
+   * 参数提示：随勾选变化刷新。
+   * 内容组合类依赖件清单——任务是文件级（mode=review-file）时即使勾选也不会有件级结果，
+   * 需要平台按抽取项目号（pieceMode）重新启动校审。
+   */
+  function refreshHint() {
+    if (!elmts || !elmts.hint) {
+      return;
+    }
+    var task = currentTask || {};
+    if (task.status === 'running') {
+      elmts.hint.text('校审任务进行中，暂时不能修改参数；请等待完成或停止后再保存。');
+    } else if (!task.rootPath) {
+      elmts.hint.text('该项目尚未建立校审任务，请先在校审控制台创建校审项目。');
+    } else if (state && state.checked['piece_combo'] && task.mode !== 'review-piece') {
+      elmts.hint.text('已选「内容组合类」：当前任务是文件级校审（无件清单，pieceMode=false），'
+          + '该项不会产生件级结果；请由平台按抽取项目号启动校审。');
+    } else {
+      elmts.hint.text('保存后的规则对之后启动的校审任务生效，已完成的校审结果不会回写。');
+    }
   }
 
   function save() {
