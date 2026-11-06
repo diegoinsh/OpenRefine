@@ -29,6 +29,8 @@ import com.jiongche.sdk.module.ModuleNames;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.refine.extension.quality.model.ReviewElementResult;
+
 /**
  * Client for communicating with Jinshu-aimp service.
  * Provides OCR and content extraction capabilities.
@@ -51,6 +53,9 @@ public class AimpClient implements AimpPort {
 
     /** 抽取上传的缺省键表（与改造前一致）。 */
     private static final String DEFAULT_KEY_LIST = "题名,责任者,文号,成文日期";
+
+    /** AIMP 存在类检测端点（印章 / 指纹）：与「数据校审」共用，SDK 尚未收编故在此定义。 */
+    private static final String REVIEW_ELEMENT = "/review/element";
 
     private String serviceUrl;
     private String interfaceMode;
@@ -456,6 +461,54 @@ public class AimpClient implements AimpPort {
             result.setError(e.getMessage());
         }
 
+        return result;
+    }
+
+    /**
+     * 调用 AIMP {@code /review/element} 做存在类检测（印章 / 指纹）。
+     *
+     * <p>与「数据校审」共用同一接口：版面模型出框后按框内墨迹分布分流为印章 / 指纹。
+     * 合规侧文书级检测（裁判文书盖章）复用此方法，用 {@code region} 只统计落款区域内的印痕。</p>
+     *
+     * @param imageBytes 待检测页图像
+     * @param fileName   图像文件名（仅用于 AIMP 日志）
+     * @param elementType 检测类型：{@code seal} / {@code seal,fingerprint}
+     * @param regionJson  限定区域 JSON {@code {"x","y","w","h"}}（相对比例 0~1），空串表示全页
+     * @param confidence  置信度阈值
+     */
+    public ReviewElementResult reviewElement(byte[] imageBytes, String fileName,
+                                             String elementType, String regionJson, double confidence) {
+        ReviewElementResult result = new ReviewElementResult();
+        try {
+            Multipart multipart = Multipart.webKitBoundary()
+                    .file(AimpFields.IMG,
+                            fileName != null && !fileName.isEmpty() ? fileName : "page.jpg",
+                            "image/jpeg", imageBytes)
+                    .field("element_type", elementType != null && !elementType.isEmpty() ? elementType : "seal")
+                    .field("confidence", String.valueOf(confidence));
+            if (regionJson != null && !regionJson.isEmpty()) {
+                multipart = multipart.field("region", regionJson);
+            }
+
+            AimpTransport.Response response = transport.execute(AimpTransport.Request.post(
+                    REVIEW_ELEMENT, multipart.contentType(), multipart.bytes(), TIMEOUT_MS, 60000));
+            if (response.status() != 200) {
+                result.setMessage("AI服务返回 HTTP " + response.status());
+                return result;
+            }
+            JsonNode json = mapper.readTree(response.text());
+            if (!"ok".equals(json.path("code").asText())) {
+                result.setMessage(json.path("message").asText("文书盖章检测失败"));
+                return result;
+            }
+            result.setOk(true);
+            result.setSealCount(json.path("sealCount").asInt(json.path("count").asInt(0)));
+            result.setFingerprintCount(json.path("fingerprintCount").asInt(0));
+            result.setImageWidth(json.path("imageWidth").asInt(0));
+            result.setImageHeight(json.path("imageHeight").asInt(0));
+        } catch (Exception e) {
+            result.setMessage("文书盖章检测失败: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+        }
         return result;
     }
 }

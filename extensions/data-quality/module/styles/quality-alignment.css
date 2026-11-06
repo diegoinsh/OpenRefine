@@ -452,6 +452,54 @@ html.ruyi-embed-quality-preview .file-preview-float-close-btn {
   background: #f9f9f9;
 }
 
+/* ===== 案件质量评查（裁判文书盖章） ===== */
+.quality-doc-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  margin: 8px 0 4px;
+}
+
+.quality-doc-param {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #333;
+}
+
+.quality-doc-num {
+  width: 70px;
+}
+
+.quality-inline-input {
+  padding: 3px 6px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.quality-doc-table th,
+.quality-doc-table td {
+  padding: 5px 8px;
+  vertical-align: middle;
+}
+
+.quality-doc-table td .quality-inline-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.quality-doc-table .quality-doc-fields {
+  min-width: 160px;
+}
+
+.quality-doc-fp-override {
+  margin-left: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+
 /* ===== Buttons ===== */
 .small-button {
   padding: 3px 8px !important;

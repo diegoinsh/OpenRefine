@@ -51,6 +51,11 @@ public class CheckResult {
     @JsonProperty("fileStatistics")
     private FileStatistics fileStatistics;
 
+    /** 文书级检测明细（category=document_quality 时才有）；其他检查段为 null 不输出。 */
+    @JsonProperty("documents")
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private List<DocumentCheckError> documents;
+
     public CheckResult() {
         this.errors = new ArrayList<>();
         this.startTime = System.currentTimeMillis();
@@ -98,6 +103,9 @@ public class CheckResult {
 
     public FileStatistics getFileStatistics() { return fileStatistics; }
     public void setFileStatistics(FileStatistics fileStatistics) { this.fileStatistics = fileStatistics; }
+
+    public List<DocumentCheckError> getDocuments() { return documents; }
+    public void setDocuments(List<DocumentCheckError> documents) { this.documents = documents; }
 
     public void addError(CheckError error) {
         this.errors.add(error);

@@ -24,6 +24,7 @@ import org.slf4j.LoggerFactory;
 import com.google.refine.ProjectManager;
 import com.google.refine.commands.Command;
 import com.google.refine.extension.quality.checker.ContentChecker;
+import com.google.refine.extension.quality.checker.DocumentSealChecker;
 import com.google.refine.extension.quality.checker.FormatChecker;
 import com.google.refine.extension.quality.checker.ImageQualityChecker;
 import com.google.refine.extension.quality.checker.ResourceChecker;
@@ -180,6 +181,9 @@ public class RunQualityCheckCommand extends Command {
         // 「仅目录」项目没有条目数据：条目类检查（含条目-图像关联项）无输入，静默跳过
         boolean dirOnly = isDirectoryOnly(project);
 
+        // 法院定制模板：内容已是人工校对后回传的终稿，再抽取比对必然错位，跳过内容比对
+        boolean courtProfile = isCourtProfile(rules);
+
         // Run format checks
         CheckResult formatResult = dirOnly ? skipped("format") : new FormatChecker(view, rules).runCheck();
 
@@ -189,7 +193,7 @@ public class RunQualityCheckCommand extends Command {
         // Run content checks
         logger.info("Content check AIMP service URL: " + aimpServiceUrl);
         CheckResult contentResult = new CheckResult("content");
-        if (!dirOnly && aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
+        if (!dirOnly && !courtProfile && aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
             logger.info("Running content check with AIMP service: " + aimpServiceUrl);
             ContentChecker contentChecker = new ContentChecker(view, rules, aimpServiceUrl);
             contentResult = contentChecker.runCheck();
@@ -236,7 +240,20 @@ public class RunQualityCheckCommand extends Command {
         formatResult.setStartTime(checkStartTime);
         formatResult.setEndTime(checkEndTime);
 
-        return buildResponse(totalRows, formatResult, resourceResult, contentResult, typoResult, imageQualityResult);
+        // Run document seal checks（案件质量评查：裁判文书盖章，仅法院定制模板）
+        CheckResult documentQualityResult = new CheckResult(DocumentSealChecker.CATEGORY);
+        if (!dirOnly && courtProfile && aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
+            logger.info("Running document seal check with AIMP service: " + aimpServiceUrl);
+            DocumentSealChecker documentChecker = new DocumentSealChecker(view, rules, aimpServiceUrl);
+            documentQualityResult = documentChecker.runCheck();
+            logger.info("Document seal check completed, errors: " + documentQualityResult.getErrors().size());
+        } else {
+            logger.info("Skipping document seal check - courtProfile=" + courtProfile + ", dirOnly=" + dirOnly);
+            documentQualityResult.complete();
+        }
+
+        return buildResponse(totalRows, formatResult, resourceResult, contentResult, typoResult,
+                imageQualityResult, documentQualityResult);
     }
 
     /**
@@ -254,6 +271,9 @@ public class RunQualityCheckCommand extends Command {
             // 「仅目录」项目没有条目数据：条目类检查（含条目-图像关联项）无输入，静默跳过
             boolean dirOnly = isDirectoryOnly(project);
 
+            // 法院定制模板：内容已是人工校对后回传的终稿，再抽取比对必然错位，跳过内容比对
+            boolean courtProfile = isCourtProfile(rules);
+
             // Phase 1: Format checks
             task.setCurrentPhase("格式检查");
             CheckResult formatResult = dirOnly ? skipped("format") : new FormatChecker(view, rules).runCheck();
@@ -269,7 +289,7 @@ public class RunQualityCheckCommand extends Command {
             // Phase 3: Content checks
             task.setCurrentPhase("内容检查");
             CheckResult contentResult = new CheckResult("content");
-            if (!dirOnly && aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
+            if (!dirOnly && !courtProfile && aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
                 logger.info("Running async content check with AIMP service: " + aimpServiceUrl);
                 ContentChecker contentChecker = new ContentChecker(view, rules, aimpServiceUrl);
                 contentChecker.setTask(task); // Set task for progress updates
@@ -320,8 +340,22 @@ public class RunQualityCheckCommand extends Command {
             formatResult.setStartTime(checkStartTime);
             formatResult.setEndTime(checkEndTime);
 
+            // Phase 6: Document seal checks（案件质量评查：裁判文书盖章）
+            task.setCurrentPhase("案件质量评查");
+            CheckResult documentQualityResult = new CheckResult(DocumentSealChecker.CATEGORY);
+            if (!dirOnly && courtProfile && aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
+                logger.info("Running async document seal check with AIMP service: " + aimpServiceUrl);
+                DocumentSealChecker documentChecker = new DocumentSealChecker(view, rules, aimpServiceUrl);
+                documentChecker.setTask(task);
+                documentQualityResult = documentChecker.runCheck();
+                totalErrors += documentQualityResult.getErrors().size();
+            } else {
+                documentQualityResult.complete();
+            }
+
             // Build and store result
-            ObjectNode result = buildResponse(project.rows.size(), formatResult, resourceResult, contentResult, typoResult, imageQualityResult);
+            ObjectNode result = buildResponse(project.rows.size(), formatResult, resourceResult, contentResult,
+                    typoResult, imageQualityResult, documentQualityResult);
             task.setResult(result);
             task.setStatus(TaskStatus.COMPLETED);
             task.setCompletedAt(checkEndTime);
@@ -339,7 +373,8 @@ public class RunQualityCheckCommand extends Command {
                     resourceResult.isServiceUnavailable() || 
                     contentResult.isServiceUnavailable() || 
                     typoResult.isServiceUnavailable() ||
-                    imageQualityResult.isServiceUnavailable()
+                    imageQualityResult.isServiceUnavailable() ||
+                    documentQualityResult.isServiceUnavailable()
                 );
                 if (contentResult.isServiceUnavailable()) {
                     combinedResult.setServiceUnavailableMessage(contentResult.getServiceUnavailableMessage());
@@ -351,6 +386,8 @@ public class RunQualityCheckCommand extends Command {
                     combinedResult.setServiceUnavailableMessage(formatResult.getServiceUnavailableMessage());
                 } else if (resourceResult.isServiceUnavailable()) {
                     combinedResult.setServiceUnavailableMessage(resourceResult.getServiceUnavailableMessage());
+                } else if (documentQualityResult.isServiceUnavailable()) {
+                    combinedResult.setServiceUnavailableMessage(documentQualityResult.getServiceUnavailableMessage());
                 }
                 // 设置imageQualityResult以保留统计数据
                 combinedResult.setImageQualityResult(imageQualityResult);
@@ -381,6 +418,14 @@ public class RunQualityCheckCommand extends Command {
                     err.setCategory("image_quality");
                     combinedResult.addError(err);
                 }
+                for (CheckResult.CheckError err : documentQualityResult.getErrors()) {
+                    err.setCategory(DocumentSealChecker.CATEGORY);
+                    combinedResult.addError(err);
+                }
+                // 文书级明细随 combined 落盘，结果页/下游才能看到「哪件文书没盖章」
+                if (documentQualityResult.getDocuments() != null) {
+                    combinedResult.setDocuments(documentQualityResult.getDocuments());
+                }
 
                 synchronized (project) {
                     project.overlayModels.put(SaveQualityResultOperation.OVERLAY_MODEL_KEY, combinedResult);
@@ -410,13 +455,14 @@ public class RunQualityCheckCommand extends Command {
     }
 
     private ObjectNode buildResponse(int totalRows, CheckResult formatResult, CheckResult resourceResult, 
-            CheckResult contentResult, CheckResult typoResult, CheckResult imageQualityResult) {
+            CheckResult contentResult, CheckResult typoResult, CheckResult imageQualityResult,
+            CheckResult documentQualityResult) {
         ObjectNode responseNode = mapper.createObjectNode();
         responseNode.put("code", "ok");
 
         int totalErrors = formatResult.getErrors().size() + resourceResult.getErrors().size() + 
                          contentResult.getErrors().size() + typoResult.getErrors().size() +
-                         imageQualityResult.getErrors().size();
+                         imageQualityResult.getErrors().size() + documentQualityResult.getErrors().size();
 
         // 添加开始和结束时间
         responseNode.put("startTime", formatResult.getStartTime());
@@ -427,7 +473,8 @@ public class RunQualityCheckCommand extends Command {
                                      resourceResult.isServiceUnavailable() || 
                                      contentResult.isServiceUnavailable() || 
                                      typoResult.isServiceUnavailable() ||
-                                     imageQualityResult.isServiceUnavailable();
+                                     imageQualityResult.isServiceUnavailable() ||
+                                     documentQualityResult.isServiceUnavailable();
         responseNode.put("serviceUnavailable", serviceUnavailable);
         
         String serviceUnavailableMessage = null;
@@ -441,6 +488,8 @@ public class RunQualityCheckCommand extends Command {
             serviceUnavailableMessage = formatResult.getServiceUnavailableMessage();
         } else if (resourceResult.isServiceUnavailable()) {
             serviceUnavailableMessage = resourceResult.getServiceUnavailableMessage();
+        } else if (documentQualityResult.isServiceUnavailable()) {
+            serviceUnavailableMessage = documentQualityResult.getServiceUnavailableMessage();
         }
         if (serviceUnavailableMessage != null) {
             responseNode.put("serviceUnavailableMessage", serviceUnavailableMessage);
@@ -455,6 +504,7 @@ public class RunQualityCheckCommand extends Command {
         summary.put("contentErrors", contentResult.getErrors().size());
         summary.put("typoErrors", typoResult.getErrors().size());
         summary.put("imageQualityErrors", imageQualityResult.getErrors().size());
+        summary.put("documentQualityErrors", documentQualityResult.getErrors().size());
         responseNode.set("summary", summary);
 
         // Combine all errors including image quality
@@ -479,6 +529,10 @@ public class RunQualityCheckCommand extends Command {
             err.setCategory("image_quality");
             allErrors.add(mapper.valueToTree(err));
         }
+        for (CheckResult.CheckError err : documentQualityResult.getErrors()) {
+            err.setCategory(DocumentSealChecker.CATEGORY);
+            allErrors.add(mapper.valueToTree(err));
+        }
         responseNode.set("errors", allErrors);
 
         // Individual results
@@ -487,6 +541,7 @@ public class RunQualityCheckCommand extends Command {
         responseNode.set("contentResult", mapper.valueToTree(contentResult));
         responseNode.set("typoResult", mapper.valueToTree(typoResult));
         responseNode.set("imageQualityResult", mapper.valueToTree(imageQualityResult));
+        responseNode.set("documentQualityResult", mapper.valueToTree(documentQualityResult));
 
         return responseNode;
     }
@@ -496,6 +551,19 @@ public class RunQualityCheckCommand extends Command {
         Object kind = project.getMetadata() == null ? null
                 : project.getMetadata().getCustomMetadata(IngestProjectCommand.META_SHEET_KIND);
         return kind != null && "dir".equals(String.valueOf(kind));
+    }
+
+    /** 法院定制模板类别（如 fyss-litigation）：内容比对不参与，避免对人工终稿再抽取比对 */
+    private static boolean isCourtProfile(QualityRulesConfig rules) {
+        if (rules == null) {
+            return false;
+        }
+        String type = rules.getTemplateType();
+        if (type != null && type.toLowerCase().startsWith("fyss")) {
+            return true;
+        }
+        // 兜底：规则里已带文书级配置即视为法院档位（兼容 templateType 未落库的历史项目）
+        return rules.getDocumentQualityRule() != null && !rules.getDocumentQualityRule().isEmpty();
     }
 
     /** 未执行的检查类别：返回已完成标记的空结果。 */

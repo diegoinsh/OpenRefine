@@ -45,7 +45,14 @@ var QualityAlignment = {
   _aimpConfig: {
     serviceUrl: '',
     interfaceMode: 'auto'  // '7998', '7999', or 'auto'
-  }
+  },
+
+  // 模板类别：决定规则界面呈现哪一套定制 UI（空 = 默认界面）
+  // 来源优先级：地址参数 quality-template-select > 本项目已保存的规则
+  _templateType: '',
+
+  // 文书级（案件质量评查）规则；null = 不启用
+  _documentQualityRule: null
 };
 
 /**
@@ -521,58 +528,114 @@ QualityAlignment.switchTab = function(targetTab, saveState) {
 };
 
 /**
+ * 地址参数中的模板类别（系统级模板编制界面直接带 quality-template-select）
+ */
+QualityAlignment._templateTypeFromUrl = function() {
+  try {
+    return new URLSearchParams(window.location.search).get('quality-template-select') || '';
+  } catch (e) {
+    return '';
+  }
+};
+
+/** 是否法院定制模板类别（fyss-xxx）；不是则走原有界面 */
+QualityAlignment._isCourtTemplate = function(type) {
+  return /^fyss/i.test(String(type || ''));
+};
+
+/**
+ * 生效的模板类别：地址参数优先（打开即定位），其次本项目已保存的规则。
+ * 项目级入口只带 projectId，靠这里回读已落库的 templateType。
+ */
+QualityAlignment._effectiveTemplateType = function() {
+  var fromUrl = this._templateTypeFromUrl();
+  if (fromUrl) {
+    return fromUrl;
+  }
+  if (this._templateType) {
+    return this._templateType;
+  }
+  // 兜底：规则里已带文书级规则，即视为法院档位（兼容模板类别未落库的历史项目）
+  return this._documentQualityRule ? 'fyss-litigation' : '';
+};
+
+/** 切换模板类别（重绘规则面板，即切换 tab 组） */
+QualityAlignment._setTemplateType = function(type) {
+  this._templateType = type || '';
+  if (this._isSetUp) {
+    this._renderRulesTab();
+  }
+};
+
+/**
  * Render the rules tab content
  */
 QualityAlignment._renderRulesTab = function() {
   var self = this;
   this._rulesPanel.empty();
-  
+
+  var templateType = this._effectiveTemplateType();
+  var isCourt = this._isCourtTemplate(templateType);
+
   var container = $('<div class="quality-rules-container"></div>')
     .appendTo(this._rulesPanel);
-  
+
+  // 预置规则模板下拉：提到 tab 组之上；选中法院类别即切换下方 tab 组
+  this._renderTemplateRow(container, isCourt);
+
   // Sub-tabs for different rule types
   var subTabsHeader = $('<div class="quality-sub-tabs-header"></div>')
     .appendTo(container);
-  
+
   var subTabsContent = $('<div class="quality-sub-tabs-content"></div>')
     .appendTo(container);
-  
-  // Create sub-tabs
+
+  // 法院定制类别：保留数据格式 / 文件资源 / 图像质量，去掉内容比对，新增案件质量评查
   var subTabs = [
     { id: 'format-check', label: $.i18n('data-quality-extension/format-check-tab') },
-    { id: 'resource-check', label: $.i18n('data-quality-extension/resource-check-tab') },
-    { id: 'content-check', label: $.i18n('data-quality-extension/content-check-tab') },
-    { id: 'image-quality', label: $.i18n('data-quality-extension/image-quality-tab') }
+    { id: 'resource-check', label: $.i18n('data-quality-extension/resource-check-tab') }
   ];
-  
+  if (!isCourt) {
+    subTabs.push({ id: 'content-check', label: $.i18n('data-quality-extension/content-check-tab') });
+  }
+  subTabs.push({ id: 'image-quality', label: $.i18n('data-quality-extension/image-quality-tab') });
+  if (isCourt) {
+    subTabs.push({ id: 'document-quality', label: $.i18n('data-quality-extension/document-quality-tab') });
+  }
+
   subTabs.forEach(function(tab, index) {
     var tabHeader = $('<div class="quality-sub-tab-header"></div>')
       .attr('data-tab', tab.id)
       .text(tab.label)
       .appendTo(subTabsHeader);
-    
+
     if (index === 0) {
       tabHeader.addClass('active');
     }
-    
+
     var tabContent = $('<div class="quality-sub-tab-content"></div>')
       .attr('id', 'quality-' + tab.id + '-content')
       .appendTo(subTabsContent);
-    
+
     if (index !== 0) {
       tabContent.hide();
     }
-    
+
     tabHeader.on('click', function() {
       self._switchSubTab(tab.id);
     });
   });
-  
+
   // Render each sub-tab content
   this._renderFormatCheckTab();
   this._renderResourceCheckTab();
-  this._renderContentCheckTab();
+  if (!isCourt) {
+    this._renderContentCheckTab();
+  }
   this._renderImageQualityTab();
+  if (isCourt) {
+    this._renderDocumentQualityTab();
+  }
 
   // Restore saved sub-tab state
   try {
@@ -594,6 +657,63 @@ QualityAlignment._renderRulesTab = function() {
       self._saveRules();
     })
     .appendTo(buttonBar);
+};
+
+/**
+ * 预置规则模板行：位于 tab 组之上。
+ * 选法院类别（fyss-litigation）→ 切换为定制 tab 组；选其它预置模板 → 回到原有界面。
+ */
+QualityAlignment._renderTemplateRow = function(container, isCourt) {
+  var self = this;
+
+  var templateRow = $('<div class="quality-template-row"></div>')
+    .appendTo(container);
+
+  $('<label></label>')
+    .text($.i18n('data-quality-extension/rule-template-label'))
+    .appendTo(templateRow);
+
+  var select = $('<select class="quality-template-select"></select>')
+    .appendTo(templateRow);
+
+  $('<option value=""></option>')
+    .text('-- ' + $.i18n('data-quality-extension/select-template') + ' --')
+    .appendTo(select);
+
+  $('<option value="document-2022"></option>')
+    .text($.i18n('data-quality-extension/template-document-2022'))
+    .appendTo(select);
+
+  $('<option value="document-1999" disabled></option>')
+    .text($.i18n('data-quality-extension/template-document-1999') + ' (' + $.i18n('data-quality-extension/not-implemented') + ')')
+    .appendTo(select);
+
+  $('<option value="document-1985" disabled></option>')
+    .text($.i18n('data-quality-extension/template-document-1985') + ' (' + $.i18n('data-quality-extension/not-implemented') + ')')
+    .appendTo(select);
+
+  $('<option value="fyss-litigation"></option>')
+    .text($.i18n('data-quality-extension/template-fyss-litigation'))
+    .appendTo(select);
+
+  select.val(isCourt ? 'fyss-litigation' : '');
+  this._formatTemplateSelect = select;
+
+  select.on('change', function() {
+    var value = select.val();
+    if (value === 'fyss-litigation') {
+      self._setTemplateType(value);
+    } else if (self._isCourtTemplate(self._effectiveTemplateType())) {
+      self._setTemplateType('');
+    }
+  });
+
+  $('<button class="button"></button>')
+    .text($.i18n('data-quality-extension/apply-template'))
+    .on('click', function() {
+      self._applyFormatTemplate(select.val());
+    })
+    .appendTo(templateRow);
 };
 
 /**
@@ -622,6 +742,333 @@ QualityAlignment._switchSubTab = function(tabId, saveState) {
   }
 };
 
+/** 标记有未保存改动（供本模块内新增控件复用） */
+QualityAlignment._markUnsaved = function() {
+  this._hasUnsavedChanges = true;
+  if (this._unsavedIndicator) {
+    this._unsavedIndicator.show();
+  }
+};
+
+/**
+ * 文书级（案件质量评查）规则默认值。
+ * 与平台预置模板 compliance-fyss-litigation.json 的 documentQualityRule 保持一致，
+ * 用于项目侧规则尚未随模板下发时兜底展示。
+ */
+QualityAlignment._defaultDocumentQualityRule = function() {
+  return {
+    enabled: true,
+    standard: 'FYSS-LITIGATION',
+    description: '',
+    aggregationKey: ['档号', '件号'],
+    defaultSealRegion: { x: 0, y: 0.6, w: 1, h: 0.4 },
+    minSealCount: 1,
+    checkFingerprint: false,
+    confidence: 0.5,
+    documentTypes: [
+      { typeCode: 'civil_judgment', typeName: '民事判决书', titlePattern: '民事判决书',
+        sealRequired: true, minSealCount: null, checkFingerprint: null,
+        requiredFields: ['案号', '日期', '责任者'] },
+      { typeCode: 'civil_ruling', typeName: '民事裁定书', titlePattern: '民事裁定书',
+        sealRequired: true, minSealCount: null, checkFingerprint: null,
+        requiredFields: ['案号', '日期'] },
+      { typeCode: 'civil_mediation', typeName: '民事调解书', titlePattern: '民事调解书',
+        sealRequired: true, minSealCount: null, checkFingerprint: null, requiredFields: [] },
+      { typeCode: 'criminal_judgment', typeName: '刑事判决书', titlePattern: '刑事判决书',
+        sealRequired: true, minSealCount: null, checkFingerprint: null, requiredFields: [] },
+      { typeCode: 'criminal_ruling', typeName: '刑事裁定书', titlePattern: '刑事裁定书',
+        sealRequired: true, minSealCount: null, checkFingerprint: null, requiredFields: [] },
+      { typeCode: 'criminal_mediation', typeName: '刑事附带民事调解书', titlePattern: '附带民事调解书',
+        sealRequired: true, minSealCount: null, checkFingerprint: null, requiredFields: [] }
+    ]
+  };
+};
+
+/** 取（或补齐）文书级规则对象 */
+QualityAlignment._ensureDocumentQualityRule = function() {
+  if (!this._documentQualityRule || typeof this._documentQualityRule !== 'object') {
+    this._documentQualityRule = this._defaultDocumentQualityRule();
+  }
+  var rule = this._documentQualityRule;
+  var defaults = this._defaultDocumentQualityRule();
+  if (!rule.defaultSealRegion || typeof rule.defaultSealRegion !== 'object') {
+    rule.defaultSealRegion = defaults.defaultSealRegion;
+  }
+  if (!rule.aggregationKey || !rule.aggregationKey.length) {
+    rule.aggregationKey = defaults.aggregationKey;
+  }
+  if (!rule.documentTypes) {
+    rule.documentTypes = defaults.documentTypes;
+  }
+  if (rule.confidence === undefined || rule.confidence === null) {
+    rule.confidence = defaults.confidence;
+  }
+  if (rule.minSealCount === undefined || rule.minSealCount === null) {
+    rule.minSealCount = defaults.minSealCount;
+  }
+  return rule;
+};
+
+/**
+ * 读取本项目的件题名（用于按实际件类别收窄文书类型表）。
+ * 取不到时回调空数组，由调用方回退为全部预置类型。
+ */
+QualityAlignment._loadProjectTitles = function(callback) {
+  var titles = [];
+  var done = function() { callback(titles); };
+
+  var titleColumnIndex = -1;
+  try {
+    var columns = (theProject.columnModel && theProject.columnModel.columns) || [];
+    for (var i = 0; i < columns.length; i++) {
+      var name = String(columns[i].name || '');
+      if (name === '题名' || name.indexOf('题名') >= 0) { titleColumnIndex = i; break; }
+    }
+  } catch (e) {
+    titleColumnIndex = -1;
+  }
+  if (titleColumnIndex < 0) { return done(); }
+
+  $.ajax({
+    url: 'command/core/get-rows',
+    type: 'GET',
+    data: { project: theProject.id, start: 0, limit: 2000 },
+    dataType: 'json',
+    success: function(response) {
+      try {
+        var rows = (response && response.rows) || [];
+        rows.forEach(function(row) {
+          var cell = row.cells && row.cells[titleColumnIndex];
+          var value = cell ? (cell.v !== undefined ? cell.v : cell.value) : null;
+          if (value) { titles.push(String(value)); }
+        });
+      } catch (e) {
+        // 解析失败按空处理
+      }
+      done();
+    },
+    error: done
+  });
+};
+
+/** 按件题名匹配预置文书类型：命中为空时回退全部（避免项目暂无该类文书就整表消失） */
+QualityAlignment._visibleDocTypes = function(rule, titles) {
+  var all = rule.documentTypes || [];
+  if (!titles || !titles.length) { return all; }
+  var hit = all.filter(function(type) {
+    var pattern = String(type.titlePattern || type.typeName || '');
+    if (!pattern) { return false; }
+    return titles.some(function(title) { return title.indexOf(pattern) >= 0; });
+  });
+  return hit.length ? hit : all;
+};
+
+/**
+ * 案件质量评查（裁判文书盖章）子标签页
+ */
+QualityAlignment._renderDocumentQualityTab = function() {
+  var self = this;
+  var container = $('#quality-document-quality-content');
+  if (container.length === 0) { return; }
+  container.empty();
+
+  var rule = this._ensureDocumentQualityRule();
+
+  // ---- 开关与聚合口径 ----
+  var head = $('<div class="quality-template-row"></div>').appendTo(container);
+
+  var enableLabel = $('<label></label>').appendTo(head);
+  var enable = $('<input type="checkbox">').prependTo(enableLabel);
+  $('<span></span>').text(' ' + $.i18n('data-quality-extension/doc-quality-enabled')).appendTo(enableLabel);
+  enable.prop('checked', rule.enabled !== false);
+  enable.on('change', function() {
+    rule.enabled = enable.is(':checked');
+    self._markUnsaved();
+  });
+
+  $('<label></label>').text($.i18n('data-quality-extension/doc-quality-standard')).appendTo(head);
+  var std = $('<input type="text" class="quality-inline-input">')
+    .val(rule.standard || 'FYSS-LITIGATION').appendTo(head);
+  std.on('change', function() {
+    rule.standard = $.trim(std.val());
+    self._markUnsaved();
+  });
+
+  $('<label></label>').text($.i18n('data-quality-extension/doc-quality-aggregation-key')).appendTo(head);
+  var agg = $('<input type="text" class="quality-inline-input">')
+    .val((rule.aggregationKey || []).join(', ')).appendTo(head);
+  agg.on('change', function() {
+    var parts = String(agg.val() || '').split(/[,，]/);
+    rule.aggregationKey = parts.map(function(s) { return $.trim(s); }).filter(function(s) { return s; });
+    self._markUnsaved();
+  });
+
+  // ---- 全局参数（可被每个文书类型覆盖）----
+  $('<p class="quality-section-title"></p>')
+    .text($.i18n('data-quality-extension/doc-quality-params'))
+    .appendTo(container);
+
+  var params = $('<div class="quality-doc-params"></div>').appendTo(container);
+  var region = rule.defaultSealRegion || { x: 0, y: 0.6, w: 1, h: 0.4 };
+
+  var addParam = function(key, labelKey, step) {
+    var wrap = $('<label class="quality-doc-param"></label>').appendTo(params);
+    $('<span></span>').text($.i18n(labelKey)).appendTo(wrap);
+    var input = $('<input type="number" min="0" max="1" class="quality-inline-input quality-doc-num">')
+      .attr('step', step).val(region[key]).appendTo(wrap);
+    input.on('change', function() {
+      var v = parseFloat(input.val());
+      rule.defaultSealRegion[key] = isNaN(v) ? 0 : v;
+      self._markUnsaved();
+    });
+  };
+  addParam('y', 'data-quality-extension/doc-quality-region-y', '0.05');
+  addParam('x', 'data-quality-extension/doc-quality-region-x', '0.05');
+  addParam('w', 'data-quality-extension/doc-quality-region-w', '0.05');
+  addParam('h', 'data-quality-extension/doc-quality-region-h', '0.05');
+
+  var confWrap = $('<label class="quality-doc-param"></label>').appendTo(params);
+  $('<span></span>').text($.i18n('data-quality-extension/doc-quality-confidence')).appendTo(confWrap);
+  var conf = $('<input type="number" min="0" max="1" step="0.01" class="quality-inline-input quality-doc-num">')
+    .val(rule.confidence).appendTo(confWrap);
+  conf.on('change', function() {
+    var v = parseFloat(conf.val());
+    rule.confidence = isNaN(v) ? 0.5 : v;
+    self._markUnsaved();
+  });
+
+  var minWrap = $('<label class="quality-doc-param"></label>').appendTo(params);
+  $('<span></span>').text($.i18n('data-quality-extension/doc-quality-min-seal')).appendTo(minWrap);
+  var minSeal = $('<input type="number" min="1" step="1" class="quality-inline-input quality-doc-num">')
+    .val(rule.minSealCount).appendTo(minWrap);
+  minSeal.on('change', function() {
+    var v = parseInt(minSeal.val(), 10);
+    rule.minSealCount = isNaN(v) || v < 1 ? 1 : v;
+    self._markUnsaved();
+  });
+
+  var fpLabel = $('<label class="quality-doc-param"></label>').appendTo(params);
+  var fp = $('<input type="checkbox">').prependTo(fpLabel);
+  $('<span></span>').text(' ' + $.i18n('data-quality-extension/doc-quality-fingerprint')).appendTo(fpLabel);
+  fp.prop('checked', !!rule.checkFingerprint);
+  fp.on('change', function() {
+    rule.checkFingerprint = fp.is(':checked');
+    self._markUnsaved();
+  });
+
+  // ---- 文书类型表 ----
+  $('<p class="quality-section-title"></p>')
+    .text($.i18n('data-quality-extension/doc-quality-types'))
+    .appendTo(container);
+
+  var table = $('<table class="quality-rules-table quality-doc-table"></table>').appendTo(container);
+  var thead = $('<thead></thead>').appendTo(table);
+  var headerRow = $('<tr></tr>').appendTo(thead);
+  ['type-name', 'title-pattern', 'seal-required', 'min-seal-col', 'fingerprint-col', 'required-fields', 'actions']
+    .forEach(function(key) {
+      $('<th></th>').text($.i18n('data-quality-extension/doc-quality-' + key)).appendTo(headerRow);
+    });
+  var tbody = $('<tbody></tbody>').appendTo(table);
+
+  var renderRows = function(titles) {
+    tbody.empty();
+    var visible = self._visibleDocTypes(rule, titles);
+
+    visible.forEach(function(type) {
+      var tr = $('<tr></tr>').appendTo(tbody);
+
+      $('<td></td>')
+        .append($('<input type="text" class="quality-inline-input quality-doc-name">')
+          .val(type.typeName || '')
+          .on('change', function() { type.typeName = $.trim(this.value); self._markUnsaved(); }))
+        .appendTo(tr);
+
+      $('<td></td>')
+        .append($('<input type="text" class="quality-inline-input">')
+          .val(type.titlePattern || '')
+          .on('change', function() { type.titlePattern = $.trim(this.value); self._markUnsaved(); }))
+        .appendTo(tr);
+
+      var sealWrap = $('<td></td>').appendTo(tr);
+      var seal = $('<input type="checkbox">').appendTo(sealWrap);
+      seal.prop('checked', type.sealRequired !== false);
+      seal.on('change', function() { type.sealRequired = seal.is(':checked'); self._markUnsaved(); });
+
+      $('<td></td>')
+        .append($('<input type="number" min="1" step="1" class="quality-inline-input quality-doc-num">')
+          .attr('placeholder', String(rule.minSealCount))
+          .val(type.minSealCount === null || type.minSealCount === undefined ? '' : type.minSealCount)
+          .on('change', function() {
+            var v = parseInt(this.value, 10);
+            type.minSealCount = isNaN(v) ? null : v;
+            self._markUnsaved();
+          }))
+        .appendTo(tr);
+
+      var fpWrap = $('<td></td>').appendTo(tr);
+      var fpCell = $('<input type="checkbox">').appendTo(fpWrap);
+      var inherited = type.checkFingerprint === null || type.checkFingerprint === undefined;
+      fpCell.prop('checked', inherited ? !!rule.checkFingerprint : !!type.checkFingerprint);
+      fpCell.prop('disabled', inherited);
+      fpCell.on('change', function() {
+        if (!fpCell.prop('disabled')) {
+          type.checkFingerprint = fpCell.is(':checked');
+          self._markUnsaved();
+        }
+      });
+      $('<button class="button quality-doc-fp-override"></button>')
+        .text($.i18n('data-quality-extension/doc-quality-override'))
+        .on('click', function() {
+          type.checkFingerprint = fpCell.prop('disabled') ? !!rule.checkFingerprint : null;
+          renderRows(titles);
+          self._markUnsaved();
+        })
+        .appendTo(fpWrap);
+
+      $('<td></td>')
+        .append($('<input type="text" class="quality-inline-input quality-doc-fields">')
+          .attr('placeholder', $.i18n('data-quality-extension/doc-quality-required-fields-hint'))
+          .val((type.requiredFields || []).join(', '))
+          .on('change', function() {
+            var parts = String(this.value || '').split(/[,，]/);
+            type.requiredFields = parts.map(function(s) { return $.trim(s); }).filter(function(s) { return s; });
+            self._markUnsaved();
+          }))
+        .appendTo(tr);
+
+      var actionWrap = $('<td></td>').appendTo(tr);
+      $('<button class="button"></button>')
+        .text($.i18n('data-quality-extension/delete'))
+        .on('click', function() {
+          var index = rule.documentTypes.indexOf(type);
+          if (index >= 0) { rule.documentTypes.splice(index, 1); }
+          renderRows(titles);
+          self._markUnsaved();
+        })
+        .appendTo(actionWrap);
+    });
+  };
+
+  // 先按全部预置类型渲染，取到件题名后再收窄（取不到则保持全量）
+  renderRows([]);
+  this._loadProjectTitles(function(titles) {
+    if (titles && titles.length) { renderRows(titles); }
+  });
+
+  var addRow = $('<div class="quality-add-rule-row"></div>').appendTo(container);
+  $('<button class="button"></button>')
+    .text('+ ' + $.i18n('data-quality-extension/doc-quality-add-type'))
+    .on('click', function() {
+      rule.documentTypes.push({
+        typeCode: '', typeName: '', titlePattern: '',
+        sealRequired: true, minSealCount: null, checkFingerprint: null, requiredFields: []
+      });
+      renderRows([]);
+      self._markUnsaved();
+    })
+    .appendTo(addRow);
+};
+
 /**
  * Render format check sub-tab
  */
@@ -629,40 +1076,6 @@ QualityAlignment._renderFormatCheckTab = function() {
   var self = this;
   var container = $('#quality-format-check-content');
   container.empty();
-
-  // Template selector
-  var templateRow = $('<div class="quality-template-row"></div>')
-    .appendTo(container);
-
-  $('<label></label>')
-    .text($.i18n('data-quality-extension/rule-template-label'))
-    .appendTo(templateRow);
-
-  this._formatTemplateSelect = $('<select class="quality-template-select"></select>')
-    .appendTo(templateRow);
-
-  $('<option value=""></option>')
-    .text('-- ' + $.i18n('data-quality-extension/select-template') + ' --')
-    .appendTo(this._formatTemplateSelect);
-
-  $('<option value="document-2022"></option>')
-    .text($.i18n('data-quality-extension/template-document-2022'))
-    .appendTo(this._formatTemplateSelect);
-
-  $('<option value="document-1999" disabled></option>')
-    .text($.i18n('data-quality-extension/template-document-1999') + ' (' + $.i18n('data-quality-extension/not-implemented') + ')')
-    .appendTo(this._formatTemplateSelect);
-
-  $('<option value="document-1985" disabled></option>')
-    .text($.i18n('data-quality-extension/template-document-1985') + ' (' + $.i18n('data-quality-extension/not-implemented') + ')')
-    .appendTo(this._formatTemplateSelect);
-
-  $('<button class="button"></button>')
-    .text($.i18n('data-quality-extension/apply-template'))
-    .on('click', function() {
-      self._applyFormatTemplate(self._formatTemplateSelect.val());
-    })
-    .appendTo(templateRow);
 
   // Section title
   $('<p class="quality-section-title"></p>')
@@ -3892,6 +4305,15 @@ QualityAlignment._saveRules = function(callback, silent) {
     rules.imageQualityRule = ImageQualityTab._collectRuleFromUI();
   }
 
+  // 模板类别与文书级规则：仅在定制模板场景写入，老项目不带这两段、产物不变
+  var effectiveTemplateType = this._effectiveTemplateType();
+  if (this._templateType) {
+    rules.templateType = this._templateType;
+  }
+  if (this._isCourtTemplate(effectiveTemplateType) && this._documentQualityRule) {
+    rules.documentQualityRule = this._documentQualityRule;
+  }
+
   console.log('Saving rules:', rules);
 
   Refine.postCSRF(
@@ -3956,12 +4378,13 @@ QualityAlignment._loadRules = function() {
         self._resourceConfig = response.rules.resourceConfig || self._getDefaultResourceConfig();
         self._contentRules = response.rules.contentRules || [];
         self._aimpConfig = response.rules.aimpConfig || { serviceUrl: '' };
+        // 模板类别与文书级规则：老项目为 undefined，保持原有界面
+        self._templateType = response.rules.templateType || self._templateType || '';
+        self._documentQualityRule = response.rules.documentQualityRule || self._documentQualityRule || null;
 
-        // Re-render if already set up
+        // Re-render if already set up（整面板重绘，确保 tab 组按模板类别切换）
         if (self._isSetUp) {
-          self._refreshFormatRulesTable();
-          self._renderResourceCheckTab();
-          self._refreshContentRulesTable();
+          self._renderRulesTab();
           if (typeof ImageQualityTab !== 'undefined') {
             ImageQualityTab._initResourceConfig();
           }

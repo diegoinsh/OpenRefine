@@ -79,7 +79,10 @@ RunCheckDialog.prototype._startCheck = function() {
   }
 
   // Check content comparison check
-  hasContentCheck = QualityAlignment._contentRules && 
+  // 法院定制模板下内容比对不参与（隐藏该 tab），也不做列匹配阻断校验
+  var isCourtProfile = typeof QualityAlignment._isCourtTemplate === 'function'
+      && QualityAlignment._isCourtTemplate(QualityAlignment._effectiveTemplateType());
+  hasContentCheck = !isCourtProfile && QualityAlignment._contentRules && 
     QualityAlignment._contentRules.length > 0;
 
   // Check image quality check - need to load from backend

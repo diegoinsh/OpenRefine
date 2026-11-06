@@ -56,7 +56,10 @@ ManageRulesDialog.prototype._loadRulesSummary = function() {
   // Check if resource config has basePath or pathFields configured
   var hasResourceConfig = (resourceConfig.pathFields && resourceConfig.pathFields.length > 0) || !!resourceConfig.basePath;
 
-  if (formatCount === 0 && contentCount === 0 && !hasResourceConfig) {
+  var isCourt = QualityAlignment._isCourtTemplate(QualityAlignment._effectiveTemplateType());
+  var docRule = QualityAlignment._documentQualityRule;
+
+  if (formatCount === 0 && contentCount === 0 && !hasResourceConfig && !(isCourt && docRule)) {
     rulesList.html('<p class="no-rules">' + $.i18n('data-quality-extension/no-rules-configured') + '</p>');
     return;
   }
@@ -122,6 +125,24 @@ ManageRulesDialog.prototype._loadRulesSummary = function() {
       $('<li></li>').text(rule.column + ' → ' + rule.extractLabel + ' (' + rule.threshold + '%)').appendTo(contentList);
     });
   }
+
+  // 案件质量评查（裁判文书盖章）摘要：仅在法院定制模板下显示
+  if (isCourt && docRule) {
+    var docTypes = docRule.documentTypes || [];
+    var docSection = $('<div class="rules-section"></div>').appendTo(rulesList);
+    $('<h4></h4>')
+      .text($.i18n('data-quality-extension/document-quality-tab') + ' (' + docTypes.length + ' ' + $.i18n('data-quality-extension/rules') + ')')
+      .appendTo(docSection);
+
+    var docInfo = $('<div></div>').appendTo(docSection);
+    $('<p></p>').text($.i18n('data-quality-extension/doc-quality-standard') + ': ' + (docRule.standard || '-')).appendTo(docInfo);
+    $('<p></p>').text($.i18n('data-quality-extension/doc-quality-aggregation-key') + ': ' + ((docRule.aggregationKey || []).join(' + '))).appendTo(docInfo);
+    var region = docRule.defaultSealRegion || {};
+    $('<p></p>').text($.i18n('data-quality-extension/doc-quality-region-y') + ': ' +
+        (region.y != null ? region.y : '-') + ' / ' +
+        $.i18n('data-quality-extension/doc-quality-confidence') + ': ' +
+        (docRule.confidence != null ? docRule.confidence : '-')).appendTo(docInfo);
+  }
 };
 
 ManageRulesDialog.prototype._clearRules = function() {
@@ -136,6 +157,10 @@ ManageRulesDialog.prototype._clearRules = function() {
   QualityAlignment._resourceConfig = QualityAlignment._getDefaultResourceConfig();
   QualityAlignment._contentRules = [];
   QualityAlignment._aimpConfig = { serviceUrl: '' };
+  // 法院定制档位下同时清空文书级规则
+  if (QualityAlignment._isCourtTemplate(QualityAlignment._effectiveTemplateType())) {
+    QualityAlignment._documentQualityRule = QualityAlignment._defaultDocumentQualityRule();
+  }
 
   // Auto save to backend (silent=true)
   QualityAlignment._saveRules(function(success) {
@@ -167,6 +192,14 @@ ManageRulesDialog.prototype._exportRules = function() {
     };
     if (imageRule) {
       payload.imageQualityRule = imageRule;
+    }
+    // 模板类别与文书级规则：仅定制模板场景导出，老模板产物不变
+    if (QualityAlignment._templateType) {
+      payload.templateType = QualityAlignment._templateType;
+    }
+    if (QualityAlignment._isCourtTemplate(QualityAlignment._effectiveTemplateType())
+        && QualityAlignment._documentQualityRule) {
+      payload.documentQualityRule = QualityAlignment._documentQualityRule;
     }
 
     var projectName = (theProject.metadata && theProject.metadata.name)
@@ -243,6 +276,8 @@ ManageRulesDialog.prototype._importRules = function() {
         }
         if (rules.contentRules) QualityAlignment._contentRules = rules.contentRules;
         if (rules.aimpConfig) QualityAlignment._aimpConfig = rules.aimpConfig;
+        if (rules.templateType) QualityAlignment._templateType = rules.templateType;
+        if (rules.documentQualityRule) QualityAlignment._documentQualityRule = rules.documentQualityRule;
 
         var imageRule = rules.imageQualityRule || null;
         var uiReady = typeof ImageQualityTab !== 'undefined' && ImageQualityTab._isSetUp;

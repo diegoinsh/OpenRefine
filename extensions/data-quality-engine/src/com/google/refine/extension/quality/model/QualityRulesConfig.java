@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
@@ -18,6 +19,22 @@ public class QualityRulesConfig {
 
     @JsonProperty("formatRules")
     private Map<String, FormatRule> formatRules;
+
+    /**
+     * 模板类别（如 {@code fyss-litigation}）。决定规则界面呈现哪一套定制 UI；
+     * 缺省为 null，序列化时省略，老项目产物不受影响。
+     */
+    @JsonProperty("templateType")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String templateType;
+
+    /**
+     * 文书级（案件质量评查）规则，结构见设计稿 §4.1.2。
+     * 缺省为 null，老模板/老项目不带此段即视为不启用，序列化时省略。
+     */
+    @JsonProperty("documentQualityRule")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Map<String, Object> documentQualityRule;
 
     @JsonProperty("resourceConfig")
     private ResourceCheckConfig resourceConfig;
@@ -59,6 +76,22 @@ public class QualityRulesConfig {
 
     public void setFormatRules(Map<String, FormatRule> formatRules) {
         this.formatRules = formatRules;
+    }
+
+    public String getTemplateType() {
+        return templateType;
+    }
+
+    public void setTemplateType(String templateType) {
+        this.templateType = templateType;
+    }
+
+    public Map<String, Object> getDocumentQualityRule() {
+        return documentQualityRule;
+    }
+
+    public void setDocumentQualityRule(Map<String, Object> documentQualityRule) {
+        this.documentQualityRule = documentQualityRule;
     }
 
     public ResourceCheckConfig getResourceConfig() {
