@@ -231,6 +231,12 @@ public class DataReviewCommand extends Command {
             record.put("unknown", 0);
             record.put("status", STATUS_RUNNING);
             record.put("startedAt", task.startedAt);
+            // 件级链路把件清单摘要一并登记：参数页（view=review-params）据此只读展示
+            // 「本件有哪些件、每件要求什么」，不必重跑校审；旧链路不写，记录保持原样。
+            if (pieces != null) {
+                record.put("pieceMode", true);
+                record.put("pieceList", summarizePieces(pieces));
+            }
             DataReviewTaskRegistry.upsert(project.id, record);
 
             Thread worker = new Thread(() -> run(task), "data-review-" + project.id);
@@ -873,6 +879,32 @@ public class DataReviewCommand extends Command {
         if (hasRule(task, "seal")) keys.add("seal");
         if (hasRule(task, "fingerprint")) keys.add("fingerprint");
         return String.join(",", keys);
+    }
+
+    /** 件级校审清单摘要（写入任务登记表，供参数页只读展示）。 */
+    private static List<Map<String, Object>> summarizePieces(List<PieceSpec> pieces) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (PieceSpec piece : pieces) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("pieceNo", piece.pieceNo);
+            item.put("title", piece.title);
+            item.put("volumeNo", piece.volumeNo);
+            item.put("pages", piece.pages.size());
+            item.put("pageFiles", new ArrayList<>(piece.pages));
+            List<Map<String, Object>> rules = new ArrayList<>();
+            for (PieceRule rule : piece.rules) {
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("key", rule.key);
+                r.put("name", rule.name);
+                r.put("category", rule.category);
+                r.put("required", rule.required);
+                r.put("coverage", rule.coverage);
+                rules.add(r);
+            }
+            item.put("rules", rules);
+            out.add(item);
+        }
+        return out;
     }
 
     private static boolean hasRule(Task task, String key) {

@@ -43,6 +43,58 @@
   font-size: 12px;
 }
 
+/* 件级清单（只读）：任务记录里有 pieceList 时展示，一行一件 */
+.review-piece-list {
+  margin: 12px 0 4px;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
+}
+
+.review-piece-list h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: bold;
+  color: #333;
+}
+
+.review-piece-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.review-piece-table th,
+.review-piece-table td {
+  padding: 4px 6px;
+  border: 1px solid #e0e0e0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.review-piece-table th {
+  background: #f7f7f7;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+/* 页文件可能很长：限宽并省略，完整内容在 title 里 */
+.review-piece-files {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-piece-list-empty {
+  margin: 10px 0 4px;
+  padding: 8px 10px;
+  border: 1px dashed #d9b26f;
+  border-radius: 3px;
+  background: #fdf8ec;
+  color: #7a5c1c;
+  font-size: 12px;
+}
+
 /* ===== 嵌入形态（?view=review-params / ?view=review-preview） =====
    与合规审查的 ruyi-embed-quality 同口径：只显示目标 UI 模块，隐藏顶栏、左侧面与数据网格。
    标记由 project.vt <head> 脚本提前打在 <html> 上，避免顶栏先闪一下。 */

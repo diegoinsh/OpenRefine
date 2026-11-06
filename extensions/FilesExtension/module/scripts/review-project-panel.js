@@ -227,6 +227,17 @@ var ReviewProjectPanel = (function() {
 
     elmts.hint = $('<div class="review-params-hint"></div>').appendTo(form);
 
+    // 件级清单（只读）：件数据由平台按抽取项目号/模板下发，随启动任务登记到 record，
+    // 参数页直接展示，避免下游还要去平台模板页才能确认「本件有哪些件、每件要求什么」。
+    if (task.pieceList && task.pieceList.length) {
+      renderPieceList(form, task.pieceList);
+    } else if (task.mode === 'review-piece') {
+      $('<div class="review-piece-list-empty"></div>')
+        .text('件级任务（pieceMode=true），但该任务记录没有件清单（旧任务）；'
+            + '由平台按件重新启动校审后，这里会显示本件清单。')
+        .appendTo(form);
+    }
+
     refreshHint();
 
     ReviewConfigPanelUI.render(elmts.tabs, elmts.list, elmts.note, state, refreshHint);
@@ -261,6 +272,43 @@ var ReviewProjectPanel = (function() {
     } else {
       elmts.hint.text('保存后的规则对之后启动的校审任务生效，已完成的校审结果不会回写。');
     }
+  }
+
+  /**
+   * 件级清单（只读）：一行一件，展示件号/题名/页数/页文件/要求项（含覆盖方式与必填性）。
+   * 数据来自任务记录 pieceList（平台启动校审时随 pieceMap 下发，由引擎摘要登记）。
+   */
+  function renderPieceList(form, list) {
+    var box = $('<div class="review-piece-list"></div>').appendTo(form);
+    $('<h3></h3>').text('件级清单（只读，按平台下发的件模板）').appendTo(box);
+
+    var table = $('<table class="review-piece-table"></table>').appendTo(box);
+    var head = $('<tr></tr>').appendTo($('<thead></thead>').appendTo(table));
+    ['件号', '件题名', '页数', '页文件', '要求项'].forEach(function(text) {
+      $('<th></th>').text(text).appendTo(head);
+    });
+
+    var body = $('<tbody></tbody>').appendTo(table);
+    list.forEach(function(piece) {
+      var row = $('<tr></tr>').appendTo(body);
+      $('<td></td>').text(piece.pieceNo || '').appendTo(row);
+      $('<td></td>').text(piece.title || '').appendTo(row);
+      $('<td></td>').text(piece.pages == null ? '' : String(piece.pages)).appendTo(row);
+      var files = (piece.pageFiles || []).join('、');
+      $('<td class="review-piece-files"></td>').text(files || '—')
+        .attr('title', files).appendTo(row);
+      var reqs = (piece.rules || []).map(function(rule) {
+        var text = rule.name || rule.key;
+        if (rule.coverage === 'everyPage') {
+          text += '（逐页）';
+        }
+        if (rule.required === false) {
+          text += '（选填）';
+        }
+        return text;
+      });
+      $('<td></td>').text(reqs.join('、') || '—').appendTo(row);
+    });
   }
 
   function save() {
