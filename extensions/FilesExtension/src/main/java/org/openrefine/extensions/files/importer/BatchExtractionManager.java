@@ -1619,6 +1619,9 @@ public class BatchExtractionManager {
         client.setDisableCache(task.disableCache);
         client.setArchiveCategory(task.archiveCategory);
         client.setArchiveSubCategory(task.archiveSubCategory);
+        // 件内四级细分：仅诉讼档案 + 开关打开时下发，供 AIMP 补「材料首页无题名」的确定性题名
+        client.setFourLevelSplit(isLitigationArchive(task)
+                && ExtractionConfigStore.getBoolean("extraction.fourLevelPieceSplit", false));
         // 反馈片段按 OR 的中文列名归档（AIMP 结果键与列名不同名），映射口径与 recordPageMap 一致
         Map<String, String> feedbackFieldNames = new HashMap<>();
         feedbackFieldNames.put("title", "题名");
@@ -1990,9 +1993,22 @@ public class BatchExtractionManager {
                         // 会回填给各件，供整卷复用。
                         // 其他门类（如文书档案）保持原有的归并行为，不影响已测试通过的效果。
                         boolean litigationArchive = isLitigationArchive(task);
+                        // 件内四级细分开关：下面「材料首页补抽」与「证件页责任者兜底」都只在该开关
+                        // 打开时生效，关闭时与改造前逐字节一致
+                        boolean fourLevelSplit = litigationArchive
+                                && ExtractionConfigStore.getBoolean(
+                                        "extraction.fourLevelPieceSplit", false);
                         List<Integer> itemIndexes = litigationArchive
                                 ? itemPageIndexes(unit, titles, pageSkipped, pageTypes, pageValues)
                                 : allPageIndexes(unit.pages.size());
+                        // 件内四级细分开启时：被判跳过的「材料首页」（题名空但版面有标题块）
+                        // 补抽一次，否则件内细分拿不到这一页的文种、切点会漏。
+                        if (fourLevelSplit) {
+                            retryMaterialHomePages(task, client, unit, itemIndexes, pageSkipped,
+                                    titles, pageValues, pageConfidences, pageQualityScores,
+                                    pageQualityFlags, pageQualityFeatures, pageTypes,
+                                    pageTitleRegions, keyList, customJson);
+                        }
                         List<String> itemTitles = new ArrayList<>(itemIndexes.size());
                         for (int idx : itemIndexes) itemTitles.add(titles.get(idx));
 
@@ -2008,14 +2024,33 @@ public class BatchExtractionManager {
                             // 分成「原告身份证明」「被告身份证明」（该办法第十四条(8)）；
                             // 名单整卷一份（只有封面页会返回），页当事人逐页对应
                             List<String> itemParties = new ArrayList<>(itemIndexes.size());
+                            List<AimpLlmClient.PageSignal> itemSignals =
+                                    new ArrayList<>(itemIndexes.size());
                             for (int idx : itemIndexes) {
                                 Map<String, String> vals = idx < pageValues.size() ? pageValues.get(idx) : null;
-                                itemParties.add(vals == null ? "" : partyForPiece(vals));
+                                itemParties.add(vals == null ? "" : partyForPiece(vals, fourLevelSplit));
+                                AimpLlmClient.PageSignal signal = new AimpLlmClient.PageSignal();
+                                Map<String, Double> conf = idx < pageConfidences.size()
+                                        ? pageConfidences.get(idx) : null;
+                                if (conf != null && conf.get("title") != null) {
+                                    signal.titleConfidence = conf.get("title");
+                                }
+                                if (idx < pageTitleRegions.size()) {
+                                    signal.titleRegions = pageTitleRegions.get(idx);
+                                }
+                                if (idx < pageSkipped.size()) {
+                                    signal.skipped = pageSkipped.get(idx);
+                                }
+                                if (idx < pageTypes.size()) {
+                                    signal.pageType = pageTypes.get(idx);
+                                }
+                                itemSignals.add(signal);
                             }
                             long tSplit0 = System.nanoTime();
                             AimpLlmClient.SplitResult split = client.splitVolumePieces(
                                     itemTitles, itemParties, firstPartyRoles(pageValues),
-                                    task.archiveCategory, task.archiveSubCategory);
+                                    task.archiveCategory, task.archiveSubCategory,
+                                    itemSignals, fourLevelSplit);
                             task.tSplitMs += (System.nanoTime() - tSplit0) / 1_000_000;
                             if (split.success && !split.pieces.isEmpty()) {
                                 logger.info("卷 {} 卷级分件成功（{} 件）", unit.name, split.pieces.size());
@@ -2300,6 +2335,96 @@ public class BatchExtractionManager {
                 unit.name, retryPages.size(), recovered);
     }
 
+    /**
+     * 件内四级细分的补抽：卷内条目页里「被判跳过、题名为空、但版面检出了标题块」的页，
+     * 很可能是某份材料的首页（表格式证据、回单汇总表等被判成可跳页）。这类页缺题名时
+     * 件内细分无法据文种切分，故带 {@code force_extract} 补抽一次，只补这一次。
+     *
+     * <p>候选页彼此独立，按 PAGE_CONCURRENCY 并发；结果按页序写回，保持与原逐页结果对齐。
+     */
+    private void retryMaterialHomePages(Task task, AimpLlmClient client, UnitScanner.Volume unit,
+                                        List<Integer> itemIndexes, List<Boolean> pageSkipped,
+                                        List<String> titles, List<Map<String, String>> pageValues,
+                                        List<Map<String, Double>> pageConfidences,
+                                        List<Map<String, Double>> pageQualityScores,
+                                        List<Map<String, List<String>>> pageQualityFlags,
+                                        List<Map<String, JsonNode>> pageQualityFeatures,
+                                        List<String> pageTypes, List<Integer> pageTitleRegions,
+                                        String keyList, String customJson) {
+        List<Integer> candidates = new ArrayList<>();
+        for (int idx : itemIndexes) {
+            if (idx < 0 || idx >= titles.size()) continue;
+            boolean skipped = idx < pageSkipped.size() && Boolean.TRUE.equals(pageSkipped.get(idx));
+            boolean blankTitle = titles.get(idx) == null || titles.get(idx).trim().isEmpty();
+            int regions = idx < pageTitleRegions.size() ? pageTitleRegions.get(idx) : 0;
+            if (skipped && blankTitle && regions > 0) {
+                candidates.add(idx);
+            }
+        }
+        if (candidates.isEmpty()) {
+            return;
+        }
+        List<String> pageLabels = new ArrayList<>(candidates.size());
+        for (int idx : candidates) pageLabels.add(String.valueOf(idx + 1));
+        logger.info("卷 {} 件内四级细分：补抽材料首页 {} 页 {}", unit.name, candidates.size(), pageLabels);
+
+        ExecutorService pool = Executors.newFixedThreadPool(
+                Math.min(PAGE_CONCURRENCY, candidates.size()), r -> {
+                    Thread t = new Thread(r, "aimp-material-home-retry");
+                    t.setDaemon(true);
+                    return t;
+                });
+        int recovered = 0;
+        try {
+            List<Future<AimpLlmClient.ExtractPageResult>> futures = new ArrayList<>(candidates.size());
+            for (int idx : candidates) {
+                final int pageNo = idx + 1;
+                futures.add(pool.submit(() -> client.extractPage(
+                        unit.pages.get(pageNo - 1), keyList, customJson,
+                        pageNo, unit.pages.size(), null, true)));
+            }
+            for (int i = 0; i < candidates.size(); i++) {
+                if (task.cancelRequested) break;
+                int idx = candidates.get(i);
+                AimpLlmClient.ExtractPageResult r;
+                try {
+                    r = futures.get(i).get();
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (ExecutionException ee) {
+                    logger.warn("卷 {} 第 {} 页材料首页补抽异常", unit.name, idx + 1, ee.getCause());
+                    continue;
+                }
+                if (r == null || !r.success) {
+                    logger.warn("卷 {} 第 {} 页材料首页补抽失败：{}", unit.name, idx + 1,
+                            r == null ? "无结果" : r.error);
+                    continue;
+                }
+                String title = r.values.getOrDefault("title", "");
+                if (title == null || title.trim().isEmpty()) {
+                    continue;
+                }
+                titles.set(idx, title);
+                pageValues.set(idx, r.values);
+                pageConfidences.set(idx, r.confidences);
+                if (idx < pageQualityScores.size()) pageQualityScores.set(idx, r.qualityScores);
+                if (idx < pageQualityFlags.size()) pageQualityFlags.set(idx, r.qualityFlags);
+                if (idx < pageQualityFeatures.size()) pageQualityFeatures.set(idx, r.qualityFeatures);
+                if (idx < pageSkipped.size()) pageSkipped.set(idx, false);
+                if (idx < pageTypes.size()) pageTypes.set(idx, r.pageType == null ? "" : r.pageType);
+                if (idx < pageTitleRegions.size()) pageTitleRegions.set(idx, r.titleRegionCount);
+                recordPagePreview(task, unit, idx, r, false);
+                task.recordPageType(unit.path, idx + 1, r.pageType, r.skipped);
+                recovered++;
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        logger.info("卷 {} 件内四级细分：材料首页补抽成功 {} / {} 页",
+                unit.name, recovered, candidates.size());
+    }
+
     /** 滑动窗口下的一次页级提取结果：带上页下标，因为完成顺序与页序无关。 */
     private static final class PageOutcome {
         final int index;
@@ -2578,6 +2703,38 @@ public class BatchExtractionManager {
         } catch (Exception e) {
             return party;
         }
+    }
+
+    /**
+     * 证件类页面的责任者兜底（仅件内四级细分开启时启用）。
+     *
+     * <p>身份证／户口簿／营业执照这类证件的「责任者」在提示词里要求取证件本人姓名，
+     * 但模型常回空——件内细分就拿不到「责任者变」这一信号，两份不同人的身份证会被并成
+     * 一件。此时改用页级「当事人」（{@code dangshiren}）：证面上的姓名栏就是它。
+     * 关闭四级细分时不启用，保证改造前后逐字节一致。</p>
+     */
+    private static String partyForPiece(Map<String, String> values, boolean certificateFallback) {
+        String resolved = partyForPiece(values);
+        if (!certificateFallback || (resolved != null && !resolved.trim().isEmpty())) {
+            return resolved;
+        }
+        if (!isCertificateTitle(values.getOrDefault("title", ""))) {
+            return resolved;
+        }
+        String holder = values.getOrDefault("dangshiren", "");
+        return holder == null ? "" : holder.trim();
+    }
+
+    /** 证照类文种：页面上的「责任者」应取证件本人/本单位，而不是签发机关。 */
+    private static boolean isCertificateTitle(String title) {
+        String t = title == null ? "" : title;
+        for (String word : new String[]{"身份证", "户口簿", "户口本", "常住人口", "营业执照",
+                "法定代表人身份证明", "执业证", "组织机构代码证"}) {
+            if (t.contains(word)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 卷宗封面页抽到的原/被告名单（JSON 字符串）：整卷只有封面页带该字段，取第一个非空值。 */

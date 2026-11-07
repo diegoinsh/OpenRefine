@@ -39,6 +39,7 @@ Refine.ExtractionConsoleUI.DEFAULT_CONFIG = {
   'aimp.timeout': 30,
   'extraction.pageConcurrency': 4,
   'extraction.documentPagesIndependent': true,
+  'extraction.fourLevelPieceSplit': false,
   'extraction.defaultCategory': '',
   'extraction.defaultSubCategory': '',
   'extraction.disableCache': false,
@@ -54,7 +55,8 @@ Refine.ExtractionConsoleUI.FIELDS = [
   ]},
   { group: '抽取执行', items: [
     { key: 'extraction.pageConcurrency', label: '诉讼档案页级并发度', type: 'number', min: 1, max: 16 },
-    { key: 'extraction.documentPagesIndependent', label: '文书档案页级并发（实验）', type: 'checkbox' }
+    { key: 'extraction.documentPagesIndependent', label: '文书档案页级并发（实验）', type: 'checkbox' },
+    { key: 'extraction.fourLevelPieceSplit', label: '件内四级细分（实验）', type: 'checkbox' }
   ]},
   { group: '抽取默认值', items: [
     { key: 'extraction.defaultCategory', label: '默认门类', type: 'text' },

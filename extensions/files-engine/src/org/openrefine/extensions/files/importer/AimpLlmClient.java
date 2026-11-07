@@ -149,6 +149,16 @@ public class AimpLlmClient {
     }
 
     /**
+     * 件内四级细分开关：随 options.four_level_split 传给 AIMP。
+     * 仅影响 AIMP 侧「材料首页无题名」的确定性补题名规则，关闭时不下发（旧行为）。
+     */
+    private boolean fourLevelSplit;
+
+    public void setFourLevelSplit(boolean fourLevelSplit) {
+        this.fourLevelSplit = fourLevelSplit;
+    }
+
+    /**
      * 抽取反馈上下文（AIMP → RCP 回传原文片段时用）：本卷所属项目、卷号（案卷号）。
      *
      * <p>AIMP 只拿到单页临时文件，自己推不出项目与卷号，必须由这里带过去；页号另行给出
@@ -256,12 +266,14 @@ public class AimpLlmClient {
             boolean hasFeedback = feedbackProjectId != null && !feedbackProjectId.isEmpty()
                     && feedbackVolumeId != null && !feedbackVolumeId.isEmpty();
             if (currentPage != null || totalPages != null || disableCache || hasPrev
-                    || hasArchiveCategory || hasArchiveSubCategory || forceExtract || hasFeedback) {
+                    || hasArchiveCategory || hasArchiveSubCategory || forceExtract || hasFeedback
+                    || fourLevelSplit) {
                 ObjectNode opts = mapper.createObjectNode();
                 if (currentPage != null) opts.put(AimpFields.CURRENT_PAGE, currentPage);
                 if (totalPages != null) opts.put(AimpFields.TOTAL_PAGES, totalPages);
                 if (disableCache) opts.put(AimpFields.DISABLE_CACHE, true);
                 if (forceExtract) opts.put(AimpFields.FORCE_EXTRACT, true);
+                if (fourLevelSplit) opts.put("four_level_split", true);
                 if (hasArchiveCategory) opts.put(AimpFields.ARCHIVE_CATEGORY, archiveCategory);
                 if (hasArchiveSubCategory) opts.put(AimpFields.ARCHIVE_SUB_CATEGORY, archiveSubCategory);
                 if (hasPrev) {
@@ -550,6 +562,32 @@ public class AimpLlmClient {
     public SplitResult splitVolumePieces(List<String> pageTitles, List<String> pageParties,
                                          String partyRoles, String archiveCategory,
                                          String archiveSubCategory) {
+        return splitVolumePieces(pageTitles, pageParties, partyRoles, archiveCategory,
+                archiveSubCategory, null, false);
+    }
+
+    /**
+     * 页级信号：件内四级细分判「新材料首页」用。全部可选，缺省即不参与判定
+     * （titleConfidence 为页级题名置信度，titleRegions 为 l0.pt 版面标题块数）。
+     */
+    public static final class PageSignal {
+        public Double titleConfidence;
+        public Integer titleRegions;
+        public Boolean skipped;
+        public String pageType;
+    }
+
+    /**
+     * 卷级二次分件（带当事人信息与件内四级细分开关）。
+     *
+     * @param pageSignals    逐页信号，下标 0 为卷内第 1 页；null 表示不传（旧行为）
+     * @param fourLevelSplit true 时由 AIMP 在主分件之后按 (文种, 责任者) 再切件内材料；
+     *                       false 时服务端行为与改造前逐字节一致
+     */
+    public SplitResult splitVolumePieces(List<String> pageTitles, List<String> pageParties,
+                                         String partyRoles, String archiveCategory,
+                                         String archiveSubCategory,
+                                         List<PageSignal> pageSignals, boolean fourLevelSplit) {
         LicenseGate.fromSystemProperties().require(ModuleNames.INFO_EXTRACTION);
 
         SplitResult r = new SplitResult();
@@ -563,11 +601,27 @@ public class AimpLlmClient {
                 if (pageParties != null && i < pageParties.size() && pageParties.get(i) != null) {
                     p.put(AimpFields.PARTY, pageParties.get(i));
                 }
+                if (pageSignals != null && i < pageSignals.size() && pageSignals.get(i) != null) {
+                    PageSignal signal = pageSignals.get(i);
+                    if (signal.titleConfidence != null) {
+                        p.put("title_confidence", signal.titleConfidence);
+                    }
+                    if (signal.titleRegions != null) {
+                        p.put("title_regions", signal.titleRegions);
+                    }
+                    if (signal.skipped != null) {
+                        p.put("skipped", signal.skipped);
+                    }
+                    if (signal.pageType != null) {
+                        p.put("page_type", signal.pageType);
+                    }
+                }
             }
             body.put(AimpFields.TOTAL_PAGES, pageTitles.size());
             if (partyRoles != null && !partyRoles.isEmpty()) body.put(AimpFields.PARTY_ROLES, partyRoles);
             if (archiveCategory != null) body.put(AimpFields.ARCHIVE_CATEGORY, archiveCategory);
             if (archiveSubCategory != null) body.put(AimpFields.ARCHIVE_SUB_CATEGORY, archiveSubCategory);
+            if (fourLevelSplit) body.put("four_level_split", true);
 
             AimpTransport.Response response = transport.execute(AimpTransport.Request.postJson(
                     AimpEndpoints.EXTRACT_SPLIT_PIECES, body.toString(), "application/json; charset=UTF-8",

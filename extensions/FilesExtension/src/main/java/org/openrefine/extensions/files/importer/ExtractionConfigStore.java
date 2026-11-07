@@ -34,6 +34,9 @@ public final class ExtractionConfigStore {
         // （实测同 18 页 33s vs 逐页串行 70s，约 2.1×）。关闭则退回逐页串行 + 传前序页要素，
         // 保上下文但慢约一倍——要素只出现在非件首页的多页件是已知残余风险，待样本回归。
         config.put("extraction.documentPagesIndependent", true);
+        // 件内四级细分（按 (文种, 责任者) 变化把合并件再切开）：默认关闭＝与改造前逐字节一致；
+        // 打开后由 AIMP 在主分件之后执行，只影响法院诉讼档案。
+        config.put("extraction.fourLevelPieceSplit", false);
         config.put("extraction.defaultCategory", "");
         config.put("extraction.defaultSubCategory", "");
         config.put("extraction.disableCache", false);
