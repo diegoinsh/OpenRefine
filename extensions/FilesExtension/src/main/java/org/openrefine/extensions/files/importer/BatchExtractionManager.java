@@ -1619,6 +1619,8 @@ public class BatchExtractionManager {
         client.setDisableCache(task.disableCache);
         client.setArchiveCategory(task.archiveCategory);
         client.setArchiveSubCategory(task.archiveSubCategory);
+        // 诉讼档案逐页独立提交：每页都按「首页」下发，否则续页会被引擎抑制题名/成文日期
+        client.setPageIndependent(isPageIndependent(task));
         // 件内四级细分：仅诉讼档案 + 开关打开时下发，供 AIMP 补「材料首页无题名」的确定性题名
         client.setFourLevelSplit(isLitigationArchive(task)
                 && ExtractionConfigStore.getBoolean("extraction.fourLevelPieceSplit", false));
@@ -2065,8 +2067,13 @@ public class BatchExtractionManager {
                             } else {
                                 logger.warn("卷 {} 卷级分件不可用（{}），回退字符串相似度分件",
                                         unit.name, split.reason);
-                                pieces = mapToVolumeIndexes(TitleSplitter.split(itemTitles,
-                                        TitleSplitter.DEFAULT_SIMILARITY_THRESHOLD, true), itemIndexes, unit);
+                                // 四级口径（件内每份材料一件）：(文种, 当事人) 变化即切。
+                                // 仅在该开关打开时启用；关闭时与改造前逐字节一致。
+                                pieces = mapToVolumeIndexes(fourLevelSplit
+                                        ? TitleSplitter.splitByMaterial(itemTitles, itemParties)
+                                        : TitleSplitter.split(itemTitles,
+                                                TitleSplitter.DEFAULT_SIMILARITY_THRESHOLD, true),
+                                        itemIndexes, unit);
                             }
                         } else if (litigationArchive) {
                             // 整卷都被判为非条目页（异常输入）：退回按全部页分件，保证仍有输出
@@ -2091,6 +2098,10 @@ public class BatchExtractionManager {
                             // 补方别/当事人（{@link PartyTitleComposer}），不依赖模型在题名里写人名；
                             // 生成式引擎分件成功时保持模型题名不变（既有基线逐字节一致）。
                             if (partyTitleDegraded) {
+                                // grounding 只回原文标题，纸面简写（民事诉状/传票/庭审判笔录…）
+                                // 须按编目规范名改写；map 与 AIMP _COURT_TITLE_CANON 同口径。
+                                // 只在降级路径执行，生成式引擎的件题名保持逐字节不变。
+                                canonicalizePieceTitles(pieces, majorityTrialLevel(pageValues));
                                 composePartyTitles(pieces, unit, itemIndexes, itemParties,
                                         firstPartyRoles(pageValues));
                             }
@@ -2615,8 +2626,34 @@ public class BatchExtractionManager {
             "卷宗封面", "案卷封面", "卷内目录", "卷内备考表", "备考表",
             "证物袋", "卷底", "封底", "空白封底"));
 
+    /**
+     * 卷尾/卷首结构页的题名关键词：模型照录纸面标题时常带字间距、括注或补充说明
+     * （「证 物 袋」「备 考 表（本卷）」「卷内备考表」），逐字比对会漏判，
+     * 卷尾三页因而整段并入末件。这里改按关键词包含判定。
+     */
+    private static final String[] NON_ITEM_KEYWORDS = {
+            "备考表", "证物袋", "卷底", "封底", "卷宗封面", "案卷封面", "卷内目录"};
+
     private static boolean isNonItemPiece(String title) {
-        return title != null && NON_ITEM_TITLES.contains(title.trim());
+        if (title == null) {
+            return false;
+        }
+        String text = title.trim();
+        if (NON_ITEM_TITLES.contains(text)) {
+            return true;
+        }
+        // 去掉空白（含全角空格）与括号后比对，兼容纸面的字间距与括注写法
+        String compact = text.replaceAll("[\\s\\u3000]", "")
+                .replaceAll("[（）()【】\\[\\]]", "");
+        if (NON_ITEM_TITLES.contains(compact)) {
+            return true;
+        }
+        for (String keyword : NON_ITEM_KEYWORDS) {
+            if (compact.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -2650,11 +2687,26 @@ public class BatchExtractionManager {
         // 判跳过（空白页走短文本短路）或页型为表格/短文本页，才认作卷尾材料。
         // 仍保留"连续不超过 MAX_TRAILING_BLANK_PAGES 页"的上限：长文书（判决书、笔录）的正文
         // 续页同样无题名，但它们必然是连续多页，页数超过这个上限，不会被误切。
+        // 卷尾结构页之间会夹着同样不计页的无题名页：实测 HB07-2024-M1-1638 卷尾依次是
+        // 「结案登记表(0038) → 备考表(0039) → 证物袋(0040) → 卷底(0041)」，备考表按题名已剔除，
+        // 但证物袋/卷底无题名却各自抽到了责任者（"河北省康保县人民法院"），过不了
+        // isTailMaterialPage 的"无内容"判据，于是并入末件，使末件区间从 0038 跨到 0041。
+        // 结构页（备考表等）之后不可能再出现正式条目页，故"位于最后一个结构页之后"本身就足以
+        // 认定该无题名页是卷尾材料，不再要求它没有正文内容。
+        int lastStructural = -1;
+        for (int i = 0; i < unit.pages.size() && i < titles.size(); i++) {
+            if (isNonItemPiece(titles.get(i))) {
+                lastStructural = i;
+            }
+        }
         int trailing = 0;
-        while (trailing < indexes.size() - 1
-                && !isTitled(titles, indexes.get(indexes.size() - 1 - trailing))
-                && isTailMaterialPage(pageSkipped, pageTypes, pageValues,
-                        indexes.get(indexes.size() - 1 - trailing))) {
+        while (trailing < indexes.size() - 1) {
+            int idx = indexes.get(indexes.size() - 1 - trailing);
+            if (isTitled(titles, idx)) break;
+            if (!isTailMaterialPage(pageSkipped, pageTypes, pageValues, idx)
+                    && !(lastStructural >= 0 && idx > lastStructural)) {
+                break;
+            }
             trailing++;
         }
         if (trailing == 0 || trailing > MAX_TRAILING_BLANK_PAGES) return indexes;
@@ -2780,6 +2832,75 @@ public class BatchExtractionManager {
             }
         }
         PartyTitleComposer.compose(pieces, partiesByPage, partyRolesJson);
+    }
+
+    /**
+     * 编目规范名映射（纸面标题简写/别写 → 立卷归档条项名）。
+     *
+     * <p>与 AIMP {@code extraction_processor._COURT_TITLE_CANON} 同口径，只取其中
+     * 「与卷级审级/件位置无关」的精确映射；审级相关项（非税收入一般缴款书 → 一审/上诉
+     * 案件受理费缴费凭证）在 {@link #canonicalizePieceTitles} 里按审级单独处理。</p>
+     *
+     * <p>只在 grounding 降级分件路径执行：生成式引擎的件题名已由模型规范，不再改写，
+     * 既有评测基线保持逐字节一致。</p>
+     */
+    private static final Map<String, String> COURT_TITLE_CANON = new LinkedHashMap<>();
+
+    static {
+        // 庭审笔录的纸面标题各地不一（法庭审理笔录/开庭审判笔录）
+        COURT_TITLE_CANON.put("法庭审理笔录", "庭审笔录");
+        COURT_TITLE_CANON.put("开庭审判笔录", "庭审笔录");
+        // 模型偶有漏字（实测「庭审判笔录」）
+        COURT_TITLE_CANON.put("庭审判笔录", "庭审笔录");
+        // 调解笔录件常附调解协议等材料（第十四条(13)）
+        COURT_TITLE_CANON.put("调解笔录", "调解笔录及调解材料");
+        // 询问、调查取证材料（第十四条(14)）
+        COURT_TITLE_CANON.put("协助调查函", "询问、调查取证材料");
+        COURT_TITLE_CANON.put("调查笔录", "询问、调查取证材料");
+        // 证物处理手续（第十四条(23)）
+        COURT_TITLE_CANON.put("证物处理单", "证物处理手续");
+        // 开庭传票（第十四条(12)）：纸面标题多为「传票」
+        COURT_TITLE_CANON.put("传票", "开庭传票");
+        // 执行手续材料（第十四条(21)）
+        COURT_TITLE_CANON.put("申请执行书", "执行手续材料");
+        COURT_TITLE_CANON.put("执行申请书", "执行手续材料");
+        // 劳动争议：仲裁裁决书与所附仲裁申请书合订著录
+        COURT_TITLE_CANON.put("劳动仲裁申请书", "仲裁裁决书及仲裁申请书");
+        COURT_TITLE_CANON.put("仲裁裁决书", "仲裁裁决书及仲裁申请书");
+        COURT_TITLE_CANON.put("仲裁申请书", "仲裁裁决书及仲裁申请书");
+        // 移送函存根：不带宽/半角括号
+        COURT_TITLE_CANON.put("上诉案件移送函（存根）", "上诉案件移送函存根");
+        // 纸面标题的简写/别写，按编目词表规范名著录
+        COURT_TITLE_CANON.put("民事诉状", "民事起诉状");
+        COURT_TITLE_CANON.put("地址确认书", "送达地址确认书");
+        COURT_TITLE_CANON.put("认定结论书", "价格认定结论书");
+    }
+
+    /** 非税收入一般缴款书按审级改写为一审/上诉案件受理费缴费凭证。 */
+    private static final String NON_TAX_RECEIPT = "非税收入一般缴款书";
+
+    /**
+     * 件题名规范化（只改题名，不动件边界），用于 grounding 降级分件后的落表。
+     *
+     * @param trialLevel 卷级审级（一审判 / 二审…），决定非税收入缴款书的条项名
+     */
+    static void canonicalizePieceTitles(List<TitleSplitter.Piece> pieces, String trialLevel) {
+        if (pieces == null || pieces.isEmpty()) {
+            return;
+        }
+        boolean second = trialLevel != null && trialLevel.contains("二审");
+        for (TitleSplitter.Piece piece : pieces) {
+            String title = piece.title == null ? "" : piece.title.trim();
+            if (title.isEmpty()) {
+                continue;
+            }
+            String mapped = NON_TAX_RECEIPT.equals(title)
+                    ? (second ? "上诉案件受理费缴费凭证" : "一审案件受理费缴费凭证")
+                    : COURT_TITLE_CANON.get(title);
+            if (mapped != null && !mapped.equals(title)) {
+                piece.title = mapped;
+            }
+        }
     }
 
     private static List<Integer> allPageIndexes(int pageCount) {
@@ -3006,8 +3127,10 @@ public class BatchExtractionManager {
             put(columnModel, row, "件号", pieceNo);
         }
         put(columnModel, row, "页数", piece.pageCount());
-        // 题名列取规则渲染后的四级件名（grounding 降级分件时），否则仍是模型题名
-        put(columnModel, row, "题名", PartyTitleComposer.displayTitle(piece));
+        // 题名保留三级名（模型给出的规范条项名）；四级件名（方别+当事人+文种）另起一列，供客户模板渲染
+        put(columnModel, row, "题名", piece.title == null ? "" : piece.title);
+        ensureInnerColumn(columnModel, "四级题名");
+        put(columnModel, row, "四级题名", PartyTitleComposer.displayTitle(piece));
         put(columnModel, row, "责任者", responsibleParty);
         put(columnModel, row, "文号", get(values, "document_number"));
         put(columnModel, row, "成文日期", documentDate);

@@ -153,9 +153,15 @@ public class AimpLlmClient {
      * 仅影响 AIMP 侧「材料首页无题名」的确定性补题名规则，关闭时不下发（旧行为）。
      */
     private boolean fourLevelSplit;
+    /** 页间彼此独立（诉讼档案逐页提交）时为 true：每页都按「首页」下发给引擎 */
+    private boolean pageIndependent;
 
     public void setFourLevelSplit(boolean fourLevelSplit) {
         this.fourLevelSplit = fourLevelSplit;
+    }
+
+    public void setPageIndependent(boolean pageIndependent) {
+        this.pageIndependent = pageIndependent;
     }
 
     /**
@@ -272,7 +278,7 @@ public class AimpLlmClient {
                 if (currentPage != null) opts.put(AimpFields.CURRENT_PAGE, currentPage);
                 if (totalPages != null) opts.put(AimpFields.TOTAL_PAGES, totalPages);
                 // 本页是否首页：Grounding 引擎的题名/日期只在首页提取，缺省会被当作续页而丢弃
-                if (currentPage != null) opts.put("is_first_page", currentPage == 1);
+                if (currentPage != null) opts.put("is_first_page", pageIndependent || currentPage == 1);
                 if (disableCache) opts.put(AimpFields.DISABLE_CACHE, true);
                 if (forceExtract) opts.put(AimpFields.FORCE_EXTRACT, true);
                 if (fourLevelSplit) opts.put("four_level_split", true);
