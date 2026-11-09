@@ -27,6 +27,19 @@ public class TitleSplitter {
         public Integer startPageNo;
         public Integer endPageNo;
         public String title = "";
+        /**
+         * 规则渲染后的四级件名（「原告赵建明借条」）。仅在非生成式引擎（题名里没有方别/当事人）
+         * 降级分件时由 {@link PartyTitleComposer} 填充；空串表示沿用 {@link #title}。
+         */
+        public String level4Title = "";
+        /** 题名来源：model（模型题名）/ mixed（模型文种 + 规则方别当事人）/ rule（纯规则命名）。 */
+        public String titleSource = "";
+        /** 规则判定出的方别（原告/被告…），认不出为 null。 */
+        public String partySide;
+        /** 规则判定出的当事人规范名（取封面名单写法），未知为空串。 */
+        public String partyName = "";
+        /** 纯文种（剥掉方别与当事人后的题名片段）。 */
+        public String docType = "";
 
         public int pageCount() {
             return endPage - startPage + 1;
