@@ -2013,6 +2013,10 @@ public class BatchExtractionManager {
                         for (int idx : itemIndexes) itemTitles.add(titles.get(idx));
 
                         List<TitleSplitter.Piece> pieces;
+                        // 逐页当事人与「分件是否走了 grounding 降级路径」在两处分支间共用，
+                        // 故提到卷级分件判断之外声明
+                        List<String> itemParties = new ArrayList<>(itemIndexes.size());
+                        boolean partyTitleDegraded = false;
                         if (litigationArchive && !itemIndexes.isEmpty()) {
                             // 卷级二次分件：页级题名只回答"这一页是什么"，判断"这几页是否属于同一件"
                             // 是卷级语义任务（如证据清单与其所列证据的实物页、公函与所附证件复印件），
@@ -2023,7 +2027,6 @@ public class BatchExtractionManager {
                             // 逐页当事人 + 卷宗封面抽到的原/被告名单：身份证明类件要按当事人
                             // 分成「原告身份证明」「被告身份证明」（该办法第十四条(8)）；
                             // 名单整卷一份（只有封面页会返回），页当事人逐页对应
-                            List<String> itemParties = new ArrayList<>(itemIndexes.size());
                             List<AimpLlmClient.PageSignal> itemSignals =
                                     new ArrayList<>(itemIndexes.size());
                             for (int idx : itemIndexes) {
@@ -2052,6 +2055,10 @@ public class BatchExtractionManager {
                                     task.archiveCategory, task.archiveSubCategory,
                                     itemSignals, fourLevelSplit);
                             task.tSplitMs += (System.nanoTime() - tSplit0) / 1_000_000;
+                            // 非生成式引擎（grounding）不提供卷级分件，会返回明确降级原因：
+                            // 此时页题名里也没有方别/当事人，分件后要用规则渲染件题名
+                            partyTitleDegraded = split.reason != null
+                                    && split.reason.contains("grounding");
                             if (split.success && !split.pieces.isEmpty()) {
                                 logger.info("卷 {} 卷级分件成功（{} 件）", unit.name, split.pieces.size());
                                 pieces = mapToVolumeIndexes(split.pieces, itemIndexes, unit);
@@ -2080,6 +2087,13 @@ public class BatchExtractionManager {
                         // 在卷内条目范围内，漏掉只会让页既不进条目、又拿不到件级归并。
                         if (litigationArchive && !itemIndexes.isEmpty()) {
                             appendUncoveredItemPages(pieces, itemIndexes, unit);
+                            // 规则渲染件题名：grounding 降级分件后，件名由「封面名单 + 页级责任者」
+                            // 补方别/当事人（{@link PartyTitleComposer}），不依赖模型在题名里写人名；
+                            // 生成式引擎分件成功时保持模型题名不变（既有基线逐字节一致）。
+                            if (partyTitleDegraded) {
+                                composePartyTitles(pieces, unit, itemIndexes, itemParties,
+                                        firstPartyRoles(pageValues));
+                            }
                         }
                         // 审级取卷级多数票：上诉需附一审判决书、上诉案件移送函等前审材料，
                         // 卷内会同时出现两类案号，逐页推断会被前审材料拉成"一审"
@@ -2748,6 +2762,26 @@ public class BatchExtractionManager {
         return null;
     }
 
+    /**
+     * 把「条目页序号」空间的页级责任者铺回卷内列表序号空间，再交给 {@link PartyTitleComposer}。
+     * 件区间此时已是列表序号（{@code mapToVolumeIndexes} 之后），按 startPage/endPage 直接取页。
+     */
+    private static void composePartyTitles(List<TitleSplitter.Piece> pieces, UnitScanner.Volume unit,
+                                           List<Integer> itemIndexes, List<String> itemParties,
+                                           String partyRolesJson) {
+        List<String> partiesByPage = new ArrayList<>(unit.pages.size());
+        for (int i = 0; i < unit.pages.size(); i++) {
+            partiesByPage.add("");
+        }
+        for (int k = 0; k < itemIndexes.size() && k < itemParties.size(); k++) {
+            int idx = itemIndexes.get(k);
+            if (idx >= 0 && idx < partiesByPage.size()) {
+                partiesByPage.set(idx, itemParties.get(k) == null ? "" : itemParties.get(k));
+            }
+        }
+        PartyTitleComposer.compose(pieces, partiesByPage, partyRolesJson);
+    }
+
     private static List<Integer> allPageIndexes(int pageCount) {
         List<Integer> indexes = new ArrayList<>(pageCount);
         for (int i = 0; i < pageCount; i++) indexes.add(i);
@@ -2972,7 +3006,8 @@ public class BatchExtractionManager {
             put(columnModel, row, "件号", pieceNo);
         }
         put(columnModel, row, "页数", piece.pageCount());
-        put(columnModel, row, "题名", piece.title);
+        // 题名列取规则渲染后的四级件名（grounding 降级分件时），否则仍是模型题名
+        put(columnModel, row, "题名", PartyTitleComposer.displayTitle(piece));
         put(columnModel, row, "责任者", responsibleParty);
         put(columnModel, row, "文号", get(values, "document_number"));
         put(columnModel, row, "成文日期", documentDate);
