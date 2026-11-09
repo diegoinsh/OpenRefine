@@ -146,6 +146,69 @@ public class TitleSplitter {
     public static final double DEFAULT_TITLE_CONFIDENCE_THRESHOLD = 0.9;
 
     /**
+     * 四级口径分件（诉讼档案，卷内每份材料一件）。
+     *
+     * <p>切分金标准：{@code (文种, 当事人)} 变化即切，二者都不变才合并。
+     * 与相似度分件的区别在于「不相似就切」——相似度分件会给无题名/弱相似页留合并余地，
+     * 四级口径下每份独立材料各自成件（对齐甲方《民事一审案件编目规则》的「材料编目名」行）。
+     *
+     * <p>无题名的页一律视为续页并入当前件（Grounding 只回原文标题，续页通常无标题）。
+     *
+     * @param pageTitles 逐页题名，下标 0 为卷内第 1 页
+     * @param pageParties 逐页当事人，可为 null（此时只按文种切）
+     */
+    public static List<Piece> splitByMaterial(List<String> pageTitles, List<String> pageParties) {
+        List<Piece> pieces = new ArrayList<>();
+        if (pageTitles == null || pageTitles.isEmpty()) return pieces;
+        Piece current = null;
+        String currentParty = "";
+        for (int i = 0; i < pageTitles.size(); i++) {
+            String raw = pageTitles.get(i);
+            String title = raw == null ? "" : raw.trim();
+            String party = pageParties != null && i < pageParties.size() && pageParties.get(i) != null
+                    ? pageParties.get(i).trim() : "";
+            if (current == null) {
+                current = new Piece();
+                current.startPage = i + 1;
+                current.endPage = i + 1;
+                current.title = title;
+                currentParty = party;
+                pieces.add(current);
+                continue;
+            }
+            if (title.isEmpty() || sameMaterial(current.title, title, currentParty, party)) {
+                current.endPage = i + 1;
+                if (current.title.isEmpty()) current.title = title;
+                if (currentParty.isEmpty()) currentParty = party;
+                continue;
+            }
+            Piece p = new Piece();
+            p.startPage = i + 1;
+            p.endPage = i + 1;
+            p.title = title;
+            pieces.add(p);
+            current = p;
+            currentParty = party;
+        }
+        return pieces;
+    }
+
+    /** 同一份材料：题名互相包含（同一文书的续页/加括注写法）；同名但当事人不同则按两件。 */
+    private static boolean sameMaterial(String prevTitle, String title,
+                                        String prevParty, String party) {
+        String a = normalize(prevTitle);
+        String b = normalize(title);
+        if (a.isEmpty() || b.isEmpty()) return true;
+        if (a.equals(b)) {
+            String pa = normalize(prevParty);
+            String pb = normalize(party);
+            return pa.isEmpty() || pb.isEmpty()
+                    || pa.equals(pb) || pa.contains(pb) || pb.contains(pa);
+        }
+        return a.contains(b) || b.contains(a);
+    }
+
+    /**
      * 双重证据分件：在「题名与当前件不同（相似度 &lt; threshold）」这一条之外，再加两条必要条件
      * ——<b>题名置信度达标</b>（{@code pageConfidences[i]["title"] ≥ titleConfidenceThreshold}）
      * 且 <b>本页存在版面标题块</b>（{@code titleRegionCounts[i] ≥ 1}，来自版面分析模型 l0.pt

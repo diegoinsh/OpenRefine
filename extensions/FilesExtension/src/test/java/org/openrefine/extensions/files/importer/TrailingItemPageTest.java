@@ -81,6 +81,58 @@ public class TrailingItemPageTest {
         Assert.assertEquals(indexes.size(), pageCount - 3, "卷尾空白材料应被剔除");
     }
 
+    /** 卷尾材料题名带字间距/括注（模型照录纸面标题）时同样剔除 */
+    @Test
+    public void spacedTrailingTitlesAreExcluded() {
+        int pageCount = 30;
+        List<String> titles = titles(pageCount, pageCount - 3);
+        titles.set(pageCount - 3, "卷 内 备 考 表（本卷）");
+        titles.set(pageCount - 2, "（卷底）");
+        titles.set(pageCount - 1, "证 物 袋（证物）");
+        List<Boolean> skipped = new ArrayList<>(Collections.nCopies(pageCount, false));
+        List<String> pageTypes = new ArrayList<>(Collections.nCopies(pageCount, "content_page"));
+        List<Map<String, String>> values = new ArrayList<>();
+        for (int i = 0; i < pageCount; i++) {
+            values.add(Collections.singletonMap("title", titles.get(i)));
+        }
+
+        List<Integer> indexes = BatchExtractionManager.itemPageIndexes(
+                volume(pageCount), titles, skipped, pageTypes, values);
+
+        Assert.assertEquals(indexes.size(), pageCount - 3,
+                "「卷 内 备 考 表」「（卷底）」「证 物 袋」应识别为卷尾材料");
+    }
+
+    /** 结构页之后的连续无题名页（即便抽到了责任者等要素）同样属卷尾材料 */
+    @Test
+    public void untitledPagesAfterStructuralPageAreExcluded() {
+        int pageCount = 30;
+        // 末 4 页：结案登记表(26) / 卷内备考表(27) / 证物袋(28) / 卷底(29)，后两页无题名
+        List<String> titles = titles(pageCount, pageCount - 3);
+        titles.set(pageCount - 1, "");
+        titles.set(pageCount - 2, "");
+        titles.set(pageCount - 3, "卷内备考表");
+        List<Boolean> skipped = new ArrayList<>(Collections.nCopies(pageCount, false));
+        List<String> pageTypes = new ArrayList<>(Collections.nCopies(pageCount, "content_page"));
+        List<Map<String, String>> values = new ArrayList<>();
+        for (int i = 0; i < pageCount; i++) {
+            Map<String, String> v = new HashMap<>();
+            v.put("title", titles.get(i));
+            // 证物袋/卷底页抽到了"责任者"，过不了"无内容"判据，但仍应被剔除
+            if (i >= pageCount - 2) {
+                v.put("responsible_party", "河北省康保县人民法院");
+            }
+            values.add(v);
+        }
+
+        List<Integer> indexes = BatchExtractionManager.itemPageIndexes(
+                volume(pageCount), titles, skipped, pageTypes, values);
+
+        Assert.assertEquals(indexes.size(), pageCount - 3,
+                "结构页（备考表）之后的证物袋/卷底页应判为卷尾材料");
+        Assert.assertEquals((int) indexes.get(indexes.size() - 1), pageCount - 4);
+    }
+
     /** 分件区间未覆盖的末页并入前一件，并同步卷内页号 */
     @Test
     public void uncoveredTailPageIsAppendedToPreviousPiece() {

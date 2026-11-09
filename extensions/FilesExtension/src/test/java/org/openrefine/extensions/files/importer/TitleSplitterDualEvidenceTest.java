@@ -144,4 +144,37 @@ public class TitleSplitterDualEvidenceTest {
 
         Assert.assertEquals(ranges(pieces), "1-2");
     }
+
+    /** 四级口径：文种不同即各成一件（附件页不再并入主件） */
+    @Test
+    public void splitByMaterialSplitsDifferentDocTypes() {
+        List<String> titles = Arrays.asList(
+                "应诉通知书", "送达回证", "营业执照", "法定代表人身份证明");
+
+        List<TitleSplitter.Piece> pieces = TitleSplitter.splitByMaterial(titles, null);
+
+        Assert.assertEquals(ranges(pieces), "1,2,3,4");
+    }
+
+    /** 四级口径：无题名的续页并入当前件 */
+    @Test
+    public void splitByMaterialMergesUntitledPages() {
+        List<String> titles = Arrays.asList("民事起诉状", "", "", "民事答辩状");
+
+        List<TitleSplitter.Piece> pieces = TitleSplitter.splitByMaterial(titles, null);
+
+        Assert.assertEquals(ranges(pieces), "1-3,4");
+        Assert.assertEquals(pieces.get(0).title, "民事起诉状");
+    }
+
+    /** 四级口径：同文种但当事人不同 → 两件 */
+    @Test
+    public void splitByMaterialSplitsSameTitleByParty() {
+        List<String> titles = Arrays.asList("借条", "借条");
+        List<String> parties = Arrays.asList("张三", "李四");
+
+        List<TitleSplitter.Piece> pieces = TitleSplitter.splitByMaterial(titles, parties);
+
+        Assert.assertEquals(ranges(pieces), "1,2");
+    }
 }
