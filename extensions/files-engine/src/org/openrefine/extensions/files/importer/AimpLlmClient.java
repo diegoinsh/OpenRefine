@@ -271,6 +271,8 @@ public class AimpLlmClient {
                 ObjectNode opts = mapper.createObjectNode();
                 if (currentPage != null) opts.put(AimpFields.CURRENT_PAGE, currentPage);
                 if (totalPages != null) opts.put(AimpFields.TOTAL_PAGES, totalPages);
+                // 本页是否首页：Grounding 引擎的题名/日期只在首页提取，缺省会被当作续页而丢弃
+                if (currentPage != null) opts.put("is_first_page", currentPage == 1);
                 if (disableCache) opts.put(AimpFields.DISABLE_CACHE, true);
                 if (forceExtract) opts.put(AimpFields.FORCE_EXTRACT, true);
                 if (fourLevelSplit) opts.put("four_level_split", true);
