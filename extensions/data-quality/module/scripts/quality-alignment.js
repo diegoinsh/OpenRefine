@@ -761,50 +761,47 @@ QualityAlignment._defaultDocumentQualityRule = function() {
     standard: 'FYSS-LITIGATION',
     description: '',
     aggregationKey: ['档号', '件号'],
-    defaultSealRegion: { x: 0, y: 0.6, w: 1, h: 0.4 },
-    minSealCount: 1,
-    checkFingerprint: false,
-    confidence: 0.5,
     documentTypes: [
       { typeCode: 'civil_judgment', typeName: '民事判决书', titlePattern: '民事判决书',
-        sealRequired: true, minSealCount: null, checkFingerprint: null,
         requiredFields: ['案号', '日期', '责任者'] },
       { typeCode: 'civil_ruling', typeName: '民事裁定书', titlePattern: '民事裁定书',
-        sealRequired: true, minSealCount: null, checkFingerprint: null,
         requiredFields: ['案号', '日期'] },
       { typeCode: 'civil_mediation', typeName: '民事调解书', titlePattern: '民事调解书',
-        sealRequired: true, minSealCount: null, checkFingerprint: null, requiredFields: [] },
+        requiredFields: [] },
       { typeCode: 'criminal_judgment', typeName: '刑事判决书', titlePattern: '刑事判决书',
-        sealRequired: true, minSealCount: null, checkFingerprint: null, requiredFields: [] },
+        requiredFields: [] },
       { typeCode: 'criminal_ruling', typeName: '刑事裁定书', titlePattern: '刑事裁定书',
-        sealRequired: true, minSealCount: null, checkFingerprint: null, requiredFields: [] },
+        requiredFields: [] },
       { typeCode: 'criminal_mediation', typeName: '刑事附带民事调解书', titlePattern: '附带民事调解书',
-        sealRequired: true, minSealCount: null, checkFingerprint: null, requiredFields: [] }
+        requiredFields: [] }
     ]
   };
 };
 
-/** 取（或补齐）文书级规则对象 */
+/** 取（或补齐）文书级规则对象（只做必备要素核对，印章/指纹已交数据校审） */
 QualityAlignment._ensureDocumentQualityRule = function() {
   if (!this._documentQualityRule || typeof this._documentQualityRule !== 'object') {
     this._documentQualityRule = this._defaultDocumentQualityRule();
   }
   var rule = this._documentQualityRule;
   var defaults = this._defaultDocumentQualityRule();
-  if (!rule.defaultSealRegion || typeof rule.defaultSealRegion !== 'object') {
-    rule.defaultSealRegion = defaults.defaultSealRegion;
-  }
+  // 旧项目规则里残留的印章/指纹字段一律清掉（已交数据校审，评查只核对必备要素）
+  delete rule.defaultSealRegion;
+  delete rule.confidence;
+  delete rule.minSealCount;
+  delete rule.checkFingerprint;
+  delete rule.managedBy;
+  (rule.documentTypes || []).forEach(function(type) {
+    delete type.sealRequired;
+    delete type.sealRegion;
+    delete type.minSealCount;
+    delete type.checkFingerprint;
+  });
   if (!rule.aggregationKey || !rule.aggregationKey.length) {
     rule.aggregationKey = defaults.aggregationKey;
   }
   if (!rule.documentTypes) {
     rule.documentTypes = defaults.documentTypes;
-  }
-  if (rule.confidence === undefined || rule.confidence === null) {
-    rule.confidence = defaults.confidence;
-  }
-  if (rule.minSealCount === undefined || rule.minSealCount === null) {
-    rule.minSealCount = defaults.minSealCount;
   }
   return rule;
 };
@@ -864,7 +861,7 @@ QualityAlignment._visibleDocTypes = function(rule, titles) {
 };
 
 /**
- * 案件质量评查（裁判文书盖章）子标签页
+ * 案件质量评查（裁判文书必备要素）子标签页
  */
 QualityAlignment._renderDocumentQualityTab = function() {
   var self = this;
@@ -903,60 +900,7 @@ QualityAlignment._renderDocumentQualityTab = function() {
     self._markUnsaved();
   });
 
-  // ---- 全局参数（可被每个文书类型覆盖）----
-  $('<p class="quality-section-title"></p>')
-    .text($.i18n('data-quality-extension/doc-quality-params'))
-    .appendTo(container);
-
-  var params = $('<div class="quality-doc-params"></div>').appendTo(container);
-  var region = rule.defaultSealRegion || { x: 0, y: 0.6, w: 1, h: 0.4 };
-
-  var addParam = function(key, labelKey, step) {
-    var wrap = $('<label class="quality-doc-param"></label>').appendTo(params);
-    $('<span></span>').text($.i18n(labelKey)).appendTo(wrap);
-    var input = $('<input type="number" min="0" max="1" class="quality-inline-input quality-doc-num">')
-      .attr('step', step).val(region[key]).appendTo(wrap);
-    input.on('change', function() {
-      var v = parseFloat(input.val());
-      rule.defaultSealRegion[key] = isNaN(v) ? 0 : v;
-      self._markUnsaved();
-    });
-  };
-  addParam('y', 'data-quality-extension/doc-quality-region-y', '0.05');
-  addParam('x', 'data-quality-extension/doc-quality-region-x', '0.05');
-  addParam('w', 'data-quality-extension/doc-quality-region-w', '0.05');
-  addParam('h', 'data-quality-extension/doc-quality-region-h', '0.05');
-
-  var confWrap = $('<label class="quality-doc-param"></label>').appendTo(params);
-  $('<span></span>').text($.i18n('data-quality-extension/doc-quality-confidence')).appendTo(confWrap);
-  var conf = $('<input type="number" min="0" max="1" step="0.01" class="quality-inline-input quality-doc-num">')
-    .val(rule.confidence).appendTo(confWrap);
-  conf.on('change', function() {
-    var v = parseFloat(conf.val());
-    rule.confidence = isNaN(v) ? 0.5 : v;
-    self._markUnsaved();
-  });
-
-  var minWrap = $('<label class="quality-doc-param"></label>').appendTo(params);
-  $('<span></span>').text($.i18n('data-quality-extension/doc-quality-min-seal')).appendTo(minWrap);
-  var minSeal = $('<input type="number" min="1" step="1" class="quality-inline-input quality-doc-num">')
-    .val(rule.minSealCount).appendTo(minWrap);
-  minSeal.on('change', function() {
-    var v = parseInt(minSeal.val(), 10);
-    rule.minSealCount = isNaN(v) || v < 1 ? 1 : v;
-    self._markUnsaved();
-  });
-
-  var fpLabel = $('<label class="quality-doc-param"></label>').appendTo(params);
-  var fp = $('<input type="checkbox">').prependTo(fpLabel);
-  $('<span></span>').text(' ' + $.i18n('data-quality-extension/doc-quality-fingerprint')).appendTo(fpLabel);
-  fp.prop('checked', !!rule.checkFingerprint);
-  fp.on('change', function() {
-    rule.checkFingerprint = fp.is(':checked');
-    self._markUnsaved();
-  });
-
-  // ---- 文书类型表 ----
+  // ---- 文书类型表（只核对必备要素；印章/指纹判定归数据校审）----
   $('<p class="quality-section-title"></p>')
     .text($.i18n('data-quality-extension/doc-quality-types'))
     .appendTo(container);
@@ -964,7 +908,7 @@ QualityAlignment._renderDocumentQualityTab = function() {
   var table = $('<table class="quality-rules-table quality-doc-table"></table>').appendTo(container);
   var thead = $('<thead></thead>').appendTo(table);
   var headerRow = $('<tr></tr>').appendTo(thead);
-  ['type-name', 'title-pattern', 'seal-required', 'min-seal-col', 'fingerprint-col', 'required-fields', 'actions']
+  ['type-name', 'title-pattern', 'required-fields', 'actions']
     .forEach(function(key) {
       $('<th></th>').text($.i18n('data-quality-extension/doc-quality-' + key)).appendTo(headerRow);
     });
@@ -988,42 +932,6 @@ QualityAlignment._renderDocumentQualityTab = function() {
           .val(type.titlePattern || '')
           .on('change', function() { type.titlePattern = $.trim(this.value); self._markUnsaved(); }))
         .appendTo(tr);
-
-      var sealWrap = $('<td></td>').appendTo(tr);
-      var seal = $('<input type="checkbox">').appendTo(sealWrap);
-      seal.prop('checked', type.sealRequired !== false);
-      seal.on('change', function() { type.sealRequired = seal.is(':checked'); self._markUnsaved(); });
-
-      $('<td></td>')
-        .append($('<input type="number" min="1" step="1" class="quality-inline-input quality-doc-num">')
-          .attr('placeholder', String(rule.minSealCount))
-          .val(type.minSealCount === null || type.minSealCount === undefined ? '' : type.minSealCount)
-          .on('change', function() {
-            var v = parseInt(this.value, 10);
-            type.minSealCount = isNaN(v) ? null : v;
-            self._markUnsaved();
-          }))
-        .appendTo(tr);
-
-      var fpWrap = $('<td></td>').appendTo(tr);
-      var fpCell = $('<input type="checkbox">').appendTo(fpWrap);
-      var inherited = type.checkFingerprint === null || type.checkFingerprint === undefined;
-      fpCell.prop('checked', inherited ? !!rule.checkFingerprint : !!type.checkFingerprint);
-      fpCell.prop('disabled', inherited);
-      fpCell.on('change', function() {
-        if (!fpCell.prop('disabled')) {
-          type.checkFingerprint = fpCell.is(':checked');
-          self._markUnsaved();
-        }
-      });
-      $('<button class="button quality-doc-fp-override"></button>')
-        .text($.i18n('data-quality-extension/doc-quality-override'))
-        .on('click', function() {
-          type.checkFingerprint = fpCell.prop('disabled') ? !!rule.checkFingerprint : null;
-          renderRows(titles);
-          self._markUnsaved();
-        })
-        .appendTo(fpWrap);
 
       $('<td></td>')
         .append($('<input type="text" class="quality-inline-input quality-doc-fields">')
@@ -1060,8 +968,7 @@ QualityAlignment._renderDocumentQualityTab = function() {
     .text('+ ' + $.i18n('data-quality-extension/doc-quality-add-type'))
     .on('click', function() {
       rule.documentTypes.push({
-        typeCode: '', typeName: '', titlePattern: '',
-        sealRequired: true, minSealCount: null, checkFingerprint: null, requiredFields: []
+        typeCode: '', typeName: '', titlePattern: '', requiredFields: []
       });
       renderRows([]);
       self._markUnsaved();

@@ -8,6 +8,8 @@ var ReviewProjectPanel = (function() {
 
   var panel = null;
   var tab = null;
+  var resultsPanel = null;
+  var resultsTab = null;
   var dataTab = null;
   var state = null;
   var initialized = false;
@@ -26,16 +28,31 @@ var ReviewProjectPanel = (function() {
       .addClass('main-view-panel-tab')
       .appendTo('#right-panel');
 
+    // 校审结果面板：与数据表/校审参数并列，形态复用合规的检查结果 tab
+    resultsPanel = $('<div id="review-results-panel"></div>')
+      .addClass('main-view-panel-tab')
+      .appendTo('#right-panel');
+
     tab = $('<div></div>')
       .addClass('main-view-panel-tab-header')
       .attr('href', '#review-params-panel')
       .text('校审参数')
       .appendTo('#tool-panel');
 
+    resultsTab = $('<div></div>')
+      .addClass('main-view-panel-tab-header')
+      .attr('href', '#review-results-panel')
+      .text($.i18n('files-import/review-results-tab-header'))
+      .appendTo('#tool-panel');
+
     TabManager.registerTabGroup('review-tabs', '#tool-panel');
     TabManager.registerTab('review-tabs', tab, '#review-params-panel', function() {
       // 切回 tab 时不强制重载，避免覆盖未保存的编辑
     }, 6);
+    TabManager.registerTab('review-tabs', resultsTab, '#review-results-panel', function() {
+      // 每次切到结果 tab 都重取：结果覆盖写、只保留最新一轮
+      loadResults();
+    }, 7);
 
     // 与数据质量扩展同构：数据网格需要一个独立的「数据」页签（指向 #view-panel）。
     // 质量扩展初始化有延迟时它可能还没建这个页签，切到校审参数后就回不到数据界面，
@@ -139,13 +156,18 @@ var ReviewProjectPanel = (function() {
     if (!panel) {
       return;
     }
+    // 参数面板与结果面板上下对齐，取同一 top
+    var applyTop = function(target, top) {
+      if (target && target[0].style.top !== top) {
+        target.css('top', top);
+      }
+    };
     // 嵌入形态把整个工具条隐藏了（display:none），此时面板应从顶部铺满整块区域，
     // 不能再去取工具条高度——隐藏元素的 outerHeight 不可靠，会让面板整体下移一条。
     var toolPanel = $('#tool-panel');
     if (toolPanel.length === 0 || toolPanel.css('display') === 'none') {
-      if (panel[0].style.top !== '0px') {
-        panel.css('top', '0px');
-      }
+      applyTop(panel, '0px');
+      applyTop(resultsPanel, '0px');
       return;
     }
     var bottom = 0;
@@ -163,9 +185,8 @@ var ReviewProjectPanel = (function() {
     }
     // 值没变就不写：写样式会触发订阅工具条变化的观察者，无谓的样式写入会放大反馈环
     var top = bottom + 'px';
-    if (panel[0].style.top !== top) {
-      panel.css('top', top);
-    }
+    applyTop(panel, top);
+    applyTop(resultsPanel, top);
   }
 
   /** 从校审任务登记表取当前项目的参数（没有则空对象）。 */
@@ -309,6 +330,177 @@ var ReviewProjectPanel = (function() {
       });
       $('<td></td>').text(reqs.join('、') || '—').appendTo(row);
     });
+  }
+
+  // ---- 校审结果 tab ------------------------------------------------------
+  // 结果覆盖写、只保留最新一轮，因此每次切到该 tab 都重新取（subCommand=get-result）。
+
+  function loadResults() {
+    if (!resultsPanel) {
+      return;
+    }
+    Refine.wrapCSRF(function(token) {
+      $.post('command/files/data-review',
+        { subCommand: 'get-result', project: projectId(), csrf_token: token },
+        function(data) {
+          if (data && data.code === 'ok' && data.hasResult && data.result) {
+            renderResults(data.result);
+          } else if (data && data.code === 'ok') {
+            renderResultsMessage('files-import/review-results-empty', false);
+          } else {
+            renderResultsMessage('files-import/review-results-load-failed', true);
+          }
+        }, 'json').fail(function() {
+          renderResultsMessage('files-import/review-results-load-failed', true);
+        });
+    });
+  }
+
+  function renderResultsMessage(key, isError) {
+    resultsPanel.empty();
+    $('<div></div>')
+      .addClass(isError ? 'review-results-error' : 'review-piece-list-empty')
+      .text($.i18n(key))
+      .appendTo(resultsPanel);
+  }
+
+  /** 本轮结果：摘要 + 规则 + 明细（件级优先，件级缺失时退回文件级） */
+  function renderResults(result) {
+    resultsPanel.empty();
+    var form = $('<div class="batch-config-panel review-results-form"></div>').appendTo(resultsPanel);
+    $('<h2></h2>').text($.i18n('files-import/review-results-title')).appendTo(form);
+
+    var summary = result.summary || {};
+    $('<div class="review-results-summary"></div>')
+      .text($.i18n('files-import/review-results-summary',
+        summary.processedPieces || 0, summary.totalPieces || 0,
+        summary.passedPieces || 0, summary.failedPieces || 0, summary.unknownPieces || 0))
+      .appendTo(form);
+
+    var ruleNames = (result.rules || []).map(function(rule) {
+      return rule.name || rule.key;
+    }).filter(function(name) {
+      return !!name;
+    });
+    if (ruleNames.length) {
+      $('<div class="review-results-rules"></div>')
+        .text($.i18n('files-import/review-results-rules') + ruleNames.join('、'))
+        .appendTo(form);
+    }
+
+    var pieces = result.pieces || [];
+    var files = result.files || [];
+    if (pieces.length) {
+      renderResultPieces(form, pieces, files);
+    } else if (files.length) {
+      renderResultFiles(form, files);
+    } else {
+      $('<div class="review-piece-list-empty"></div>')
+        .text($.i18n('files-import/review-results-empty')).appendTo(form);
+    }
+  }
+
+  /** 件级明细：命中项/缺失项/结论；点行打开该件首页的原件预览 */
+  function renderResultPieces(form, pieces, files) {
+    var box = $('<div class="review-piece-list"></div>').appendTo(form);
+    $('<h3></h3>').text($.i18n('files-import/review-results-pieces-title')).appendTo(box);
+    var table = $('<table class="review-piece-table review-results-table"></table>').appendTo(box);
+    var head = $('<tr></tr>').appendTo($('<thead></thead>').appendTo(table));
+    ['piece-no', 'title', 'pages', 'result', 'present', 'missing', 'note'].forEach(function(key) {
+      $('<th></th>').text($.i18n('files-import/review-results-col-' + key)).appendTo(head);
+    });
+    var body = $('<tbody></tbody>').appendTo(table);
+    pieces.forEach(function(piece) {
+      var row = $('<tr></tr>').appendTo(body);
+      $('<td></td>').text(piece.pieceNo || '').appendTo(row);
+      $('<td></td>').text(piece.title || '').appendTo(row);
+      $('<td></td>').text((piece.pages && piece.pages.length) ? String(piece.pages.length) : '—')
+        .appendTo(row);
+      $('<td></td>').addClass('review-result-' + (piece.status || 'unknown'))
+        .text(statusLabel(piece.status)).appendTo(row);
+      $('<td></td>').text(joinNames(piece.present)).appendTo(row);
+      $('<td></td>').text(joinNames(piece.missing)).appendTo(row);
+      $('<td></td>').text(piece.detail || '—').appendTo(row);
+      bindPreview(row, rowIndexOfPiece(piece, files));
+    });
+  }
+
+  /** 文件级明细：一行一个文件；点行打开原件预览 */
+  function renderResultFiles(form, files) {
+    var box = $('<div class="review-piece-list"></div>').appendTo(form);
+    $('<h3></h3>').text($.i18n('files-import/review-results-files-title')).appendTo(box);
+    var table = $('<table class="review-piece-table review-results-table"></table>').appendTo(box);
+    var head = $('<tr></tr>').appendTo($('<thead></thead>').appendTo(table));
+    ['seq', 'file', 'pages', 'rules', 'result', 'note'].forEach(function(key) {
+      $('<th></th>').text($.i18n('files-import/review-results-col-' + key)).appendTo(head);
+    });
+    var body = $('<tbody></tbody>').appendTo(table);
+    files.forEach(function(file) {
+      var row = $('<tr></tr>').appendTo(body);
+      var rowIndex = (file.rowIndex == null) ? null : Number(file.rowIndex);
+      $('<td></td>').text(rowIndex == null ? '' : String(rowIndex + 1)).appendTo(row);
+      $('<td></td>').text(file.fileName || '').appendTo(row);
+      $('<td></td>').text(file.pages == null ? '—' : String(file.pages)).appendTo(row);
+      $('<td></td>').text(joinNames(file.rules)).appendTo(row);
+      $('<td></td>').text(file.result || '').appendTo(row);
+      $('<td></td>').text(file.note || '—').appendTo(row);
+      bindPreview(row, rowIndex);
+    });
+  }
+
+  function bindPreview(row, rowIndex) {
+    if (rowIndex == null || rowIndex < 0) {
+      return;
+    }
+    row.addClass('review-results-row').on('click', function() {
+      if (typeof FileViewPanel === 'undefined') {
+        return;
+      }
+      FileViewPanel.show(rowIndex, -1);
+    });
+  }
+
+  /** 件首页的文件名 → 数据行号（件级结果不带行号，用 files[] 反查） */
+  function rowIndexOfPiece(piece, files) {
+    var first = (piece.pages && piece.pages.length) ? piece.pages[0].f : null;
+    if (!first) {
+      return null;
+    }
+    for (var i = 0; i < files.length; i++) {
+      if (files[i].fileName === first) {
+        return files[i].rowIndex;
+      }
+    }
+    return null;
+  }
+
+  function statusLabel(status) {
+    if (status === 'passed') {
+      return $.i18n('files-import/review-results-passed');
+    }
+    if (status === 'failed') {
+      return $.i18n('files-import/review-results-failed');
+    }
+    return $.i18n('files-import/review-results-unknown');
+  }
+
+  /** 名字清单：引擎给件级的是数组（present/missing），给文件级 rules 的是顿号串 */
+  function joinNames(value) {
+    if (value == null || value === '') {
+      return '—';
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (!value.length) {
+      return '—';
+    }
+    var texts = value.map(function(item) {
+      return (typeof item === 'string') ? item : (item.name || item.key || '');
+    }).filter(function(text) {
+      return !!text;
+    });
+    return texts.length ? texts.join('、') : '—';
   }
 
   function save() {

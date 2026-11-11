@@ -19,6 +19,7 @@ import org.slf4j.LoggerFactory;
 import com.google.refine.extension.quality.model.CheckResult;
 import com.google.refine.extension.quality.model.CheckResult.CheckError;
 import com.google.refine.extension.quality.model.FormatRule;
+import com.google.refine.extension.quality.model.NatureType;
 import com.google.refine.extension.quality.model.QualityRulesConfig;
 import com.google.refine.extension.quality.util.TableViews;
 
@@ -116,15 +117,15 @@ public class FormatChecker {
 
                 // Non-empty check
                 if (rule.isNonEmpty() && isEmpty(value)) {
-                    result.addError(new CheckError(rowIndex, colName, value, "non_empty", "Value is empty"));
+                    addError(result, rule, rowIndex, colName, value, "non_empty", "Value is empty");
                     rowPassed = false;
                 }
 
                 // Regex check
                 if (rule.getRegex() != null && !rule.getRegex().isEmpty() && !isEmpty(value)) {
                     if (!matchesRegex(value, rule.getRegex())) {
-                        result.addError(new CheckError(rowIndex, colName, value, "regex",
-                            "Value does not match pattern: " + rule.getRegex()));
+                        addError(result, rule, rowIndex, colName, value, "regex",
+                            "Value does not match pattern: " + rule.getRegex());
                         rowPassed = false;
                     }
                 }
@@ -132,8 +133,8 @@ public class FormatChecker {
                 // Date format check
                 if (rule.getDateFormat() != null && !rule.getDateFormat().isEmpty() && !isEmpty(value)) {
                     if (!matchesDateFormat(value, rule.getDateFormat())) {
-                        result.addError(new CheckError(rowIndex, colName, value, "date_format",
-                            "Value does not match date format: " + rule.getDateFormat()));
+                        addError(result, rule, rowIndex, colName, value, "date_format",
+                            "Value does not match date format: " + rule.getDateFormat());
                         rowPassed = false;
                     }
                 }
@@ -142,8 +143,8 @@ public class FormatChecker {
                 List<String> valueList = rule.getValueList();
                 if (valueList != null && !valueList.isEmpty() && !isEmpty(value)) {
                     if (!valueList.contains(value)) {
-                        result.addError(new CheckError(rowIndex, colName, value, "value_list",
-                            "Value not in allowed list"));
+                        addError(result, rule, rowIndex, colName, value, "value_list",
+                            "Value not in allowed list");
                         rowPassed = false;
                     }
                 }
@@ -152,8 +153,8 @@ public class FormatChecker {
                 if (rule.isUnique() && !isEmpty(value)) {
                     Set<String> seen = uniqueValues.get(colName);
                     if (seen.contains(value)) {
-                        result.addError(new CheckError(rowIndex, colName, value, "unique",
-                            "Duplicate value found"));
+                        addError(result, rule, rowIndex, colName, value, "unique",
+                            "Duplicate value found");
                         rowPassed = false;
                     } else {
                         seen.add(value);
@@ -179,6 +180,16 @@ public class FormatChecker {
         result.complete();
 
         return result;
+    }
+
+    /** 规则显式声明了四性时透传到错误明细；未声明时由汇总层按检查项类型兜底。 */
+    private void addError(CheckResult result, FormatRule rule, int rowIndex, String colName,
+                          String value, String errorType, String message) {
+        CheckError error = new CheckError(rowIndex, colName, value, errorType, message);
+        if (rule != null && rule.getNature() != null && !rule.getNature().trim().isEmpty()) {
+            error.setNature(NatureType.fromCode(rule.getNature()).getCode());
+        }
+        result.addError(error);
     }
 
     private String getCellValue(Object cellValue) {

@@ -1,5 +1,6 @@
-/* 项目页「校审参数」tab：与「抽取参数」tab 同一底色与留白 */
-#review-params-panel {
+/* 项目页「校审参数」「校审结果」tab：与「抽取参数」tab 同一底色与留白 */
+#review-params-panel,
+#review-results-panel {
   background-color: var(--background-primary);
   overflow-y: auto;
   font-size: 13px;
@@ -95,6 +96,60 @@
   font-size: 12px;
 }
 
+/* ===== 校审结果 tab ===== */
+.review-results-form {
+  padding: 10px 10px 0;
+}
+
+.review-results-form.batch-config-panel {
+  margin-top: 0;
+  padding: 10px 10px 0;
+  border: 0;
+}
+
+.review-results-summary {
+  margin: 4px 0 2px;
+  color: #333;
+  font-size: 13px;
+}
+
+.review-results-rules {
+  margin: 2px 0 4px;
+  color: #666;
+  font-size: 12px;
+}
+
+.review-results-error {
+  margin: 10px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid #f0c2c2;
+  border-radius: 3px;
+  background: #fdf2f2;
+  color: #b71c1c;
+  font-size: 12px;
+}
+
+/* 明细行可点：打开该件/该文件的原件预览 */
+.review-results-table tbody tr.review-results-row {
+  cursor: pointer;
+}
+
+.review-results-table tbody tr.review-results-row:hover {
+  background: #eef4fb;
+}
+
+.review-result-passed {
+  color: #2e7d32;
+}
+
+.review-result-failed {
+  color: #c62828;
+}
+
+.review-result-unknown {
+  color: #9a6700;
+}
+
 /* ===== 嵌入形态（?view=review-params / ?view=review-preview） =====
    与合规审查的 ruyi-embed-quality 同口径：只显示目标 UI 模块，隐藏顶栏、左侧面与数据网格。
    标记由 project.vt <head> 脚本提前打在 <html> 上，避免顶栏先闪一下。 */
@@ -121,7 +176,8 @@ html.ruyi-embed-review #right-panel {
   box-shadow: none !important;
 }
 
-html.ruyi-embed-review #review-params-panel {
+html.ruyi-embed-review #review-params-panel,
+html.ruyi-embed-review #review-results-panel {
   width: 100% !important;
 }
 

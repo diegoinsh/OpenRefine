@@ -82,7 +82,7 @@ public class RepeatImageChecker {
                 
                 for (int i = 0; i < files.size(); i++) {
                     FileInfo fileInfo = files.get(i);
-                    String fullPath = fileInfo.getResourcePath() + fileInfo.getFileName();
+                    String fullPath = new java.io.File(fileInfo.getResourcePath(), fileInfo.getFileName()).getPath();
                     duplicateImagePaths.add(fullPath);
                     
                     if (i > 0) {

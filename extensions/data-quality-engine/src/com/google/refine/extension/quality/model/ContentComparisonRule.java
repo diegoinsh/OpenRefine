@@ -23,11 +23,16 @@ public class ContentComparisonRule {
     @JsonProperty("checkType")
     private String checkType;
 
+    /** 档案四性归属（可选）：为空按真实性处理，取值见 {@link NatureType}。 */
+    @JsonProperty("nature")
+    private String nature;
+
     public ContentComparisonRule() {
         this.column = "";
         this.extractLabel = "";
         this.threshold = 100;
         this.checkType = "image";
+        this.nature = "";
     }
 
     @JsonCreator
@@ -35,11 +40,13 @@ public class ContentComparisonRule {
             @JsonProperty("column") String column,
             @JsonProperty("extractLabel") String extractLabel,
             @JsonProperty("threshold") int threshold,
-            @JsonProperty("checkType") String checkType) {
+            @JsonProperty("checkType") String checkType,
+            @JsonProperty("nature") String nature) {
         this.column = column != null ? column : "";
         this.extractLabel = extractLabel != null ? extractLabel : "";
         this.threshold = threshold > 0 ? threshold : 90;
         this.checkType = checkType != null ? checkType : "image";
+        this.nature = nature != null ? nature : "";
     }
 
     public String getColumn() {
@@ -72,6 +79,14 @@ public class ContentComparisonRule {
 
     public void setCheckType(String checkType) {
         this.checkType = checkType;
+    }
+
+    public String getNature() {
+        return nature;
+    }
+
+    public void setNature(String nature) {
+        this.nature = nature == null ? "" : nature;
     }
 }
 

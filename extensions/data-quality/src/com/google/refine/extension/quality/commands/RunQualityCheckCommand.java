@@ -5,6 +5,9 @@
 package com.google.refine.extension.quality.commands;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -13,6 +16,7 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -24,12 +28,14 @@ import org.slf4j.LoggerFactory;
 import com.google.refine.ProjectManager;
 import com.google.refine.commands.Command;
 import com.google.refine.extension.quality.checker.ContentChecker;
-import com.google.refine.extension.quality.checker.DocumentSealChecker;
+import com.google.refine.extension.quality.checker.DocumentElementChecker;
 import com.google.refine.extension.quality.checker.FormatChecker;
 import com.google.refine.extension.quality.checker.ImageQualityChecker;
 import com.google.refine.extension.quality.checker.ResourceChecker;
 import com.google.refine.extension.quality.checker.TypoChecker;
 import com.google.refine.extension.quality.model.CheckResult;
+import com.google.refine.extension.quality.model.NatureMapping;
+import com.google.refine.extension.quality.model.NatureType;
 import com.google.refine.extension.quality.model.OverlayQualityCheckResult;
 import com.google.refine.extension.quality.model.QualityRulesConfig;
 import com.google.refine.extension.quality.operations.SaveQualityResultOperation;
@@ -240,20 +246,20 @@ public class RunQualityCheckCommand extends Command {
         formatResult.setStartTime(checkStartTime);
         formatResult.setEndTime(checkEndTime);
 
-        // Run document seal checks（案件质量评查：裁判文书盖章，仅法院定制模板）
-        CheckResult documentQualityResult = new CheckResult(DocumentSealChecker.CATEGORY);
-        if (!dirOnly && courtProfile && aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
-            logger.info("Running document seal check with AIMP service: " + aimpServiceUrl);
-            DocumentSealChecker documentChecker = new DocumentSealChecker(view, rules, aimpServiceUrl);
+        // Run document element checks（案件质量评查：裁判文书必备要素，仅法院定制模板）
+        CheckResult documentQualityResult = new CheckResult(DocumentElementChecker.CATEGORY);
+        if (!dirOnly && courtProfile) {
+            logger.info("Running document element check");
+            DocumentElementChecker documentChecker = new DocumentElementChecker(view, rules);
             documentQualityResult = documentChecker.runCheck();
-            logger.info("Document seal check completed, errors: " + documentQualityResult.getErrors().size());
+            logger.info("Document element check completed, errors: " + documentQualityResult.getErrors().size());
         } else {
-            logger.info("Skipping document seal check - courtProfile=" + courtProfile + ", dirOnly=" + dirOnly);
+            logger.info("Skipping document element check - courtProfile=" + courtProfile + ", dirOnly=" + dirOnly);
             documentQualityResult.complete();
         }
 
         return buildResponse(totalRows, formatResult, resourceResult, contentResult, typoResult,
-                imageQualityResult, documentQualityResult);
+                imageQualityResult, documentQualityResult, rules);
     }
 
     /**
@@ -340,12 +346,12 @@ public class RunQualityCheckCommand extends Command {
             formatResult.setStartTime(checkStartTime);
             formatResult.setEndTime(checkEndTime);
 
-            // Phase 6: Document seal checks（案件质量评查：裁判文书盖章）
+            // Phase 6: Document element checks（案件质量评查：裁判文书必备要素）
             task.setCurrentPhase("案件质量评查");
-            CheckResult documentQualityResult = new CheckResult(DocumentSealChecker.CATEGORY);
-            if (!dirOnly && courtProfile && aimpServiceUrl != null && !aimpServiceUrl.isEmpty()) {
-                logger.info("Running async document seal check with AIMP service: " + aimpServiceUrl);
-                DocumentSealChecker documentChecker = new DocumentSealChecker(view, rules, aimpServiceUrl);
+            CheckResult documentQualityResult = new CheckResult(DocumentElementChecker.CATEGORY);
+            if (!dirOnly && courtProfile) {
+                logger.info("Running async document element check");
+                DocumentElementChecker documentChecker = new DocumentElementChecker(view, rules);
                 documentChecker.setTask(task);
                 documentQualityResult = documentChecker.runCheck();
                 totalErrors += documentQualityResult.getErrors().size();
@@ -355,7 +361,7 @@ public class RunQualityCheckCommand extends Command {
 
             // Build and store result
             ObjectNode result = buildResponse(project.rows.size(), formatResult, resourceResult, contentResult,
-                    typoResult, imageQualityResult, documentQualityResult);
+                    typoResult, imageQualityResult, documentQualityResult, rules);
             task.setResult(result);
             task.setStatus(TaskStatus.COMPLETED);
             task.setCompletedAt(checkEndTime);
@@ -419,15 +425,36 @@ public class RunQualityCheckCommand extends Command {
                     combinedResult.addError(err);
                 }
                 for (CheckResult.CheckError err : documentQualityResult.getErrors()) {
-                    err.setCategory(DocumentSealChecker.CATEGORY);
+                    err.setCategory(DocumentElementChecker.CATEGORY);
                     combinedResult.addError(err);
                 }
-                // 文书级明细随 combined 落盘，结果页/下游才能看到「哪件文书没盖章」
+                // 文书级明细随 combined 落盘，结果页/下游才能看到「哪件文书缺哪个要素」
                 if (documentQualityResult.getDocuments() != null) {
                     combinedResult.setDocuments(documentQualityResult.getDocuments());
                 }
                 // 嵌套整段：下游只读 combined 也能拿到 executed / skipReason / 件级计数
                 combinedResult.setDocumentQualityResult(documentQualityResult);
+
+                // 四性汇总随 combined 落盘：结果接口按此输出，报告据此区分「未检测」与「合格」
+                JsonNode summaryNode = result.get("summary");
+                if (summaryNode != null) {
+                    combinedResult.setFourNatureRules(summaryNode.path("fourNatureRules").asInt(0));
+                    combinedResult.setFourNatureErrors(summaryNode.path("fourNatureErrors").asInt(0));
+                    combinedResult.setAnyRuleExecuted(summaryNode.path("anyRuleExecuted").asBoolean(false));
+                    JsonNode statsNode = summaryNode.get("natureStats");
+                    if (statsNode != null && statsNode.isArray()) {
+                        List<CheckResult.NatureStat> stats = new ArrayList<>();
+                        for (JsonNode n : statsNode) {
+                            stats.add(new CheckResult.NatureStat(
+                                    n.path("nature").asText(""),
+                                    n.path("name").asText(""),
+                                    n.path("rules").asInt(0),
+                                    n.path("errors").asInt(0),
+                                    n.path("executed").asBoolean(false)));
+                        }
+                        combinedResult.setNatureStats(stats);
+                    }
+                }
 
                 synchronized (project) {
                     project.overlayModels.put(SaveQualityResultOperation.OVERLAY_MODEL_KEY, combinedResult);
@@ -458,7 +485,7 @@ public class RunQualityCheckCommand extends Command {
 
     private ObjectNode buildResponse(int totalRows, CheckResult formatResult, CheckResult resourceResult, 
             CheckResult contentResult, CheckResult typoResult, CheckResult imageQualityResult,
-            CheckResult documentQualityResult) {
+            CheckResult documentQualityResult, QualityRulesConfig rules) {
         ObjectNode responseNode = mapper.createObjectNode();
         responseNode.put("code", "ok");
 
@@ -516,35 +543,69 @@ public class RunQualityCheckCommand extends Command {
         summary.put("documentCheckedCount", documentQualityResult.getCheckedRows());
         summary.put("documentPassedCount", documentQualityResult.getPassedRows());
         summary.put("documentFailedCount", documentQualityResult.getFailedRows());
-        responseNode.set("summary", summary);
 
-        // Combine all errors including image quality
         ArrayNode allErrors = mapper.createArrayNode();
         for (CheckResult.CheckError err : formatResult.getErrors()) {
-            err.setCategory("format");
+            tagNature(err, "format");
             allErrors.add(mapper.valueToTree(err));
         }
         for (CheckResult.CheckError err : resourceResult.getErrors()) {
-            err.setCategory("resource");
+            tagNature(err, "resource");
             allErrors.add(mapper.valueToTree(err));
         }
         for (CheckResult.CheckError err : contentResult.getErrors()) {
-            err.setCategory("content");
+            tagNature(err, "content");
             allErrors.add(mapper.valueToTree(err));
         }
         for (CheckResult.CheckError err : typoResult.getErrors()) {
-            err.setCategory("format");
+            tagNature(err, "format");
             allErrors.add(mapper.valueToTree(err));
         }
         for (CheckResult.CheckError err : imageQualityResult.getErrors()) {
-            err.setCategory("image_quality");
+            tagNature(err, "image_quality");
             allErrors.add(mapper.valueToTree(err));
         }
         for (CheckResult.CheckError err : documentQualityResult.getErrors()) {
-            err.setCategory(DocumentSealChecker.CATEGORY);
+            tagNature(err, DocumentElementChecker.CATEGORY);
             allErrors.add(mapper.valueToTree(err));
         }
         responseNode.set("errors", allErrors);
+
+        // 四性统计：检查项数按规则口径（含未执行的项不数），问题数按本轮明细；未归类不计入四性合计
+        Map<String, Integer> ruleCounts = NatureMapping.ruleStats(rules);
+        Map<String, Integer> errorCounts = new LinkedHashMap<>();
+        for (int i = 0; i < allErrors.size(); i++) {
+            String code = NatureType.fromCode(allErrors.get(i).path("nature").asText("")).getCode();
+            Integer current = errorCounts.get(code);
+            errorCounts.put(code, current == null ? 1 : current + 1);
+        }
+        ArrayNode natureStats = mapper.createArrayNode();
+        int fourNatureRules = 0;
+        int fourNatureErrors = 0;
+        for (NatureType nature : NatureMapping.ORDER) {
+            String code = nature.getCode();
+            int ruleCount = ruleCounts.get(code) == null ? 0 : ruleCounts.get(code);
+            int errorCount = errorCounts.get(code) == null ? 0 : errorCounts.get(code);
+            ObjectNode item = mapper.createObjectNode();
+            item.put("nature", code);
+            item.put("name", nature.getDisplayName());
+            item.put("rules", ruleCount);
+            item.put("errors", errorCount);
+            // 该性没有启用的检查项时为 false：报告须显示"未检测"，不能算合格
+            item.put("executed", ruleCount > 0);
+            item.put("passed", ruleCount > 0 && errorCount == 0);
+            natureStats.add(item);
+            if (nature.isFourNature()) {
+                fourNatureRules += ruleCount;
+                fourNatureErrors += errorCount;
+            }
+        }
+        summary.set("natureStats", natureStats);
+        summary.put("fourNatureRules", fourNatureRules);
+        summary.put("fourNatureErrors", fourNatureErrors);
+        // 一条规则都没启用：整体判为「未检测」，避免 0 错误被当成全部合格
+        summary.put("anyRuleExecuted", fourNatureRules > 0);
+        responseNode.set("summary", summary);
 
         // Individual results
         responseNode.set("formatResult", mapper.valueToTree(formatResult));
@@ -555,6 +616,20 @@ public class RunQualityCheckCommand extends Command {
         responseNode.set("documentQualityResult", mapper.valueToTree(documentQualityResult));
 
         return responseNode;
+    }
+
+    /** 归类四性：规则已显式声明则保留，否则按检查项类型 / 检查类别兜底。 */
+    private static void tagNature(CheckResult.CheckError err, String category) {
+        // 保留检查器已写的细分类别（如图像错误的「可用性」），缺失时才用段落类别兜底
+        String effectiveCategory = err.getCategory();
+        if (effectiveCategory == null || effectiveCategory.isEmpty()) {
+            err.setCategory(category);
+            effectiveCategory = category;
+        }
+        String existing = err.getNature();
+        if (existing == null || existing.isEmpty()) {
+            err.setNature(NatureMapping.ofErrorType(err.getErrorType(), effectiveCategory).getCode());
+        }
     }
 
     /** 「仅目录」项目（只有目录层级表、没有条目表）：条目类检查无输入，静默跳过。 */

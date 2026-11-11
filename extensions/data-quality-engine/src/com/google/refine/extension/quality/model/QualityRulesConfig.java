@@ -48,6 +48,19 @@ public class QualityRulesConfig {
     @JsonProperty("imageQualityRule")
     private ImageQualityRule imageQualityRule;
 
+    /**
+     * 报告视图（可选）：{@code archive-four-nature}（档案数据质量检测，缺省）或
+     * {@code court-case-review}（案件质量评查）。缺省为 null，序列化时省略。
+     */
+    @JsonProperty("reportProfile")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String reportProfile;
+
+    /** 报告只统计哪些四性（空 = 全部）；元素取值同 {@link NatureType}，{@code completeness} 归一化为 {@code integrity}。 */
+    @JsonProperty("reportNatures")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private List<String> reportNatures;
+
     public QualityRulesConfig() {
         this.formatRules = new HashMap<>();
         this.resourceConfig = new ResourceCheckConfig();
@@ -62,12 +75,16 @@ public class QualityRulesConfig {
             @JsonProperty("resourceConfig") ResourceCheckConfig resourceConfig,
             @JsonProperty("contentRules") List<ContentComparisonRule> contentRules,
             @JsonProperty("aimpConfig") AimpConfig aimpConfig,
-            @JsonProperty("imageQualityRule") ImageQualityRule imageQualityRule) {
+            @JsonProperty("imageQualityRule") ImageQualityRule imageQualityRule,
+            @JsonProperty("reportProfile") String reportProfile,
+            @JsonProperty("reportNatures") List<String> reportNatures) {
         this.formatRules = formatRules != null ? formatRules : new HashMap<>();
         this.resourceConfig = resourceConfig != null ? resourceConfig : new ResourceCheckConfig();
         this.contentRules = contentRules != null ? contentRules : new ArrayList<>();
         this.aimpConfig = aimpConfig != null ? aimpConfig : new AimpConfig();
         this.imageQualityRule = imageQualityRule != null ? imageQualityRule : new ImageQualityRule();
+        this.reportProfile = reportProfile;
+        this.reportNatures = reportNatures;
     }
 
     public Map<String, FormatRule> getFormatRules() {
@@ -124,6 +141,22 @@ public class QualityRulesConfig {
 
     public void setImageQualityRule(ImageQualityRule imageQualityRule) {
         this.imageQualityRule = imageQualityRule;
+    }
+
+    public String getReportProfile() {
+        return reportProfile;
+    }
+
+    public void setReportProfile(String reportProfile) {
+        this.reportProfile = reportProfile;
+    }
+
+    public List<String> getReportNatures() {
+        return reportNatures;
+    }
+
+    public void setReportNatures(List<String> reportNatures) {
+        this.reportNatures = reportNatures;
     }
 
     /**

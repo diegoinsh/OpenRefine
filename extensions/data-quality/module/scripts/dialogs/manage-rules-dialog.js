@@ -126,7 +126,7 @@ ManageRulesDialog.prototype._loadRulesSummary = function() {
     });
   }
 
-  // 案件质量评查（裁判文书盖章）摘要：仅在法院定制模板下显示
+  // 案件质量评查（文书必备要素）摘要：仅在法院定制模板下显示
   if (isCourt && docRule) {
     var docTypes = docRule.documentTypes || [];
     var docSection = $('<div class="rules-section"></div>').appendTo(rulesList);
@@ -137,11 +137,6 @@ ManageRulesDialog.prototype._loadRulesSummary = function() {
     var docInfo = $('<div></div>').appendTo(docSection);
     $('<p></p>').text($.i18n('data-quality-extension/doc-quality-standard') + ': ' + (docRule.standard || '-')).appendTo(docInfo);
     $('<p></p>').text($.i18n('data-quality-extension/doc-quality-aggregation-key') + ': ' + ((docRule.aggregationKey || []).join(' + '))).appendTo(docInfo);
-    var region = docRule.defaultSealRegion || {};
-    $('<p></p>').text($.i18n('data-quality-extension/doc-quality-region-y') + ': ' +
-        (region.y != null ? region.y : '-') + ' / ' +
-        $.i18n('data-quality-extension/doc-quality-confidence') + ': ' +
-        (docRule.confidence != null ? docRule.confidence : '-')).appendTo(docInfo);
   }
 };
 

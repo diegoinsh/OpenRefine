@@ -1415,35 +1415,34 @@ var FileViewPanel = {};
    * 用独立类名，避免与页级图例（.file-view-ann-legend）的增删互相干扰。
    */
   FileViewPanel._renderPieceLegend = function(container, file) {
+    container.find('.file-view-piece-legend').remove();
     var group = FileViewPanel._pieceGroup;
     if (!group || !group.legend) {
       return;
     }
     var legend = group.legend;
     var pageInfo = FileViewPanel._currentPiecePage(file);
-    container.find('.file-view-piece-legend').remove();
+
+    // 与页级图例（检出标签/缺失标签）同构：同位置、同白底卡片、同「分组标题 + 色块条目」，
+    // 避免同一功能里件级与页级出现两套标签观感。
     var box = $('<div>').addClass('file-view-piece-legend').appendTo(container);
 
-    var head = $('<div>').addClass('file-view-piece-legend-head').appendTo(box);
-    $('<span>').addClass('file-view-piece-legend-title')
-        .text(($.i18n('data-quality-extension/file-view-piece') || '件')
-            + ' ' + (legend.pieceNo || '') + (legend.title ? ' ' + legend.title : ''))
-        .appendTo(head);
+    var head = $('<div>').addClass('file-view-ann-legend-title').appendTo(box);
+    $('<span>').text(($.i18n('data-quality-extension/file-view-piece') || '件')
+        + ' ' + (legend.pieceNo || '') + (legend.title ? ' ' + legend.title : '')).appendTo(head);
     var result = legend.result || '';
-    var resultClass = result === '通过' ? 'is-pass' : (result === '不通过' ? 'is-fail' : 'is-unknown');
-    $('<span>').addClass('file-view-piece-legend-result ' + resultClass)
+    $('<span>').addClass('file-view-piece-legend-result-inline'
+            + (result === '不通过' ? ' is-fail' : ''))
         .text(result || '无法判定').appendTo(head);
     if (pageInfo) {
-      $('<span>').addClass('file-view-piece-legend-page')
+      $('<div>').addClass('file-view-ann-legend-page')
           .text('第 ' + (pageInfo.index + 1) + '/' + pageInfo.total + ' 页'
               + (pageInfo.pageNo > 0 ? '（卷内第 ' + pageInfo.pageNo + ' 页）' : ''))
-          .appendTo(head);
+          .appendTo(box);
     }
 
-    var line = $('<div>').addClass('file-view-piece-legend-line').appendTo(box);
-    FileViewPanel._pieceLegendGroup(line, '要求项', legend.required, 'req', false);
-    FileViewPanel._pieceLegendGroup(line, '已检出', legend.hit, 'hit', false);
-    FileViewPanel._pieceLegendGroup(line, '缺失项', legend.missing, 'miss', true);
+    FileViewPanel._pieceLegendGroup(box, '检出标签', legend.hit, 'hit', legend.required);
+    FileViewPanel._pieceLegendGroup(box, '缺失标签', legend.missing, 'miss', null);
 
     var pages = legend.pages || [];
     if (pages.length > 1) {
@@ -1464,22 +1463,35 @@ var FileViewPanel = {};
     }
   };
 
-  /** 件级图例内的一个分组（要求项 / 已检出 / 缺失项） */
-  FileViewPanel._pieceLegendGroup = function(parent, title, names, kind, showEmpty) {
-    var g = $('<span>').addClass('file-view-piece-legend-group').appendTo(parent);
-    $('<span>').addClass('file-view-piece-legend-label').text(title + '：').appendTo(g);
-    if (!names || !names.length) {
-      if (showEmpty) {
-        $('<span>').addClass('file-view-piece-legend-chip is-pass')
-            .text($.i18n('data-quality-extension/file-view-piece-none') || '无')
-            .appendTo(g);
-      } else {
-        $('<span>').addClass('file-view-piece-legend-chip is-muted').text('-').appendTo(g);
-      }
+  /** 件级图例内的一个分组（检出标签 / 缺失标签），结构与页级图例完全一致 */
+  FileViewPanel._pieceLegendGroup = function(parent, title, names, kind, required) {
+    var isEmpty = !names || !names.length;
+    // 无缺失项时不显示「缺失标签」组，与页级图例同口径
+    if (isEmpty && kind === 'miss') {
+      return;
+    }
+    var g = $('<div>').addClass('file-view-ann-legend-group').appendTo(parent);
+    var titleText = title;
+    if (required && required.length) {
+      titleText += '（要求 ' + required.length + ' 项）';
+    }
+    $('<div>')
+        .addClass('file-view-ann-legend-title' + (kind === 'miss' ? ' file-view-ann-legend-title-missing' : ''))
+        .text(titleText).appendTo(g);
+    if (isEmpty) {
+      var none = $('<div>').addClass('file-view-ann-legend-item').appendTo(g);
+      $('<span>').addClass('file-view-ann-swatch').css('background', '#bbb').appendTo(none);
+      $('<span>').text($.i18n('data-quality-extension/file-view-piece-none') || '无').appendTo(none);
       return;
     }
     names.forEach(function(n) {
-      $('<span>').addClass('file-view-piece-legend-chip is-' + kind).text(n).appendTo(g);
+      var row = $('<div>')
+          .addClass('file-view-ann-legend-item'
+              + (kind === 'miss' ? ' file-view-ann-legend-item-missing' : ''))
+          .appendTo(g);
+      $('<span>').addClass('file-view-ann-swatch' + (kind === 'miss' ? ' file-view-ann-swatch-missing' : ''))
+          .appendTo(row);
+      $('<span>').text(n).appendTo(row);
     });
   };
 
@@ -1589,6 +1601,11 @@ var FileViewPanel = {};
       container.find('.file-view-ann-legend').remove();
       if (Object.keys(types).length > 0 || missing.length > 0) {
         var legend = $('<div>').addClass('file-view-ann-legend').appendTo(container);
+        // 件级汇总卡片也占左上角，页级图例顺次下移，两块卡片不重叠
+        var pieceCard = container.find('.file-view-piece-legend');
+        if (pieceCard.length) {
+          legend.css('top', (pieceCard.position().top + pieceCard.outerHeight() + 8) + 'px');
+        }
         if (!matchesFile) {
           // 框只画在标注所属页上：翻到同目录其它页时明确告诉用户标注属于哪张
           $('<div>').addClass('file-view-ann-legend-page')

@@ -71,6 +71,29 @@ public class CheckResult {
     @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
     private CheckResult documentQualityResult;
 
+    /**
+     * 档案四性汇总（按规则口径算好的检查项数与问题数）。
+     *
+     * <p>只由合并结果写入，其他检查段为 null 时不输出。下游（报告 / 平台）据此
+     * 区分「通过」与「未检测」，不再把 0 错误一律当作合格。</p>
+     */
+    @JsonProperty("natureStats")
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private List<NatureStat> natureStats;
+
+    @JsonProperty("fourNatureRules")
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private Integer fourNatureRules;
+
+    @JsonProperty("fourNatureErrors")
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private Integer fourNatureErrors;
+
+    /** 是否至少执行了一项四性检查（false 表示整体「未检测」）。 */
+    @JsonProperty("anyRuleExecuted")
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private Boolean anyRuleExecuted;
+
     public CheckResult() {
         this.errors = new ArrayList<>();
         this.startTime = System.currentTimeMillis();
@@ -133,6 +156,18 @@ public class CheckResult {
         this.documentQualityResult = documentQualityResult;
     }
 
+    public List<NatureStat> getNatureStats() { return natureStats; }
+    public void setNatureStats(List<NatureStat> natureStats) { this.natureStats = natureStats; }
+
+    public Integer getFourNatureRules() { return fourNatureRules; }
+    public void setFourNatureRules(Integer fourNatureRules) { this.fourNatureRules = fourNatureRules; }
+
+    public Integer getFourNatureErrors() { return fourNatureErrors; }
+    public void setFourNatureErrors(Integer fourNatureErrors) { this.fourNatureErrors = fourNatureErrors; }
+
+    public Boolean getAnyRuleExecuted() { return anyRuleExecuted; }
+    public void setAnyRuleExecuted(Boolean anyRuleExecuted) { this.anyRuleExecuted = anyRuleExecuted; }
+
     public void addError(CheckError error) {
         this.errors.add(error);
     }
@@ -190,6 +225,15 @@ public class CheckResult {
         @JsonProperty("typoInfos")
         private java.util.List<TypoInfo> typoInfos;
 
+        /**
+         * 档案四性归属（{@code authenticity | integrity | usability | security | unknown}）。
+         *
+         * <p>由规则显式声明或 {@link NatureMapping} 兜底映射写入；报告按此分组、统计。
+         * 缺省为 null（序列化省略），由汇总层补全。</p>
+         */
+        @JsonProperty("nature")
+        private String nature;
+
         public CheckError() {}
 
         public CheckError(int rowIndex, String column, String value, String errorType, String message) {
@@ -231,6 +275,9 @@ public class CheckResult {
         public String getCategory() { return category; }
         public void setCategory(String category) { this.category = category; }
 
+        public String getNature() { return nature; }
+        public void setNature(String nature) { this.nature = nature; }
+
         public Integer getLocationX() { return locationX; }
         public void setLocationX(Integer locationX) { this.locationX = locationX; }
 
@@ -270,6 +317,56 @@ public class CheckResult {
 
         public java.util.List<TypoInfo> getTypoInfos() { return typoInfos; }
         public void setTypoInfos(java.util.List<TypoInfo> typoInfos) { this.typoInfos = typoInfos; }
+    }
+
+    /** 单维四性统计：检查项数 / 问题数 / 是否执行 / 是否通过。 */
+    public static class NatureStat {
+        @JsonProperty("nature")
+        private String nature;
+
+        @JsonProperty("name")
+        private String name;
+
+        @JsonProperty("rules")
+        private int rules;
+
+        @JsonProperty("errors")
+        private int errors;
+
+        @JsonProperty("executed")
+        private boolean executed;
+
+        @JsonProperty("passed")
+        private boolean passed;
+
+        public NatureStat() {}
+
+        public NatureStat(String nature, String name, int rules, int errors, boolean executed) {
+            this.nature = nature;
+            this.name = name;
+            this.rules = rules;
+            this.errors = errors;
+            this.executed = executed;
+            this.passed = executed && errors == 0;
+        }
+
+        public String getNature() { return nature; }
+        public void setNature(String nature) { this.nature = nature; }
+
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+
+        public int getRules() { return rules; }
+        public void setRules(int rules) { this.rules = rules; }
+
+        public int getErrors() { return errors; }
+        public void setErrors(int errors) { this.errors = errors; }
+
+        public boolean isExecuted() { return executed; }
+        public void setExecuted(boolean executed) { this.executed = executed; }
+
+        public boolean isPassed() { return passed; }
+        public void setPassed(boolean passed) { this.passed = passed; }
     }
 }
 

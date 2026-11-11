@@ -56,6 +56,8 @@ import com.google.refine.model.SheetData;
  *   <li>{@code projectId}（必填）：外部项目号，OR 项目名固定为 {@code SSO-{projectId}}</li>
  *   <li>{@code projectName}（可选）：展示名，写入项目元数据</li>
  *   <li>{@code excelPath}（可选）：本机 Excel（xls/xlsx）绝对路径</li>
+ *   <li>{@code catalogPath}（可选）：本机规范化卷宗目录 JSON 绝对路径（下游直接提交的件/页清单），
+ *       与 {@code excelPath}/{@code file} 二选一</li>
  *   <li>{@code file}（可选）：multipart 上传的 Excel；与 excelPath 二选一</li>
  *   <li>{@code imagePath}（可选）：本机图像根目录，按目录树生成「目录层级」表</li>
  *   <li>{@code mode}（可选）：{@code rebuild}（默认，已存在则删除重建）/
@@ -142,9 +144,15 @@ public class IngestProjectCommand extends Command {
                 return;
             }
             File excel = uploaded != null ? uploaded : fileOf(params.get("excelPath"));
+            File catalog = fileOf(params.get("catalogPath"));
             File imageRoot = directoryOf(params.get("imagePath"));
-            if (excel == null && imageRoot == null) {
-                respondJsonError(response, "未提供可读的 Excel 文件（file 或 excelPath），也未提供图像根目录（imagePath）");
+            if (excel != null && catalog != null) {
+                respondJsonError(response, "excelPath/file 与 catalogPath 只能提供一个（条目来源须唯一）");
+                return;
+            }
+            if (excel == null && catalog == null && imageRoot == null) {
+                respondJsonError(response,
+                        "未提供可读的条目来源（file / excelPath / catalogPath），也未提供图像根目录（imagePath）");
                 return;
             }
 
@@ -173,14 +181,14 @@ public class IngestProjectCommand extends Command {
                     throw new IOException("OR 项目已存在但无法加载: " + existingId);
                 }
                 if (append) {
-                    appendSheets(project, excel, imageRoot);
+                    appendSheets(project, excel, catalog, imageRoot);
                     ProjectManager.singleton.ensureProjectSaved(existingId);
                 }
                 rowCount = project.rows == null ? 0 : project.rows.size();
                 sheetCount = Math.max(1, project.sheetDataMap.size());
                 sheetKind = sheetKindOf(project);
             } else {
-                Project project = buildProject(orName, externalId, excel, imageRoot);
+                Project project = buildProject(orName, externalId, excel, catalog, imageRoot);
                 orProjectId = project.id;
                 rowCount = project.rows == null ? 0 : project.rows.size();
                 sheetCount = Math.max(1, project.sheetDataMap.size());
@@ -208,17 +216,19 @@ public class IngestProjectCommand extends Command {
         }
     }
 
-    /** 新建项目：按有无 Excel / 图像根目录决定单表或双表。 */
-    private Project buildProject(String orName, String externalId, File excel, File imageRoot) throws Exception {
+    /** 新建项目：按有无条目来源（Excel / catalog）/ 图像根目录决定单表或双表。 */
+    private Project buildProject(String orName, String externalId, File excel, File catalog, File imageRoot)
+            throws Exception {
         Project project = new Project();
         ProjectMetadata metadata = new ProjectMetadata();
         metadata.setName(orName);
         metadata.setCustomMetadata(SSO_PROJECT_ID_KEY, externalId);
 
+        boolean hasEntrySource = excel != null || catalog != null;
         DirScan scan = imageRoot != null ? scanDirectories(imageRoot) : null;
-        if (excel != null && scan != null) {
+        if (hasEntrySource && scan != null) {
             SheetData entry = new SheetData(ENTRY_SHEET_ID, ENTRY_SHEET_NAME, "");
-            applyExcel(entry.columnModel, entry.rows, excel);
+            applyEntrySource(entry.columnModel, entry.rows, excel, catalog, imageRoot);
             SheetData dir = new SheetData(DIR_SHEET_ID, DIR_SHEET_NAME, "");
             applyDirectory(dir.columnModel, dir.rows, scan);
             project.addSheetData(entry);
@@ -227,8 +237,8 @@ public class IngestProjectCommand extends Command {
             entry.columnModel.update();
             dir.columnModel.update();
             metadata.setCustomMetadata(META_SHEET_KIND, "both");
-        } else if (excel != null) {
-            applyExcel(project.columnModel, project.rows, excel);
+        } else if (hasEntrySource) {
+            applyEntrySource(project.columnModel, project.rows, excel, catalog, imageRoot);
             metadata.setCustomMetadata(META_SHEET_KIND, "entry");
         } else {
             applyDirectory(project.columnModel, project.rows, scan);
@@ -244,10 +254,11 @@ public class IngestProjectCommand extends Command {
     }
 
     /**
-     * 在原项目上追加/覆盖表：已有单表先提升为 SheetData，再按本次提供的 Excel / 图像目录追加。
+     * 在原项目上追加/覆盖表：已有单表先提升为 SheetData，再按本次提供的
+     * 条目来源（Excel / catalog JSON）/ 图像目录覆盖对应表。
      * 上传条目后活动表切到「条目」，目录表保留但不再参与检查（仅作参考）。
      */
-    private void appendSheets(Project project, File excel, File imageRoot) throws Exception {
+    private void appendSheets(Project project, File excel, File catalog, File imageRoot) throws Exception {
         ProjectMetadata metadata = project.getMetadata();
         String kind = metadata == null ? null : String.valueOf(metadata.getCustomMetadata(META_SHEET_KIND));
         if (!project.isMultiSheetProject) {
@@ -260,7 +271,7 @@ public class IngestProjectCommand extends Command {
             project.addSheetData(existing);
         }
 
-        if (excel != null) {
+        if (excel != null || catalog != null) {
             SheetData entry = project.getSheetData(ENTRY_SHEET_ID);
             if (entry == null) {
                 entry = new SheetData(ENTRY_SHEET_ID, ENTRY_SHEET_NAME, "");
@@ -269,7 +280,7 @@ public class IngestProjectCommand extends Command {
                 entry.rows.clear();
                 entry.columnModel = new ColumnModel();
             }
-            applyExcel(entry.columnModel, entry.rows, excel);
+            applyEntrySource(entry.columnModel, entry.rows, excel, catalog, imageRoot);
             entry.columnModel.update();
             project.setActiveSheet(ENTRY_SHEET_ID);
         }
@@ -306,6 +317,105 @@ public class IngestProjectCommand extends Command {
             metadata.setCustomMetadata(META_SHEET_KIND, newKind);
         }
         project.update();
+    }
+
+    /** 条目来源（Excel / catalog JSON）二选一写入条目表；调用方已保证不同时提供。 */
+    private static void applyEntrySource(ColumnModel columnModel, List<Row> rows, File excel, File catalog,
+            File imageRoot) throws Exception {
+        if (catalog != null) {
+            applyCatalog(columnModel, rows, catalog, imageRoot);
+        } else {
+            applyExcel(columnModel, rows, excel);
+        }
+    }
+
+    /**
+     * 规范化卷宗目录 JSON → 条目表（一件一行）。
+     *
+     * <p>列固定为：档号 / 件号 / 题名 / 一级分类 / 二级分类 / 三级题名 / 页数 /
+     * 责任者 / 成文日期 / 文件路径。缺省值写空串，保持列齐全。
+     * 「文件路径」取该件首页文件的父目录——引擎按目录核对件内页数与挂接。</p>
+     *
+     * <p>catalog 里的页文件常是相对名（如 {@code 0001.jpg}）。相对名必须以本次请求的
+     * {@code imagePath} 为基准展开；没有 imagePath 时留空，**绝不能**按 OR 进程工作目录展开——
+     * 否则「文件路径」会变成 OpenRefine 仓库根，资源/图像检查会把整个仓库当成一个件扫描。</p>
+     */
+    private static void applyCatalog(ColumnModel columnModel, List<Row> rows, File catalog, File imageRoot)
+            throws Exception {
+        com.fasterxml.jackson.databind.JsonNode root;
+        try (InputStream in = Files.newInputStream(catalog.toPath())) {
+            root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(in);
+        }
+        if (root == null || !root.isObject()) {
+            throw new IllegalArgumentException("catalog 内容不是合法的 JSON 对象");
+        }
+        com.fasterxml.jackson.databind.JsonNode volume = root.path("volume");
+        com.fasterxml.jackson.databind.JsonNode items = root.path("items");
+        if (!items.isArray() || items.size() == 0) {
+            throw new IllegalArgumentException("catalog.items 为空，无法建立条目表");
+        }
+        String[] headers = {"档号", "件号", "题名", "一级分类", "二级分类", "三级题名",
+                "页数", "责任者", "成文日期", "文件路径"};
+        int[] cellIndex = new int[headers.length];
+        for (int i = 0; i < headers.length; i++) {
+            cellIndex[i] = columnModel.allocateNewCellIndex();
+            columnModel.addColumn(-1, new Column(cellIndex[i], headers[i]), false);
+        }
+        String volumeArchiveNo = textOf(volume, "archiveNo");
+        String volumeLevel1 = textOf(volume, "level1");
+        for (com.fasterxml.jackson.databind.JsonNode item : items) {
+            com.fasterxml.jackson.databind.JsonNode pages = item.path("pages");
+            String firstFile = pages.isArray() && pages.size() > 0 ? textOf(pages.get(0), "file") : "";
+            int pageCount = item.path("pageCount").asInt(0);
+            if (pageCount <= 0 && pages.isArray()) {
+                pageCount = pages.size();
+            }
+            Row row = new Row(headers.length);
+            row.setCell(cellIndex[0], new Cell(volumeArchiveNo, null));
+            row.setCell(cellIndex[1], new Cell(textOf(item, "pieceNo"), null));
+            row.setCell(cellIndex[2], new Cell(textOf(item, "title"), null));
+            row.setCell(cellIndex[3], new Cell(firstNonBlank(textOf(item, "level1"), volumeLevel1), null));
+            row.setCell(cellIndex[4], new Cell(textOf(item, "level2"), null));
+            row.setCell(cellIndex[5], new Cell(textOf(item, "level3Title"), null));
+            row.setCell(cellIndex[6], new Cell(pageCount > 0 ? String.valueOf(pageCount) : "", null));
+            row.setCell(cellIndex[7], new Cell(textOf(item, "responsible"), null));
+            row.setCell(cellIndex[8], new Cell(textOf(item, "docDate"), null));
+            row.setCell(cellIndex[9], new Cell(parentOf(firstFile, imageRoot), null));
+            rows.add(row);
+        }
+    }
+
+    private static String textOf(com.fasterxml.jackson.databind.JsonNode node, String field) {
+        if (node == null) {
+            return "";
+        }
+        com.fasterxml.jackson.databind.JsonNode v = node.get(field);
+        return v == null || v.isNull() ? "" : v.asText("").trim();
+    }
+
+    private static String firstNonBlank(String a, String b) {
+        return a == null || a.isBlank() ? (b == null ? "" : b) : a;
+    }
+
+    /**
+     * 页文件所在目录。
+     *
+     * <p>绝对路径直接用；相对路径按 {@code imageRoot} 拼接。没有 imageRoot 的相对路径返回空串，
+     * 由引擎的「路径为空则跳过」语义兜住，避免退化成 OR 工作目录。</p>
+     */
+    private static String parentOf(String file, File imageRoot) {
+        if (file == null || file.isBlank()) {
+            return "";
+        }
+        File target = new File(file);
+        if (!target.isAbsolute()) {
+            if (imageRoot == null) {
+                return "";
+            }
+            target = new File(imageRoot, file);
+        }
+        File parent = target.getAbsoluteFile().getParentFile();
+        return parent == null ? "" : parent.getPath();
     }
 
     /** Excel → 条目表（POI 读首表；首行为表头，空行跳过）。 */

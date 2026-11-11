@@ -1,11 +1,8 @@
 /*
  * Data Quality Extension - Document Check Error
- * 文书级（案件质量评查）检测结论：裁判文书是否按规范盖章
+ * 文书级（案件质量评查）检测结论：裁判文书必备要素是否齐全
  */
 package com.google.refine.extension.quality.model;
-
-import java.util.ArrayList;
-import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -14,8 +11,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * 单件文书的检测结论。
  *
  * <p>与条目级 {@link CheckResult.CheckError} 并列：条目级看「著录对不对」，
- * 文书级看「这份裁判文书盖没盖章」。同一件可同时有必填要素缺失与印章缺失，
- * 故 {@link #errorType} 区分 {@code seal_missing} / {@code seal_insufficient} / {@code field_missing}。</p>
+ * 文书级看「这份裁判文书的必备要素（案号 / 日期 / 责任者）齐不齐」。
+ * 印章 / 签名 / 指纹类判定统一归数据校审，不在本模型内。</p>
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class DocumentCheckError {
@@ -51,21 +48,6 @@ public class DocumentCheckError {
     @JsonProperty("message")
     private String message;
 
-    @JsonProperty("actualSealCount")
-    private Integer actualSealCount;
-
-    @JsonProperty("requiredSealCount")
-    private Integer requiredSealCount;
-
-    /** 实际参与检测的图像文件名。 */
-    @JsonProperty("checkedImages")
-    private List<String> checkedImages = new ArrayList<>();
-
-    /** 宽松策略下：落款区域内无章、但全页有章时置 true（判为通过，仅作标记）。 */
-    @JsonProperty("sealOutsideRegion")
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    private Boolean sealOutsideRegion;
-
     public DocumentCheckError() {}
 
     public int getRowIndex() { return rowIndex; }
@@ -94,16 +76,4 @@ public class DocumentCheckError {
 
     public String getMessage() { return message; }
     public void setMessage(String message) { this.message = message; }
-
-    public Integer getActualSealCount() { return actualSealCount; }
-    public void setActualSealCount(Integer actualSealCount) { this.actualSealCount = actualSealCount; }
-
-    public Integer getRequiredSealCount() { return requiredSealCount; }
-    public void setRequiredSealCount(Integer requiredSealCount) { this.requiredSealCount = requiredSealCount; }
-
-    public List<String> getCheckedImages() { return checkedImages; }
-    public void setCheckedImages(List<String> checkedImages) { this.checkedImages = checkedImages; }
-
-    public Boolean getSealOutsideRegion() { return sealOutsideRegion; }
-    public void setSealOutsideRegion(Boolean sealOutsideRegion) { this.sealOutsideRegion = sealOutsideRegion; }
 }
