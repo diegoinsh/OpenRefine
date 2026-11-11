@@ -11,8 +11,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jiongche.sdk.data.TableView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,8 +32,9 @@ import com.google.refine.extension.quality.util.TableViews;
  * <p>为什么只测末页：法院裁判文书的落款（院名 + 印章 + 日期）固定在**最后一页下部**，
  * 逐页全测会把每件多页都送 AI、耗时按页数线性增长，而结论只取决于落款页。</p>
  *
- * <p>与条目级检测的关系：条目级（{@link FormatChecker} 等）看「著录对不对」，
- * 本类看「这份裁判文书盖没盖章」，两者互不影响；本类不读取也不改写条目规则。</p>
+ * <p>区域策略（宽松）：整页只调一次 AI，拿到全部印章框后在本地按落款区域过滤。
+ * 区域内达到 {@code minSealCount} 即通过；区域外（全页）达到也算通过，但记
+ * {@code sealOutsideRegion=true}，用于区分「章盖偏了」与「确实没盖章」。</p>
  */
 public class DocumentSealChecker {
 
@@ -43,7 +42,6 @@ public class DocumentSealChecker {
     public static final String CATEGORY = "document_quality";
 
     private static final Logger logger = LoggerFactory.getLogger(DocumentSealChecker.class);
-    private static final ObjectMapper mapper = new ObjectMapper();
 
     /** 可作为页图像的扩展名（与图像质量检查同口径）。 */
     private static final List<String> IMAGE_EXTENSIONS =
@@ -71,33 +69,29 @@ public class DocumentSealChecker {
 
         Rule rule = Rule.from(rules == null ? null : rules.getDocumentQualityRule());
         if (rule == null || !rule.enabled) {
-            logger.info("Skipping document seal check - documentQualityRule 未启用");
-            result.complete();
-            return result;
+            return skip(result, "rule_disabled");
         }
-        result.setDocuments(new ArrayList<>());
         if (aimpServiceUrl == null || aimpServiceUrl.isEmpty()) {
-            logger.info("Skipping document seal check - 未配置 AIMP 服务地址");
-            result.complete();
-            return result;
+            return skip(result, "aimp_unavailable");
         }
 
         Map<String, Integer> columnIndexMap = TableViews.columnIndexMap(view);
         String titleColumn = findColumn(columnIndexMap, "题名");
         if (titleColumn == null) {
-            logger.info("Skipping document seal check - 项目中没有「题名」列，无法匹配文书类型");
-            result.complete();
-            return result;
+            return skip(result, "no_title_column");
         }
 
         ResourceCheckConfig resourceConfig = rules.getResourceConfig();
-        String separator = "/";
-        if (resourceConfig != null && resourceConfig.getSeparator() != null
-                && !resourceConfig.getSeparator().isEmpty()) {
-            separator = resourceConfig.getSeparator();
-        } else {
-            separator = File.separator;
+        if (!hasPathSource(resourceConfig)) {
+            // 没有取图依据时会逐件误判「未找到页图像」，必须整体跳过并说明原因
+            return skip(result, "no_path_column");
         }
+
+        String separator = File.separator;
+        if (resourceConfig.getSeparator() != null && !resourceConfig.getSeparator().isEmpty()) {
+            separator = resourceConfig.getSeparator();
+        }
+
         Integer archiveIndex = columnIndexMap.get("档号");
         Integer pieceIndex = columnIndexMap.get("件号");
         Integer titleIndex = columnIndexMap.get(titleColumn);
@@ -106,6 +100,10 @@ public class DocumentSealChecker {
         int checkedDocuments = 0;
         int passedDocuments = 0;
         int failedDocuments = 0;
+        int outsideRegionDocuments = 0;
+
+        result.setExecuted(true);
+        result.setDocuments(new ArrayList<>());
 
         for (int rowIndex = 0; rowIndex < totalRows; rowIndex++) {
             if (task != null && task.shouldStop()) {
@@ -126,9 +124,9 @@ public class DocumentSealChecker {
                 task.setCheckedRows(checkedDocuments);
             }
 
-            boolean rowFailed = false;
             String archiveNo = cell(view, rowIndex, archiveIndex);
             String pieceNo = cell(view, rowIndex, pieceIndex);
+            boolean rowFailed = false;
 
             // 1. 必备要素（如案号 / 日期 / 责任者）缺失只记错，不阻断盖章检测
             for (String field : docType.requiredFields) {
@@ -147,7 +145,7 @@ public class DocumentSealChecker {
                 }
             }
 
-            // 2. 落款页盖章检测
+            // 2. 落款页盖章检测（整页一次调用，区域在本地过滤）
             String resourcePath = ResourcePathBuilder.buildResourcePath(
                     view, rowIndex, columnIndexMap, resourceConfig, separator);
             File[] images = listImages(resourcePath);
@@ -157,8 +155,7 @@ public class DocumentSealChecker {
                 err.setErrorType("seal_missing");
                 err.setActualSealCount(0);
                 err.setRequiredSealCount(docType.minSealCount);
-                err.setMessage(docType.typeName + "未找到可检测的页图像，无法确认盖章"
-                        + (resourcePath == null || resourcePath.isEmpty() ? "（未配置文件路径）" : ""));
+                err.setMessage(docType.typeName + "未找到可检测的页图像，无法确认盖章");
                 result.getDocuments().add(err);
                 result.addError(plainError(rowIndex, "文件路径", title, "seal_missing", err.getMessage()));
                 failedDocuments++;
@@ -170,8 +167,7 @@ public class DocumentSealChecker {
             try {
                 byte[] bytes = Files.readAllBytes(lastPage.toPath());
                 detection = client.reviewElement(bytes, lastPage.getName(),
-                        docType.checkFingerprint ? "seal,fingerprint" : "seal",
-                        rule.regionJson(docType), docType.confidence);
+                        docType.checkFingerprint ? "seal,fingerprint" : "seal", "", docType.confidence);
             } catch (Exception e) {
                 detection = new ReviewElementResult();
                 detection.setMessage("读取页图像失败: " + e.getMessage());
@@ -185,22 +181,57 @@ public class DocumentSealChecker {
                 break;
             }
 
-            DocumentCheckError ok = baseError(rowIndex, title, docType, archiveNo, pieceNo);
-            ok.setActualSealCount(detection.getSealCount());
-            ok.setRequiredSealCount(docType.minSealCount);
-            ok.getCheckedImages().add(lastPage.getName());
+            Map<String, Object> sealRegion = rule.sealRegion(docType);
+            int totalSeals = detection.getSealCount();
+            int inRegionSeals = totalSeals;
+            if (!detection.getRegions().isEmpty()) {
+                totalSeals = 0;
+                inRegionSeals = 0;
+                for (ReviewElementResult.Region region : detection.getRegions()) {
+                    if (!region.isSeal()) {
+                        continue;
+                    }
+                    totalSeals++;
+                    if (insideRegion(region, sealRegion, detection.getImageWidth(), detection.getImageHeight())) {
+                        inRegionSeals++;
+                    }
+                }
+            }
 
-            if (docType.sealRequired && detection.getSealCount() < docType.minSealCount) {
-                rowFailed = true;
-                ok.setErrorType(detection.getSealCount() == 0 ? "seal_missing" : "seal_insufficient");
-                ok.setMessage(detection.getSealCount() == 0
-                        ? docType.typeName + "落款处未检测到印章"
-                        : docType.typeName + "印章数不足（检测到 " + detection.getSealCount()
-                                + " 个，要求至少 " + docType.minSealCount + " 个）");
-                result.getDocuments().add(ok);
-                result.addError(plainError(rowIndex, titleColumn, title, ok.getErrorType(), ok.getMessage()));
+            boolean passed;
+            boolean outsideRegion = false;
+            if (!docType.sealRequired) {
+                passed = true;
+            } else if (inRegionSeals >= docType.minSealCount) {
+                passed = true;
+            } else if (totalSeals >= docType.minSealCount) {
+                // 宽松策略：落款区域外有章也算通过，仅做标记
+                passed = true;
+                outsideRegion = totalSeals > inRegionSeals;
             } else {
-                result.getDocuments().add(ok);
+                passed = false;
+            }
+
+            DocumentCheckError detail = baseError(rowIndex, title, docType, archiveNo, pieceNo);
+            detail.setActualSealCount(totalSeals);
+            detail.setRequiredSealCount(docType.minSealCount);
+            detail.getCheckedImages().add(lastPage.getName());
+
+            if (!passed) {
+                rowFailed = true;
+                detail.setErrorType(totalSeals == 0 ? "seal_missing" : "seal_insufficient");
+                detail.setMessage(totalSeals == 0
+                        ? docType.typeName + "落款处未检测到印章"
+                        : docType.typeName + "印章数不足（检测到 " + totalSeals
+                                + " 个，要求至少 " + docType.minSealCount + " 个）");
+                result.getDocuments().add(detail);
+                result.addError(plainError(rowIndex, titleColumn, title, detail.getErrorType(), detail.getMessage()));
+            } else {
+                if (outsideRegion) {
+                    outsideRegionDocuments++;
+                    detail.setSealOutsideRegion(true);
+                }
+                result.getDocuments().add(detail);
             }
 
             if (rowFailed) {
@@ -214,9 +245,44 @@ public class DocumentSealChecker {
         result.setPassedRows(passedDocuments);
         result.setFailedRows(failedDocuments);
         result.complete();
-        logger.info("Document seal check completed - documents: {}, passed: {}, failed: {}, errors: {}",
-                checkedDocuments, passedDocuments, failedDocuments, result.getErrors().size());
+        logger.info("Document seal check completed - documents: {}, passed: {}, failed: {}, outsideRegion: {}, errors: {}",
+                checkedDocuments, passedDocuments, failedDocuments, outsideRegionDocuments, result.getErrors().size());
         return result;
+    }
+
+    /** 未执行：如实标记原因，不产出任何「通过」假象。 */
+    private static CheckResult skip(CheckResult result, String reason) {
+        result.setExecuted(false);
+        result.setSkipReason(reason);
+        result.complete();
+        logger.info("Skipping document seal check - {}", reason);
+        return result;
+    }
+
+    /** 是否有取图依据：路径列或基础目录二者其一。 */
+    private static boolean hasPathSource(ResourceCheckConfig resourceConfig) {
+        if (resourceConfig == null) {
+            return false;
+        }
+        if (resourceConfig.getPathFields() != null && !resourceConfig.getPathFields().isEmpty()) {
+            return true;
+        }
+        return resourceConfig.getBasePath() != null && !resourceConfig.getBasePath().isEmpty();
+    }
+
+    /** 印章框中心是否落在落款区域内（归一化坐标）。 */
+    static boolean insideRegion(ReviewElementResult.Region region, Map<String, Object> sealRegion,
+                                        int imageWidth, int imageHeight) {
+        if (sealRegion == null || imageWidth <= 0 || imageHeight <= 0) {
+            return true;  // 未配区域视为全页
+        }
+        double centerX = (region.getX1() + region.getX2()) / 2.0 / imageWidth;
+        double centerY = (region.getY1() + region.getY2()) / 2.0 / imageHeight;
+        double x = doubleValue(sealRegion.get("x"), 0.0);
+        double y = doubleValue(sealRegion.get("y"), 0.0);
+        double w = doubleValue(sealRegion.get("w"), 1.0);
+        double h = doubleValue(sealRegion.get("h"), 1.0);
+        return centerX >= x && centerX <= x + w && centerY >= y && centerY <= y + h;
     }
 
     /** 取单元格文本（去空白）；列不存在返回空串。 */
@@ -329,18 +395,9 @@ public class DocumentSealChecker {
             return null;
         }
 
-        /** 落款区域 JSON：文书类型覆盖优先，缺省用全局默认；都为空则全页。 */
-        String regionJson(DocType type) {
-            Map<String, Object> region = type.sealRegion != null ? type.sealRegion : defaultSealRegion;
-            if (region == null) {
-                return "";
-            }
-            ObjectNode node = mapper.createObjectNode();
-            node.put("x", doubleValue(region.get("x"), 0.0));
-            node.put("y", doubleValue(region.get("y"), 0.0));
-            node.put("w", doubleValue(region.get("w"), 1.0));
-            node.put("h", doubleValue(region.get("h"), 1.0));
-            return node.toString();
+        /** 落款区域：文书类型覆盖优先，缺省用全局默认；都为空则全页。 */
+        Map<String, Object> sealRegion(DocType type) {
+            return type.sealRegion != null ? type.sealRegion : defaultSealRegion;
         }
     }
 

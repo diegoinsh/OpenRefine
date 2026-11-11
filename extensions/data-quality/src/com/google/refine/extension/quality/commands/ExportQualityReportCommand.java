@@ -102,6 +102,13 @@ public class ExportQualityReportCommand extends Command {
             Sheet errorsSheet = workbook.createSheet("错误详情");
             createErrorsSheet(workbook, errorsSheet, results);
 
+            // Create document quality sheet (案件质量评查) — 仅法院档位有文书级结果
+            JsonNode documents = documentNodes(results);
+            if (documents != null && documents.size() > 0) {
+                Sheet docSheet = workbook.createSheet("案件质量评查");
+                createDocumentQualitySheet(workbook, docSheet, documents);
+            }
+
             // Create data sheet with error comments
             Sheet dataSheet = workbook.createSheet("数据表格");
             createDataSheet(workbook, dataSheet, results, project);
@@ -153,6 +160,24 @@ public class ExportQualityReportCommand extends Command {
             createStatRow(sheet, rowNum++, "资源错误", resourceErrors);
             createStatRow(sheet, rowNum++, "内容错误", contentErrors);
             createStatRow(sheet, rowNum++, "图像质量错误", imageErrors);
+
+            // 文书级（案件质量评查）：未执行时据实标注，不算通过
+            int docErrors = summary.path("documentQualityErrors").asInt(0);
+            int docChecked = summary.path("documentCheckedCount").asInt(0);
+            int docPassed = summary.path("documentPassedCount").asInt(0);
+            int docFailed = summary.path("documentFailedCount").asInt(0);
+            boolean docExecuted = summary.path("documentQualityExecuted").asBoolean(false);
+            String docSkipReason = summary.path("documentQualitySkipReason").asText("");
+            if (docChecked > 0 || docErrors > 0 || summary.has("documentQualityExecuted")) {
+                createStatRow(sheet, rowNum++, "文书检测件数", docChecked);
+                createStatRow(sheet, rowNum++, "文书通过件数", docPassed);
+                createStatRow(sheet, rowNum++, "文书失败件数", docFailed);
+                createStatRow(sheet, rowNum++, "文书级错误", docErrors);
+                if (!docExecuted) {
+                    createStatRow(sheet, rowNum++, "文书检测未执行",
+                            docSkipReason.isEmpty() ? "未执行" : "未执行（" + docSkipReason + "）");
+                }
+            }
         }
 
         rowNum++; // Empty row
@@ -178,6 +203,10 @@ public class ExportQualityReportCommand extends Command {
             createDistributionRow(sheet, rowNum++, "文件资源关联检查", resourceErrors, totalErrors, percentStyle);
             createDistributionRow(sheet, rowNum++, "内容比对检查", contentErrors, totalErrors, percentStyle);
             createDistributionRow(sheet, rowNum++, "图像质量检查", imageErrors, totalErrors, percentStyle);
+            int docCategoryErrors = summary == null ? 0 : summary.path("documentQualityErrors").asInt(0);
+            if (docCategoryErrors > 0) {
+                createDistributionRow(sheet, rowNum++, "案件质量评查", docCategoryErrors, totalErrors, percentStyle);
+            }
         }
 
         sheet.autoSizeColumn(0);
@@ -247,6 +276,69 @@ public class ExportQualityReportCommand extends Command {
         Row row = sheet.createRow(rowNum);
         row.createCell(0).setCellValue(label);
         row.createCell(1).setCellValue(value);
+    }
+
+    private void createStatRow(Sheet sheet, int rowNum, String label, String value) {
+        Row row = sheet.createRow(rowNum);
+        row.createCell(0).setCellValue(label);
+        row.createCell(1).setCellValue(value);
+    }
+
+    /** 文书级明细：优先 combined 顶层 documents，回退嵌套 documentQualityResult.documents。 */
+    private JsonNode documentNodes(JsonNode results) {
+        JsonNode docs = results.get("documents");
+        if (docs == null || !docs.isArray()) {
+            JsonNode docResult = results.get("documentQualityResult");
+            docs = docResult == null ? null : docResult.get("documents");
+        }
+        return docs != null && docs.isArray() ? docs : null;
+    }
+
+    /** 「案件质量评查」sheet：每件一行，未通过件同时给出错误类型与说明。 */
+    private void createDocumentQualitySheet(Workbook workbook, Sheet sheet, JsonNode documents) {
+        CellStyle headerStyle = createHeaderStyle(workbook);
+        int rowNum = 0;
+
+        String[] headers = {"行号", "件号", "文书题名", "文书类型", "检测结果",
+                "错误类型", "错误信息", "实际印章数", "要求印章数", "印章在落款区外", "检测页"};
+        Row headerRow = sheet.createRow(rowNum++);
+        for (int i = 0; i < headers.length; i++) {
+            Cell cell = headerRow.createCell(i);
+            cell.setCellValue(headers[i]);
+            cell.setCellStyle(headerStyle);
+        }
+
+        for (JsonNode d : documents) {
+            String errorType = d.path("errorType").asText("");
+            boolean passed = errorType.isEmpty();
+            Row row = sheet.createRow(rowNum++);
+            row.createCell(0).setCellValue(d.path("rowIndex").asInt(0) + 1);
+            row.createCell(1).setCellValue(d.path("pieceNo").asText(""));
+            row.createCell(2).setCellValue(d.path("documentTitle").asText(""));
+            row.createCell(3).setCellValue(d.path("documentTypeName").asText(""));
+            row.createCell(4).setCellValue(passed ? "通过" : "未通过");
+            row.createCell(5).setCellValue(errorType.isEmpty() ? "" : getErrorTypeLabel(errorType));
+            String docMessage = d.path("message").asText("");
+            row.createCell(6).setCellValue(docMessage.isEmpty() ? "" : translateErrorMessage(docMessage, errorType));
+            row.createCell(7).setCellValue(d.path("actualSealCount").asInt(0));
+            row.createCell(8).setCellValue(d.path("requiredSealCount").asInt(0));
+            row.createCell(9).setCellValue(d.path("sealOutsideRegion").asBoolean(false) ? "是" : "");
+            JsonNode checked = d.get("checkedImages");
+            if (checked != null && checked.isArray()) {
+                StringBuilder sb = new StringBuilder();
+                for (JsonNode n : checked) {
+                    if (sb.length() > 0) {
+                        sb.append("、");
+                    }
+                    sb.append(n.asText(""));
+                }
+                row.createCell(10).setCellValue(sb.toString());
+            }
+        }
+
+        for (int i = 0; i < headers.length; i++) {
+            sheet.autoSizeColumn(i);
+        }
     }
 
     /**
@@ -357,6 +449,7 @@ public class ExportQualityReportCommand extends Command {
             case "resource": return "文件资源";
             case "content": return "内容比对";
             case "image_quality": return "图像质量";
+            case "document_quality": return "案件质量评查";
             default: return category;
         }
     }
@@ -398,6 +491,9 @@ public class ExportQualityReportCommand extends Command {
             case "illegal_file": return "非法归档文件检测";
             case "empty_folder": return "空文件夹检查";
             case "typo": return "错别字检查";
+            case "seal_missing": return "裁判文书未盖章";
+            case "seal_insufficient": return "印章数量不足";
+            case "field_missing": return "必备要素缺失";
             case "folder_name_format": return "文件夹命名格式";
             default: return errorType;
         }

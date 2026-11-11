@@ -2847,33 +2847,35 @@ public class BatchExtractionManager {
     private static final Map<String, String> COURT_TITLE_CANON = new LinkedHashMap<>();
 
     static {
-        // 庭审笔录的纸面标题各地不一（法庭审理笔录/开庭审判笔录）
-        COURT_TITLE_CANON.put("法庭审理笔录", "庭审笔录");
-        COURT_TITLE_CANON.put("开庭审判笔录", "庭审笔录");
+        // 真值来源（唯一依据）：客户 Word《案件编目规则》与
+        // docs/biz/法院民事一审案件编目规则-导入模板-修订.csv 的「原题名」列。
+        // 目标值必须是两份真值里确实存在的名字，查不到的名字不得作为目标值。
+        // 客户 Word 第 565 行条项名为「法庭笔录」（样例「法庭笔录 20260427」）；
+        // 纸面标题各地另有「法庭审理笔录／开庭审判笔录」写法，统一归一到该条项名。
+        COURT_TITLE_CANON.put("法庭审理笔录", "法庭笔录");
+        COURT_TITLE_CANON.put("开庭审判笔录", "法庭笔录");
+        // 模型/旧词表可能直接吐「庭审笔录」（非客户真值名），一并归一到条项名
+        COURT_TITLE_CANON.put("庭审笔录", "法庭笔录");
         // 模型偶有漏字（实测「庭审判笔录」）
-        COURT_TITLE_CANON.put("庭审判笔录", "庭审笔录");
-        // 调解笔录件常附调解协议等材料（第十四条(13)）
-        COURT_TITLE_CANON.put("调解笔录", "调解笔录及调解材料");
-        // 询问、调查取证材料（第十四条(14)）
-        COURT_TITLE_CANON.put("协助调查函", "询问、调查取证材料");
-        COURT_TITLE_CANON.put("调查笔录", "询问、调查取证材料");
-        // 证物处理手续（第十四条(23)）
-        COURT_TITLE_CANON.put("证物处理单", "证物处理手续");
-        // 开庭传票（第十四条(12)）：纸面标题多为「传票」
+        COURT_TITLE_CANON.put("庭审判笔录", "法庭笔录");
+        // 物证处理材料（CSV 排序号 29 / Word 第 749 行）；纸面常写作「证物处理单」
+        COURT_TITLE_CANON.put("证物处理单", "物证处理材料");
+        // 开庭传票（Word 第 508 行）：纸面标题多为「传票」
         COURT_TITLE_CANON.put("传票", "开庭传票");
-        // 执行手续材料（第十四条(21)）
+        // 执行手续材料（CSV 排序号 26）
         COURT_TITLE_CANON.put("申请执行书", "执行手续材料");
         COURT_TITLE_CANON.put("执行申请书", "执行手续材料");
-        // 劳动争议：仲裁裁决书与所附仲裁申请书合订著录
-        COURT_TITLE_CANON.put("劳动仲裁申请书", "仲裁裁决书及仲裁申请书");
-        COURT_TITLE_CANON.put("仲裁裁决书", "仲裁裁决书及仲裁申请书");
-        COURT_TITLE_CANON.put("仲裁申请书", "仲裁裁决书及仲裁申请书");
-        // 移送函存根：不带宽/半角括号
-        COURT_TITLE_CANON.put("上诉案件移送函（存根）", "上诉案件移送函存根");
-        // 纸面标题的简写/别写，按编目词表规范名著录
-        COURT_TITLE_CANON.put("民事诉状", "民事起诉状");
+        // 上诉案件移送函（Word 第 713 行）；真值无「存根」变体，去掉括号注记即可
+        COURT_TITLE_CANON.put("上诉案件移送函（存根）", "上诉案件移送函");
+        // 起诉状（Word 第 62 行「原告张三起诉状」/ CSV 有「起诉状」）；
+        // 「民事起诉状」不是客户真值名，同类归一
+        COURT_TITLE_CANON.put("民事诉状", "起诉状");
+        COURT_TITLE_CANON.put("民事起诉状", "起诉状");
+        // 送达地址确认书（CSV 排序号 27 / Word 第 695 行）
         COURT_TITLE_CANON.put("地址确认书", "送达地址确认书");
-        COURT_TITLE_CANON.put("认定结论书", "价格认定结论书");
+        // 注：调解笔录、协助调查函、调查笔录在客户 CSV 里各是独立条目，保留原名不改写；
+        // 仲裁裁决书／仲裁申请书、认定结论书两份真值均无条目，按各自上级大类的
+        // 独立附件单列，保留纸面原名（详见 docs/biz/编目规则-甲方待确认清单.md）。
     }
 
     /** 非税收入一般缴款书按审级改写为一审/上诉案件受理费缴费凭证。 */
@@ -2889,6 +2891,8 @@ public class BatchExtractionManager {
             return;
         }
         boolean second = trialLevel != null && trialLevel.contains("二审");
+        // 注意：「起诉书」是甲方四级编目模板（起诉状及相关材料 排序号 6）里的合法原题名，
+        // 模板会渲染为「原告{原告}起诉书」，不得改写为「民事起诉状」（该名不在模板词表内）。
         for (TitleSplitter.Piece piece : pieces) {
             String title = piece.title == null ? "" : piece.title.trim();
             if (title.isEmpty()) {

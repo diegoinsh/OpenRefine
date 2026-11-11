@@ -56,6 +56,21 @@ public class CheckResult {
     @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
     private List<DocumentCheckError> documents;
 
+    /** 该检查段是否真正执行；null 表示沿用「有结果即已执行」的老语义（其他检查段不输出）。 */
+    @JsonProperty("executed")
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private Boolean executed;
+
+    /** 未执行原因（executed=false 时才有）：dir_project / no_title_column / no_path_column / rule_disabled / aimp_unavailable。 */
+    @JsonProperty("skipReason")
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private String skipReason;
+
+    /** 合并结果里嵌套的文书级结果（与 imageQualityResult 同构，便于下游只读 combined 也能拿到 executed 等）。 */
+    @JsonProperty("documentQualityResult")
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private CheckResult documentQualityResult;
+
     public CheckResult() {
         this.errors = new ArrayList<>();
         this.startTime = System.currentTimeMillis();
@@ -106,6 +121,17 @@ public class CheckResult {
 
     public List<DocumentCheckError> getDocuments() { return documents; }
     public void setDocuments(List<DocumentCheckError> documents) { this.documents = documents; }
+
+    public Boolean getExecuted() { return executed; }
+    public void setExecuted(Boolean executed) { this.executed = executed; }
+
+    public String getSkipReason() { return skipReason; }
+    public void setSkipReason(String skipReason) { this.skipReason = skipReason; }
+
+    public CheckResult getDocumentQualityResult() { return documentQualityResult; }
+    public void setDocumentQualityResult(CheckResult documentQualityResult) {
+        this.documentQualityResult = documentQualityResult;
+    }
 
     public void addError(CheckError error) {
         this.errors.add(error);

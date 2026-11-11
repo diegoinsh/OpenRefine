@@ -88,16 +88,18 @@ public class DataReviewCommand extends Command {
      */
     public static final String CONTENT_COMBO_KEY = "piece_combo";
 
-    private static final List<String> COLUMNS = Arrays.asList(
-            "序号", "案卷号", "文件名", "页数", "规则分类", "校审规则",
-            "校审结果", "印章数量", "指纹数量", "说明", FOLDER_PATH_COLUMN);
+    /**
+     * 校审结果 overlay 槽名（与合规 {@code qualityCheckResult} 对称）：
+     * 结构化结果只存 overlay，**不再写入数据行**。
+     */
+    public static final String REVIEW_RESULT_KEY = ReviewResultOverlay.OVERLAY_MODEL_KEY;
 
     /**
-     * 件级校审（内容组合类）在既有列之后追加的 5 列；仅在带 {@code pieceMap}
-     * 启动时加入，旧链路结果列与旧口径逐字一致。
+     * 数据行只保留输入清单列：结果侧（校审结果/印章数量/…）一律进 overlay，
+     * 平台从 overlay 组装旧口径的 {@code rows} 供老下游使用。
      */
-    private static final List<String> PIECE_COLUMNS = Arrays.asList(
-            "件号", "件题名", "要求项", "命中项", "缺失项");
+    private static final List<String> INPUT_COLUMNS = Arrays.asList(
+            "序号", "案卷号", "文件名", "页数", FOLDER_PATH_COLUMN);
 
     /** 内存任务表：进程重启即丢，历史任务由登记表兜底 */
     private static final Map<Long, Task> TASKS = new ConcurrentHashMap<>();
@@ -123,11 +125,25 @@ public class DataReviewCommand extends Command {
             doDeleteTask(request, response);
         } else if ("save-rules".equals(subCommand)) {
             doSaveRules(request, response);
+        } else if ("get-result".equals(subCommand)) {
+            doGetResult(request, response);
+        } else if ("save-result".equals(subCommand)) {
+            doSaveResult(request, response);
         } else if ("list".equals(subCommand)) {
             doList(request, response);
         } else {
             respondError(response, "Unknown subCommand: " + subCommand);
         }
+    }
+
+    /**
+     * 读校审结果（与合规 {@code get-quality-result} 同构）：默认按 {@code project} 参数返回
+     * {@code {code, hasResult, result}}。平台侧优先走此命令，未命中再回退数据行/快照。
+     */
+    @Override
+    public void doGet(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        doGetResult(request, response);
     }
 
     /* ---------------- start ---------------- */
@@ -213,7 +229,7 @@ public class DataReviewCommand extends Command {
                 for (PieceSpec piece : pieces) totalFiles += piece.pages.size();
             }
 
-            Project project = prepareProject(projectName, reuseProject, pieces != null);
+            Project project = prepareProject(projectName, reuseProject);
             Task task = new Task(project.id, rootPath, aimpUrl, confidence, rules, units, totalFiles);
             task.pieces = pieces;
             TASKS.put(project.id, task);
@@ -364,10 +380,9 @@ public class DataReviewCommand extends Command {
         return units;
     }
 
-    private Project createEmptyProject(String projectName, boolean pieceMode) throws Exception {
+    private Project createEmptyProject(String projectName) throws Exception {
         Project project = new Project();
-        List<String> cols = pieceMode ? pieceColumns() : COLUMNS;
-        addColumns(project.columnModel, cols);
+        addColumns(project.columnModel, INPUT_COLUMNS);
         project.update();
 
         ProjectMetadata metadata = new ProjectMetadata();
@@ -377,19 +392,13 @@ public class DataReviewCommand extends Command {
         return project;
     }
 
-    private static List<String> pieceColumns() {
-        List<String> cols = new ArrayList<>(COLUMNS);
-        cols.addAll(PIECE_COLUMNS);
-        return cols;
-    }
-
     /**
      * 取本次校审要写入的项目：带 {@code project} 参数且项目存在时**沿用它**（清空旧行与
      * 旧 pageMap 后重跑），否则新建。
      *
      * <p>复用时项目号保持不变——平台侧据此把「外部项目号 → 引擎项目号」的绑定保持稳定。</p>
      */
-    private Project prepareProject(String projectName, String reuseProject, boolean pieceMode) throws Exception {
+    private Project prepareProject(String projectName, String reuseProject) throws Exception {
         if (!reuseProject.isEmpty()) {
             try {
                 long pid = Long.parseLong(reuseProject);
@@ -400,9 +409,6 @@ public class DataReviewCommand extends Command {
                         running.cancelled = true;
                     }
                     resetForRerun(existing, projectName);
-                    if (pieceMode) {
-                        ensurePieceColumns(existing);
-                    }
                     return existing;
                 }
                 logger.warn("校审复用项目不存在，改为新建: {}", pid);
@@ -410,22 +416,15 @@ public class DataReviewCommand extends Command {
                 logger.warn("校审 project 参数非法，改为新建: {}", reuseProject);
             }
         }
-        return createEmptyProject(projectName, pieceMode);
+        return createEmptyProject(projectName);
     }
 
-    /** 复用时补齐件级列（从旧链路切到件级校审时列集合会变大）。 */
-    private static void ensurePieceColumns(Project project) throws Exception {
-        ColumnModel cm = project.columnModel;
-        for (String name : PIECE_COLUMNS) {
-            if (cm.getColumnByName(name) == null) {
-                int idx = cm.getMaxCellIndex() + 1;
-                cm.addColumn(idx, new Column(idx, name), false);
-            }
-        }
-        project.update();
-    }
-
-    /** 复用项目前清掉上一轮结果（行数据与 pageMap），保留项目号与其它元信息。 */
+    /**
+     * 复用项目前清掉上一轮的行数据与 pageMap，保留项目号与其它元信息。
+     *
+     * <p>overlay 结果**不清**：新一轮结果落盘时覆盖写并据此把 {@code resultVersion} 递增；
+     * 重跑期间读到的仍是上一轮结果（只留最新一轮，不留历史）。</p>
+     */
     private static void resetForRerun(Project project, String projectName) {
         synchronized (project) {
             project.rows.clear();
@@ -451,6 +450,8 @@ public class DataReviewCommand extends Command {
     /* ---------------- 后台执行 ---------------- */
 
     private void run(Task task) {
+        String status;
+        String message;
         try {
             Project project = ProjectManager.singleton.getProject(task.projectId);
             if (project == null) {
@@ -464,15 +465,20 @@ public class DataReviewCommand extends Command {
             }
             flushPageMap(task);
             saveProject(task);
-            finish(task, task.cancelled ? STATUS_CANCELLED : STATUS_COMPLETED, task.cancelled
-                    ? "已取消" : "校审完成");
+            status = task.cancelled ? STATUS_CANCELLED : STATUS_COMPLETED;
+            message = task.cancelled ? "已取消" : "校审完成";
         } catch (Exception e) {
             logger.error("data-review run failed", e);
-            finish(task, STATUS_FAILED, e.getMessage() == null ? e.toString() : e.getMessage());
+            status = STATUS_FAILED;
+            message = e.getMessage() == null ? e.toString() : e.getMessage();
         }
+        // 终态落盘：先定终态（写 finishedAt），再把结构化结果写进 overlay（已跑出的部分也保留）
+        finish(task, status, message);
+        saveReviewResult(task, status);
+        saveProject(task);
     }
 
-    /** 旧链路：按文件逐页校审（行为与引入件级校审前逐字一致）。 */
+    /** 旧链路：按文件逐页校审（检测口径与件级上线前一致，结果只进 overlay）。 */
     private void runFiles(Task task, Project project) {
         int rowIndex = 0;
         int rowsSinceSave = 0;
@@ -487,7 +493,8 @@ public class DataReviewCommand extends Command {
                 task.currentFile = fileName;
 
                 Detection detection = detect(task, pagePath);
-                Row row = buildRow(project.columnModel, rowIndex + 1, unit, fileName, task, detection);
+                Row row = buildInputRow(project.columnModel, rowIndex + 1, unit.name,
+                        fileName, detection.pageCount, unit.path);
                 ObjectNode pageMapRow = buildPageMapRow(unit, fileName, pageNo, task, detection, row);
 
                 synchronized (task) {
@@ -501,6 +508,12 @@ public class DataReviewCommand extends Command {
                     } else {
                         task.unknown++;
                     }
+                    task.fileResults.add(fileResult(rowIndex, unit.name, fileName,
+                            detection.pageCount, ruleNameList(task),
+                            detection.resultLabel(task),
+                            detection.ok ? String.valueOf(detection.sealCount) : "",
+                            detection.ok ? String.valueOf(detection.fingerprintCount) : "",
+                            detection.describe(task), unit.path, null));
                     task.rowsAppended++;
                     task.processedFiles++;
                 }
@@ -518,7 +531,8 @@ public class DataReviewCommand extends Command {
      * 件级链路（内容组合类）：一件一行，按件内页清单做存在类检测。
      *
      * <p>{@code piece} 覆盖粒度判定「件内至少一处」，{@code everyPage} 判定「每页都有」；
-     * 页清单由平台按已抽取项目下发，引擎只按文件名与 {@code rootPath} 扫描结果匹配。</p>
+     * 页清单由平台按已抽取项目下发，引擎只按文件名与 {@code rootPath} 扫描结果匹配。
+     * 件的结构化结论（要求/命中/缺失 + 逐页状态）写进 overlay {@code pieces[]}。</p>
      */
     private void runPieces(Task task, Project project) {
         Map<String, PageRef> index = buildPageIndex(task);
@@ -546,7 +560,10 @@ public class DataReviewCommand extends Command {
             String keys = pieceRuleKeys(piece);
 
             PieceOutcome outcome = evaluatePiece(task, piece, refs, cache, keys);
-            Row row = buildPieceRow(project.columnModel, rowIndex + 1, piece, refs, outcome);
+            PageRef first = refs.isEmpty() ? null : refs.get(0);
+            Row row = buildInputRow(project.columnModel, rowIndex + 1, piece.volumeNo,
+                    first == null ? "" : first.fileName, String.valueOf(piece.pages.size()),
+                    first == null ? "" : first.unit.path);
             ObjectNode pageMapRow = refs.isEmpty() ? null
                     : buildPiecePageMapRow(refs, piece, outcome, keys, cache);
 
@@ -562,6 +579,18 @@ public class DataReviewCommand extends Command {
                 } else {
                     task.failed++;
                 }
+                ObjectNode extra = mapper.createObjectNode();
+                extra.put("pieceNo", piece.pieceNo);
+                extra.put("pieceTitle", piece.title);
+                extra.put("required", String.join("、", outcome.requiredNames));
+                extra.put("present", String.join("、", outcome.presentNames));
+                extra.put("missing", String.join("、", outcome.missingNames));
+                task.fileResults.add(fileResult(rowIndex, piece.volumeNo,
+                        first == null ? "" : first.fileName, String.valueOf(piece.pages.size()),
+                        String.join("、", outcome.ruleNames(piece)), outcome.resultLabel,
+                        String.valueOf(outcome.sealSum), String.valueOf(outcome.fpSum),
+                        outcome.detail, first == null ? "" : first.unit.path, extra));
+                task.pieceResults.add(buildPieceResult(piece, refs, outcome, cache));
                 task.rowsAppended++;
                 task.processedFiles += Math.max(1, refs.size());
             }
@@ -572,6 +601,79 @@ public class DataReviewCommand extends Command {
                 saveProject(task);
             }
         }
+    }
+
+    /** 文件级结果节点（{@code files[]} 的一项，字段与旧数据行列逐项对应）。 */
+    private static ObjectNode fileResult(int rowIndex, String archiveNo, String fileName,
+                                         String pages, String rules, String result,
+                                         String sealCount, String fingerprintCount,
+                                         String note, String folderPath, ObjectNode extra) {
+        ObjectNode f = mapper.createObjectNode();
+        f.put("rowIndex", rowIndex);
+        f.put("archiveNo", archiveNo);
+        f.put("fileName", fileName);
+        f.put("pages", pages);
+        f.put("rules", rules);
+        f.put("result", result);
+        f.put("sealCount", sealCount);
+        f.put("fingerprintCount", fingerprintCount);
+        f.put("note", note);
+        f.put("folderPath", folderPath);
+        if (extra != null) {
+            extra.fields().forEachRemaining(e -> f.set(e.getKey(), e.getValue()));
+        }
+        return f;
+    }
+
+    /** 件级结果节点（{@code pieces[]} 的一项：要求/命中/缺失 + 逐页状态）。 */
+    private static ObjectNode buildPieceResult(PieceSpec piece, List<PageRef> refs,
+                                               PieceOutcome outcome,
+                                               Map<String, Detection> cache) {
+        ObjectNode p = mapper.createObjectNode();
+        p.put("pieceNo", piece.pieceNo);
+        p.put("title", piece.title);
+        p.put("volumeNo", piece.volumeNo);
+        p.put("status", outcome.unknown ? "unknown"
+                : ("通过".equals(outcome.resultLabel) ? "passed" : "failed"));
+        p.put("detail", outcome.detail);
+        ArrayNode pages = p.putArray("pages");
+        for (PageRef ref : refs) {
+            ObjectNode page = pages.addObject();
+            page.put("f", ref.fileName);
+            page.put("p", ref.pageNo);
+        }
+        ArrayNode requirements = p.putArray("requirements");
+        for (PieceRule rule : piece.rules) {
+            ObjectNode req = requirements.addObject();
+            req.put("key", rule.key);
+            req.put("name", rule.name);
+            req.put("category", rule.category);
+            req.put("required", rule.required);
+            req.put("coverage", rule.coverage);
+        }
+        addNames(p.putArray("present"), outcome.presentNames);
+        addNames(p.putArray("missing"), outcome.missingNames);
+        ArrayNode pageStatus = p.putArray("pageStatus");
+        for (PageRef ref : refs) {
+            Detection d = cache.get(ref.path);
+            boolean ok = d != null && d.ok;
+            ObjectNode st = pageStatus.addObject();
+            st.put("f", ref.fileName);
+            st.put("p", ref.pageNo);
+            st.put("status", ok ? "checked" : "unknown");
+            ArrayNode present = st.putArray("present");
+            ArrayNode missing = st.putArray("missing");
+            for (PieceRule rule : piece.rules) {
+                boolean hit = ok && countOf(d, rule.key) > 0;
+                if (hit) {
+                    if (!containsText(present, rule.name)) present.add(rule.name);
+                } else if (rule.required && "everyPage".equals(rule.coverage) && ok
+                        && !containsText(missing, rule.name)) {
+                    missing.add(rule.name);
+                }
+            }
+        }
+        return p;
     }
 
     /** 文件名 → 扫描页索引（卷名 + 文件名精确匹配优先，退回全局文件名）。 */
@@ -708,26 +810,18 @@ public class DataReviewCommand extends Command {
         return unknown && !hit ? s + "（部分页无法判定）" : s;
     }
 
-    private Row buildPieceRow(ColumnModel columnModel, int seq, PieceSpec piece,
-                              List<PageRef> refs, PieceOutcome outcome) {
+    /**
+     * 数据行只写输入清单（序号/案卷号/文件名/页数/文件夹路径）：结果侧一律进 overlay，
+     * 不再双写；预览所需的标注/件页组仍走 pageMap 保留键。
+     */
+    private static Row buildInputRow(ColumnModel columnModel, int seq, String archiveNo,
+                                     String fileName, String pages, String folderPath) {
         Row row = new Row(columnModel.getMaxCellIndex() + 1);
-        PageRef first = refs.isEmpty() ? null : refs.get(0);
         put(columnModel, row, "序号", seq);
-        put(columnModel, row, "案卷号", piece.volumeNo);
-        put(columnModel, row, "文件名", first == null ? "" : first.fileName);
-        put(columnModel, row, "页数", String.valueOf(piece.pages.size()));
-        put(columnModel, row, "规则分类", "存在类");
-        put(columnModel, row, "校审规则", String.join("、", outcome.ruleNames(piece)));
-        put(columnModel, row, "校审结果", outcome.resultLabel);
-        put(columnModel, row, "印章数量", String.valueOf(outcome.sealSum));
-        put(columnModel, row, "指纹数量", String.valueOf(outcome.fpSum));
-        put(columnModel, row, "说明", outcome.detail);
-        put(columnModel, row, FOLDER_PATH_COLUMN, first == null ? "" : first.unit.path);
-        put(columnModel, row, "件号", piece.pieceNo);
-        put(columnModel, row, "件题名", piece.title);
-        put(columnModel, row, "要求项", String.join("、", outcome.requiredNames));
-        put(columnModel, row, "命中项", String.join("、", outcome.presentNames));
-        put(columnModel, row, "缺失项", String.join("、", outcome.missingNames));
+        put(columnModel, row, "案卷号", archiveNo);
+        put(columnModel, row, "文件名", fileName);
+        put(columnModel, row, "页数", pages);
+        put(columnModel, row, FOLDER_PATH_COLUMN, folderPath);
         return row;
     }
 
@@ -846,24 +940,7 @@ public class DataReviewCommand extends Command {
         return i + 1;
     }
 
-    private Row buildRow(ColumnModel columnModel, int seq, UnitScanner.Volume unit,
-                         String fileName, Task task, Detection detection) {
-        Row row = new Row(columnModel.getMaxCellIndex() + 1);
-        put(columnModel, row, "序号", seq);
-        put(columnModel, row, "案卷号", unit.name);
-        put(columnModel, row, "文件名", fileName);
-        put(columnModel, row, "页数", detection.pageCount);
-        put(columnModel, row, "规则分类", "存在类");
-        put(columnModel, row, "校审规则", ruleNameList(task));
-        put(columnModel, row, "校审结果", detection.resultLabel(task));
-        put(columnModel, row, "印章数量", detection.ok ? String.valueOf(detection.sealCount) : "");
-        put(columnModel, row, "指纹数量", detection.ok ? String.valueOf(detection.fingerprintCount) : "");
-        put(columnModel, row, "说明", detection.describe(task));
-        put(columnModel, row, FOLDER_PATH_COLUMN, unit.path);
-        return row;
-    }
-
-    /** 本次校审所选规则名（用于「校审规则」列）；内容组合类不参与文件级检测，不出现在列里 */
+    /** 本次校审所选规则名（用于 overlay {@code files[].rules}）；内容组合类不参与文件级检测 */
     private static String ruleNameList(Task task) {
         List<String> names = new ArrayList<>();
         for (ReviewRule rule : task.rules) {
@@ -1077,6 +1154,76 @@ public class DataReviewCommand extends Command {
         }
     }
 
+    /**
+     * 把本轮结构化结果写进 overlay（{@code dataReviewResult}）：覆盖写、只留最新一轮、
+     * 不进 undo/redo；数据行不再承载结果。
+     */
+    private void saveReviewResult(Task task, String status) {
+        Project project = ProjectManager.singleton.getProject(task.projectId);
+        if (project == null) return;
+        try {
+            synchronized (project) {
+                int version = 1;
+                Object prev = project.overlayModels.get(REVIEW_RESULT_KEY);
+                if (prev instanceof ReviewResultOverlay
+                        && ((ReviewResultOverlay) prev).getResult() != null) {
+                    version = ((ReviewResultOverlay) prev).getResult().path("resultVersion").asInt(0) + 1;
+                }
+                task.resultVersion = version;
+                project.overlayModels.put(REVIEW_RESULT_KEY,
+                        new ReviewResultOverlay(buildReviewResult(task, status)));
+                project.getMetadata().updateModified();
+            }
+            ProjectManager.singleton.ensureProjectSaved(task.projectId);
+            Map<String, Object> fields = new LinkedHashMap<>();
+            fields.put("resultVersion", task.resultVersion);
+            fields.put("hasResult", true);
+            fields.put("finishedAt", task.finishedAt);
+            DataReviewTaskRegistry.merge(task.projectId, fields);
+        } catch (Exception e) {
+            logger.warn("校审结果落盘失败 {}", task.projectId, e);
+        }
+    }
+
+    /** 组装 ReviewResult：汇总（页/件分口径）+ files[]（对应输入清单）+ pieces[]（件级）。 */
+    private ObjectNode buildReviewResult(Task task, String status) {
+        ObjectNode r = mapper.createObjectNode();
+        r.put("mode", task.pieces == null ? "review-file" : "review-piece");
+        r.put("pieceMode", task.pieces != null);
+        r.put("projectId", task.projectId);
+        r.put("rootPath", task.rootPath);
+        r.put("status", status);
+        r.put("resultVersion", task.resultVersion > 0 ? task.resultVersion : 1);
+        ArrayNode rules = r.putArray("rules");
+        for (ReviewRule rule : task.rules) {
+            ObjectNode n = rules.addObject();
+            n.put("key", rule.key);
+            n.put("name", rule.name);
+            n.put("category", rule.category);
+        }
+        ObjectNode summary = r.putObject("summary");
+        summary.put("totalFiles", task.totalFiles);
+        summary.put("processedFiles", task.processedFiles);
+        summary.put("totalPieces", task.pieces == null ? task.rowsAppended : task.pieces.size());
+        summary.put("processedPieces", task.rowsAppended);
+        summary.put("passedPieces", task.passed);
+        summary.put("failedPieces", task.failed);
+        summary.put("unknownPieces", task.unknown);
+        ArrayNode files = r.putArray("files");
+        synchronized (task) {
+            for (ObjectNode f : task.fileResults) files.add(f);
+        }
+        if (task.pieces != null) {
+            ArrayNode pieces = r.putArray("pieces");
+            synchronized (task) {
+                for (ObjectNode p : task.pieceResults) pieces.add(p);
+            }
+        }
+        r.put("startedAt", task.startedAt);
+        r.put("finishedAt", task.finishedAt > 0 ? task.finishedAt : System.currentTimeMillis());
+        return r;
+    }
+
     private void finish(Task task, String status, String message) {
         task.status = status;
         task.message = message;
@@ -1177,6 +1324,8 @@ public class DataReviewCommand extends Command {
             result.put("failed", intOf(record.get("failed")));
             result.put("unknown", intOf(record.get("unknown")));
             result.put("message", String.valueOf(record.getOrDefault("message", "")));
+            result.put("resultVersion", intOf(record.get("resultVersion")));
+            result.put("hasResult", Boolean.TRUE.equals(record.get("hasResult")));
             respondJSON(response, result);
             return;
         }
@@ -1194,6 +1343,7 @@ public class DataReviewCommand extends Command {
             result.put("currentUnit", task.currentUnit);
             result.put("message", task.message);
             result.put("startedAt", task.startedAt);
+            result.put("resultVersion", task.resultVersion);
         }
         respondJSON(response, result);
     }
@@ -1244,6 +1394,78 @@ public class DataReviewCommand extends Command {
         ObjectNode result = mapper.createObjectNode();
         result.put("code", "ok");
         respondJSON(response, result);
+    }
+
+    /**
+     * 读校审结果：{@code {code:"ok", hasResult, result, resultVersion}}。
+     * 与合规 {@code get-quality-result} 同构；未产生结果时 {@code hasResult:false}。
+     */
+    private void doGetResult(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        long pid;
+        try {
+            pid = Long.parseLong(trim(request.getParameter("project")));
+        } catch (NumberFormatException e) {
+            respondError(response, "缺少或非法的 project 参数");
+            return;
+        }
+        Project project = ProjectManager.singleton.getProject(pid);
+        if (project == null) {
+            respondError(response, "未找到校审项目: " + pid);
+            return;
+        }
+        ObjectNode out = mapper.createObjectNode();
+        out.put("code", "ok");
+        Object raw = project.overlayModels.get(REVIEW_RESULT_KEY);
+        if (raw instanceof ReviewResultOverlay
+                && ((ReviewResultOverlay) raw).getResult() != null) {
+            ReviewResultOverlay overlay = (ReviewResultOverlay) raw;
+            out.put("hasResult", true);
+            out.put("resultVersion", overlay.getResult().path("resultVersion").asInt(0));
+            out.set("result", overlay.getResult());
+        } else {
+            out.put("hasResult", false);
+        }
+        respondJSON(response, out);
+    }
+
+    /** 写校审结果（平台侧补偿/迁移用）：覆盖 overlay，与引擎内部落盘同一槽位。 */
+    private void doSaveResult(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        long pid;
+        try {
+            pid = Long.parseLong(trim(request.getParameter("project")));
+        } catch (NumberFormatException e) {
+            respondError(response, "缺少或非法的 project 参数");
+            return;
+        }
+        String resultJson = request.getParameter("result");
+        if (resultJson == null || resultJson.trim().isEmpty() || "null".equals(resultJson.trim())) {
+            respondError(response, "缺少 result 参数");
+            return;
+        }
+        Project project = ProjectManager.singleton.getProject(pid);
+        if (project == null) {
+            respondError(response, "未找到校审项目: " + pid);
+            return;
+        }
+        try {
+            JsonNode node = mapper.readTree(resultJson);
+            if (!node.isObject()) {
+                respondError(response, "result 必须是 JSON 对象");
+                return;
+            }
+            ObjectNode result = (ObjectNode) node;
+            synchronized (project) {
+                project.overlayModels.put(REVIEW_RESULT_KEY, new ReviewResultOverlay(result));
+                project.getMetadata().updateModified();
+            }
+            ProjectManager.singleton.ensureProjectSaved(pid);
+            ObjectNode out = mapper.createObjectNode();
+            out.put("code", "ok");
+            out.put("resultVersion", result.path("resultVersion").asInt(0));
+            respondJSON(response, out);
+        } catch (IOException e) {
+            respondError(response, "result 不是合法 JSON: " + e.getMessage());
+        }
     }
 
     private void doCancel(HttpServletRequest request, HttpServletResponse response) throws IOException {
@@ -1515,6 +1737,9 @@ public class DataReviewCommand extends Command {
         final List<ReviewRule> rules;
         final List<UnitScanner.Volume> units;
         final ObjectNode pageMap = mapper.createObjectNode();
+        /** 结构化结果（终态写 overlay）：文件级清单与件级清单 */
+        final List<ObjectNode> fileResults = new ArrayList<>();
+        final List<ObjectNode> pieceResults = new ArrayList<>();
         final long startedAt = System.currentTimeMillis();
         /** 件级校审参数；null = 旧链路（按文件逐页校审） */
         List<PieceSpec> pieces;
@@ -1528,6 +1753,8 @@ public class DataReviewCommand extends Command {
         int passed;
         int failed;
         int unknown;
+        /** 本轮结果版本（overlay 覆盖写时递增，供下游判断是否新一轮） */
+        int resultVersion;
         String currentUnit = "";
         String currentFile = "";
         volatile boolean cancelled;

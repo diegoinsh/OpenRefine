@@ -61,6 +61,11 @@ public class DocumentCheckError {
     @JsonProperty("checkedImages")
     private List<String> checkedImages = new ArrayList<>();
 
+    /** 宽松策略下：落款区域内无章、但全页有章时置 true（判为通过，仅作标记）。 */
+    @JsonProperty("sealOutsideRegion")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Boolean sealOutsideRegion;
+
     public DocumentCheckError() {}
 
     public int getRowIndex() { return rowIndex; }
@@ -98,4 +103,7 @@ public class DocumentCheckError {
 
     public List<String> getCheckedImages() { return checkedImages; }
     public void setCheckedImages(List<String> checkedImages) { this.checkedImages = checkedImages; }
+
+    public Boolean getSealOutsideRegion() { return sealOutsideRegion; }
+    public void setSealOutsideRegion(Boolean sealOutsideRegion) { this.sealOutsideRegion = sealOutsideRegion; }
 }

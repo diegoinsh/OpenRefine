@@ -16,6 +16,7 @@ import org.openrefine.extensions.files.importer.DataReviewCommand;
 import org.openrefine.extensions.files.importer.ExtractionConfigCommand;
 import org.openrefine.extensions.files.importer.ExtractionResultCommand;
 import org.openrefine.extensions.files.importer.FilesImportingController;
+import org.openrefine.extensions.files.importer.ReviewResultOverlay;
 import org.openrefine.extensions.files.importer.WorkspacePaths;
 
 /**
@@ -54,8 +55,11 @@ public class FilesExtensionSpi implements RefineModuleSpi {
         // 抽取控制台系统级配置命令（get/save）
         ctx.registerCommand("extraction-config", new ExtractionConfigCommand());
 
-        // 数据校审命令（极简版：校审模式建项目 / 逐文件印章检测 / 结果写项目数据区）
+        // 数据校审命令（校审模式建项目 / 逐文件检测；结构化结果写 overlay，数据行只留输入清单）
         ctx.registerCommand("data-review", new DataReviewCommand());
+
+        // 校审结果 overlay 模型：必须在启动期登记，否则重启后该槽位不会被加载
+        ctx.registerOverlayModel(ReviewResultOverlay.OVERLAY_MODEL_KEY, ReviewResultOverlay.class);
 
         // 注入 /index 页的脚本
         ctx.addClientSidePaths(

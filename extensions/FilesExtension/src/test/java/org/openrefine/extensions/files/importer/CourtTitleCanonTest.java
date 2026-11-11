@@ -22,7 +22,7 @@ public class CourtTitleCanonTest {
         return p;
     }
 
-    /** 纸面简写按编目词表改写成规范名 */
+    /** 纸面简写按客户编目词表改写成规范名；真值里本身就是条目的名字不得改写 */
     @Test
     public void aliasesAreCanonicalized() {
         List<TitleSplitter.Piece> pieces = new ArrayList<>();
@@ -35,12 +35,27 @@ public class CourtTitleCanonTest {
 
         BatchExtractionManager.canonicalizePieceTitles(pieces, "一审");
 
-        Assert.assertEquals(pieces.get(0).title, "民事起诉状");
+        Assert.assertEquals(pieces.get(0).title, "起诉状");
         Assert.assertEquals(pieces.get(1).title, "开庭传票");
-        Assert.assertEquals(pieces.get(2).title, "庭审笔录");
-        Assert.assertEquals(pieces.get(3).title, "询问、调查取证材料");
-        Assert.assertEquals(pieces.get(4).title, "调解笔录及调解材料");
+        // 客户 Word 第 565 行条项名是「法庭笔录」，不是「庭审笔录」
+        Assert.assertEquals(pieces.get(2).title, "法庭笔录");
+        // 「调查笔录」「调解笔录」在客户 CSV 里各是独立条目，不并入上级条项
+        Assert.assertEquals(pieces.get(3).title, "调查笔录");
+        Assert.assertEquals(pieces.get(4).title, "调解笔录");
         Assert.assertEquals(pieces.get(5).title, "送达地址确认书");
+    }
+
+    /** 两份客户真值都查不到的名字（仲裁类、价格认定）不得作为改写目标 */
+    @Test
+    public void namesAbsentFromClientTruthAreNotInvented() {
+        List<TitleSplitter.Piece> pieces = new ArrayList<>();
+        pieces.add(piece("仲裁裁决书", 5, 7));
+        pieces.add(piece("认定结论书", 20, 20));
+
+        BatchExtractionManager.canonicalizePieceTitles(pieces, "一审");
+
+        Assert.assertEquals(pieces.get(0).title, "仲裁裁决书");
+        Assert.assertEquals(pieces.get(1).title, "认定结论书");
     }
 
     /** 非税收入一般缴款书的条项名随审级改写 */
@@ -55,6 +70,18 @@ public class CourtTitleCanonTest {
         second.add(piece("非税收入一般缴款书", 6, 6));
         BatchExtractionManager.canonicalizePieceTitles(second, "二审");
         Assert.assertEquals(second.get(0).title, "上诉案件受理费缴费凭证");
+    }
+
+    /** 「起诉书」是四级编目模板里的合法原题名，规范化不得改写（模板渲染为「原告{原告}起诉书」） */
+    @Test
+    public void complaintTitleIsKeptAsTemplateNoun() {
+        List<TitleSplitter.Piece> pieces = new ArrayList<>();
+        pieces.add(piece("起诉书", 1, 2));
+        pieces.add(piece("答辩状", 11, 12));
+
+        BatchExtractionManager.canonicalizePieceTitles(pieces, "一审");
+
+        Assert.assertEquals(pieces.get(0).title, "起诉书");
     }
 
     /** 只改题名，不动件边界；未命中映射的题名原样保留 */

@@ -506,6 +506,20 @@ public class AimpClient implements AimpPort {
             result.setFingerprintCount(json.path("fingerprintCount").asInt(0));
             result.setImageWidth(json.path("imageWidth").asInt(0));
             result.setImageHeight(json.path("imageHeight").asInt(0));
+            // 保留每个框的像素坐标：调用方据此自行按落款区域过滤，无需为区域内外各调一次
+            JsonNode regions = json.path("regions");
+            if (regions.isArray()) {
+                for (JsonNode node : regions) {
+                    JsonNode bbox = node.path("bbox");
+                    if (!bbox.isArray() || bbox.size() < 4) {
+                        continue;
+                    }
+                    result.getRegions().add(new ReviewElementResult.Region(
+                            node.path("regionType").asText("seal"),
+                            bbox.get(0).asInt(), bbox.get(1).asInt(),
+                            bbox.get(2).asInt(), bbox.get(3).asInt()));
+                }
+            }
         } catch (Exception e) {
             result.setMessage("文书盖章检测失败: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
         }

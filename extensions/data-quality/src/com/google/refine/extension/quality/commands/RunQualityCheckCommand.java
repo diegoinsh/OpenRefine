@@ -426,6 +426,8 @@ public class RunQualityCheckCommand extends Command {
                 if (documentQualityResult.getDocuments() != null) {
                     combinedResult.setDocuments(documentQualityResult.getDocuments());
                 }
+                // 嵌套整段：下游只读 combined 也能拿到 executed / skipReason / 件级计数
+                combinedResult.setDocumentQualityResult(documentQualityResult);
 
                 synchronized (project) {
                     project.overlayModels.put(SaveQualityResultOperation.OVERLAY_MODEL_KEY, combinedResult);
@@ -505,6 +507,15 @@ public class RunQualityCheckCommand extends Command {
         summary.put("typoErrors", typoResult.getErrors().size());
         summary.put("imageQualityErrors", imageQualityResult.getErrors().size());
         summary.put("documentQualityErrors", documentQualityResult.getErrors().size());
+        // 未执行要如实透出，避免「0 错误」被下游当成「全部合格」
+        summary.put("documentQualityExecuted", documentQualityResult.getExecuted() == null
+                ? false : documentQualityResult.getExecuted());
+        if (documentQualityResult.getSkipReason() != null) {
+            summary.put("documentQualitySkipReason", documentQualityResult.getSkipReason());
+        }
+        summary.put("documentCheckedCount", documentQualityResult.getCheckedRows());
+        summary.put("documentPassedCount", documentQualityResult.getPassedRows());
+        summary.put("documentFailedCount", documentQualityResult.getFailedRows());
         responseNode.set("summary", summary);
 
         // Combine all errors including image quality

@@ -281,6 +281,9 @@ public class IngestProjectCommand extends Command {
                 dir = new SheetData(DIR_SHEET_ID, DIR_SHEET_NAME, "");
                 project.addSheetData(dir);
             }
+            // 整表覆盖：目录层级表按本次扫描结果重建，不残留上一轮的目录行
+            // （旧实现按键 upsert，被删目录会一直留在表里）
+            dir.rows.clear();
             applyDirectory(dir.columnModel, dir.rows, scan);
             dir.columnModel.update();
             // 仅在项目里还没有条目表时才让目录表成为活动表
