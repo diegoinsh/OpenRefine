@@ -88,59 +88,81 @@ Refine.SUB_CATEGORY_EXTRA_ELEMENTS = {
   '人民检察院诉讼档案': Refine.EXTRA_ELEMENTS
 };
 
-// 数据校审规则分类体系（6 大类）。当前已实现「存在类 · 印章检测 / 指纹检测」，
-// 其余分类/规则仅为占位（置灰不可选），后续按能力逐个启用（见 docs/design/data-review-plugin-design.md）。
-// 「内容组合类」是空模板项：具体件清单/每件要求由平台按抽取项目号（pieceMode）或接口
-// 内联 presenceTemplate 下发，本地引擎不预置任何件数据。
+// 数据校审规则：按**业务需求分组**的 7 个页签（与平台「校审规则模板」页签一一对应）。
+// 只有引擎已实现的能力可勾选，其余置灰（enabled=false）并写明原因；未开放不等于未设计，
+// 后续按能力逐个启用。页签顺序：完备性 / 签章与签署 / 顺序与时限 / 跨材料勾稽 /
+// 卷级规范 / 文书必备要素 / 内容组合类。
+// 「内容组合类」的判定输入是平台下发的本次提交目录（件清单），本地引擎不预置任何件数据。
 Refine.REVIEW_RULE_CATEGORIES = [
   {
-    key: 'presence', name: '存在类', desc: '判断某件「有没有」：盖章、指纹、签字等',
+    key: 'complete', name: '完备性', desc: '按必备件清单核对本次提交目录，检查缺件、缺页、空件与条件缺件',
     rules: [
-      { key: 'seal', name: '印章检测', enabled: true,
-        desc: '检测文件是否加盖印章（落款章、骑缝章），现由 AI 服务印章检测模型完成' },
-      { key: 'fingerprint', name: '指纹检测', enabled: true,
-        desc: '检测文件是否按压指纹；与印章同源出框后按框内墨迹分布区分，指纹单独标记' },
-      { key: 'signature', name: '签字检测', enabled: false,
-        desc: '指定区域是否含手写签字' }
-    ]
-  },
-  {
-    key: 'consistency', name: '一致性比对类', desc: '签名/盖章与要素比对，给出相似度或数值差',
-    rules: [
-      { key: 'signature_match', name: '签名一致性', enabled: false, desc: '签名是否与某要素一致' },
-      { key: 'seal_match', name: '盖章一致性', enabled: false, desc: '盖章是否与责任者等要素一致' }
-    ]
-  },
-  {
-    key: 'compliance', name: '规范类', desc: '条款、页件完整性、规定符合性',
-    rules: [
-      { key: 'clause_presence', name: '必备条款检测', enabled: false, desc: '某件中是否有某条款' },
-      { key: 'missing_piece', name: '缺件缺页检测', enabled: false, desc: '是否缺少某件/某页' }
-    ]
-  },
-  {
-    key: 'list', name: '名单类', desc: '材料是否命中黑白名单内容',
-    rules: [
-      { key: 'blacklist', name: '黑名单命中', enabled: false, desc: '材料是否含黑名单内容' },
+      { key: 'missing_piece', name: '缺件检测', enabled: false, desc: '与必备件清单比对该有的件是否齐全' },
+      { key: 'missing_page', name: '缺页检测', enabled: false, desc: '按编页连续性判断是否缺页' },
+      { key: 'empty_piece', name: '空件检测', enabled: false, desc: '件内只有封面/空白页时判为空件' },
+      { key: 'missing_attachment', name: '条件缺件检测', enabled: false, desc: '按案件情形判断附带材料是否齐全' },
+      { key: 'blacklist', name: '黑名单命中', enabled: false, desc: '材料是否命中黑名单内容' },
       { key: 'whitelist', name: '白名单核对', enabled: false, desc: '材料是否在白名单内' }
     ]
   },
   {
-    key: 'logic', name: '逻辑勾稽类', desc: '跨字段/跨件的数值与日期勾稽',
+    key: 'seal', name: '签章与签署', desc: '核对院印、骑缝章、签名或捺印是否齐全、位置是否正确',
     rules: [
-      { key: 'date_order', name: '日期勾稽', enabled: false, desc: '成文日期与流程日期是否矛盾' },
+      { key: 'seal', name: '印章检测', enabled: true,
+        desc: '检测文件是否加盖印章（落款章、骑缝章），由 AI 服务印章检测模型完成' },
+      { key: 'fingerprint', name: '指纹检测', enabled: true,
+        desc: '检测文件是否按压指纹；与印章同源出框后按框内墨迹分布区分' },
+      { key: 'signature', name: '签字检测', enabled: false, desc: '指定区域是否含手写签字（待签字模型）' },
+      { key: 'seal_match', name: '盖章一致性', enabled: false, desc: '盖章是否与责任者等要素一致' },
+      { key: 'signature_match', name: '签名一致性', enabled: false, desc: '签名是否与某要素一致' }
+    ]
+  },
+  {
+    key: 'order', name: '顺序与时限', desc: '核对件序是否符合法定排列顺序，以及日期链与办理时限',
+    rules: [
+      { key: 'piece_order', name: '件序符合法定顺序', enabled: false, desc: '按件序基线逐件比对排列顺序' },
+      { key: 'date_order', name: '日期勾稽', enabled: false, desc: '成文日期与流程日期是否矛盾' }
+    ]
+  },
+  {
+    key: 'reconcile', name: '跨材料勾稽', desc: '核对案号、当事人、金额等在同一卷各件之间是否一致',
+    rules: [
+      { key: 'case_no_match', name: '案号跨件一致', enabled: false, desc: '各件案号是否一致' },
       { key: 'amount_check', name: '金额勾稽', enabled: false, desc: '金额合计与明细是否一致' }
     ]
   },
   {
-    // 内容组合类：条目单位是「件」（件清单由平台下发），此处只保留一个空项，
+    key: 'volume', name: '卷级规范', desc: '卷内目录、封面、备考表、编页与证物袋等卷级要求',
+    rules: [
+      { key: 'volume_toc', name: '卷内目录完整性', enabled: false, desc: '目录逐件登记且与卷内件一致' }
+    ]
+  },
+  {
+    key: 'document_element', name: '文书必备要素', desc: '逐件核对判决书、裁定书等文书的必备要素是否齐全',
+    rules: [
+      { key: 'document_element', name: '文书必备要素核对', enabled: true,
+        desc: '按文书类型核对案号、当事人、成文日期等要素（取本次提交目录的契约字段）' }
+    ]
+  },
+  {
+    // 内容组合类：条目单位是「件」（件清单由平台下发本次提交目录），此处只保留一个开关，
     // 勾选表示期望件级结果；没有件清单（pieceMode=false）时该项不产生结果。
-    key: 'content', name: '内容组合类', desc: '按件校验件内材料组合；件清单由平台按抽取项目号下发（pieceMode）',
+    key: 'piece_combo', name: '内容组合类', desc: '按本次提交目录的二级分组逐件校验材料组合',
     rules: [
       { key: 'piece_combo', name: '按件内容组合', enabled: true, defaultChecked: false,
-        desc: '按件清单逐件校验材料组合；需项目已完成抽取并绑定抽取项目号，否则该项没有结果' }
+        desc: '按平台下发的本次提交目录逐件校验；需项目已完成抽取并绑定件清单，否则该项没有结果' }
     ]
   }
+];
+
+// 规则模板：选中后一键回填各页签勾选（只包含已开放能力）。
+Refine.REVIEW_RULE_TEMPLATES = [
+  { id: 'court-m1-s1', name: '法院民事一审 · 1991 归档办法',
+    rules: ['seal', 'fingerprint', 'piece_combo'] },
+  { id: 'court-m1-s5', name: '法院民事一审 · 2018 电子卷宗',
+    rules: ['seal', 'fingerprint', 'piece_combo'] },
+  { id: 'court-m1-local', name: '本院裁剪模板',
+    rules: ['seal', 'piece_combo'] }
 ];
 
 Refine.LocalDirectorySourceUI = function (controller) {

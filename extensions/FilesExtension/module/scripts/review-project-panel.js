@@ -227,6 +227,8 @@ var ReviewProjectPanel = (function() {
   function render(task) {
     currentTask = task;
     state = ReviewConfigPanelUI.createState(parseSavedRules(task));
+    // 内容组合类页签展示本次提交目录摘要（平台随任务下发的件清单）
+    state.catalog = task.pieceList || [];
 
     panel.empty();
     elmts = {};
