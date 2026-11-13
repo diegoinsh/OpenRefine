@@ -1177,7 +1177,10 @@ QualityAlignment._renderTitleNormTab = function() {
     .text($.i18n('data-quality-extension/title-norm-rule-list'))
     .appendTo(container);
 
-  var table = $('<table class="quality-rules-table"></table>').appendTo(container);
+  // 规则可达上千条，放在固定高度容器里滚动查看，避免把页面撑长
+  var listWrap = $('<div class="quality-rule-list-scroll"></div>').appendTo(container);
+
+  var table = $('<table class="quality-rules-table"></table>').appendTo(listWrap);
   var thead = $('<thead></thead>').appendTo(table);
   var headerRow = $('<tr></tr>').appendTo(thead);
   ['title-norm-col-sort', 'title-norm-col-level2', 'title-norm-col-template', 'title-norm-col-party']
