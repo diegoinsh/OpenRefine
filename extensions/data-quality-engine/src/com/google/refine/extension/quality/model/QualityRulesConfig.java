@@ -30,11 +30,22 @@ public class QualityRulesConfig {
 
     /**
      * 文书级（案件质量评查）规则，结构见设计稿 §4.1.2。
-     * 缺省为 null，老模板/老项目不带此段即视为不启用，序列化时省略。
+     *
+     * <p>[移交校审·待删] 2026-11-13：该能力已整体移交数据校审，合规侧不再执行与渲染。
+     * 字段保留仅为向后兼容历史项目与模板导出，校审侧沿用同名 key。</p>
      */
     @JsonProperty("documentQualityRule")
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Map<String, Object> documentQualityRule;
+
+    /**
+     * 题名规范检查规则：四级定制模板 + 10 项检查开关。
+     * 缺省为 null（不执行），序列化时省略。结构见
+     * {@code TitleNormChecker} 类注释与平台模板 {@code titleNormRule} 段。
+     */
+    @JsonProperty("titleNormRule")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Map<String, Object> titleNormRule;
 
     @JsonProperty("resourceConfig")
     private ResourceCheckConfig resourceConfig;
@@ -109,6 +120,14 @@ public class QualityRulesConfig {
 
     public void setDocumentQualityRule(Map<String, Object> documentQualityRule) {
         this.documentQualityRule = documentQualityRule;
+    }
+
+    public Map<String, Object> getTitleNormRule() {
+        return titleNormRule;
+    }
+
+    public void setTitleNormRule(Map<String, Object> titleNormRule) {
+        this.titleNormRule = titleNormRule;
     }
 
     public ResourceCheckConfig getResourceConfig() {

@@ -27,6 +27,21 @@ public final class NatureMapping {
             NatureType.AUTHENTICITY, NatureType.INTEGRITY, NatureType.USABILITY,
             NatureType.SECURITY, NatureType.UNKNOWN));
 
+    /** 题名规范 10 项检查项 → 四性（键与 TitleNormChecker.CHECK_KEYS 一致）。 */
+    static final Map<String, NatureType> TITLE_NORM_CHECKS = new LinkedHashMap<>();
+    static {
+        TITLE_NORM_CHECKS.put("levelNotEmpty", NatureType.INTEGRITY);
+        TITLE_NORM_CHECKS.put("levelOwnership", NatureType.INTEGRITY);
+        TITLE_NORM_CHECKS.put("templateMatch", NatureType.USABILITY);
+        TITLE_NORM_CHECKS.put("aliasNormalize", NatureType.USABILITY);
+        TITLE_NORM_CHECKS.put("placeholderMissing", NatureType.INTEGRITY);
+        TITLE_NORM_CHECKS.put("partyOwnership", NatureType.INTEGRITY);
+        TITLE_NORM_CHECKS.put("templateVersion", NatureType.USABILITY);
+        TITLE_NORM_CHECKS.put("charSet", NatureType.USABILITY);
+        TITLE_NORM_CHECKS.put("lengthLimit", NatureType.USABILITY);
+        TITLE_NORM_CHECKS.put("docNumberFormat", NatureType.USABILITY);
+    }
+
     /** 检查项类型（errorType）→ 四性。 */
     private static final Map<String, NatureType> BY_ERROR_TYPE = new LinkedHashMap<>();
 
@@ -56,12 +71,21 @@ public final class NatureMapping {
         put(NatureType.SECURITY,
                 "illegal_files", "illegal_file", "virus", "sensitive_info", "hidden_file");
 
+        // 题名规范检查（合规第 4 个 tab）：层级/归属/占位符/当事人属完整性，写法类属可用性
+        put(NatureType.INTEGRITY,
+                "level_missing", "category_illegal", "placeholder_missing", "party_mismatch");
+        put(NatureType.USABILITY,
+                "template_mismatch", "alias_normalize", "template_version",
+                "title_charset", "title_length", "doc_number_format");
+
         // 类别兜底
         BY_CATEGORY.put("format", NatureType.INTEGRITY);
         BY_CATEGORY.put("resource", NatureType.INTEGRITY);
         BY_CATEGORY.put("content", NatureType.AUTHENTICITY);
         BY_CATEGORY.put("image_quality", NatureType.USABILITY);
-        // 案件质量评查：只剩文书必备要素检查，归完整性
+        BY_CATEGORY.put("title_norm", NatureType.USABILITY);
+        // [移交校审·待删] 2026-11-13 案件质量评查（文书必备要素）已移交数据校审；
+        // 映射保留，便于历史项目结果与校审回报的 nature=integrity 口径一致。
         BY_CATEGORY.put("document_quality", NatureType.INTEGRITY);
         // 图像检查的错误里 category 直接是中文四性名（ImageCheckCategoryType.name()）
         BY_CATEGORY.put("真实性", NatureType.AUTHENTICITY);
@@ -248,23 +272,44 @@ public final class NatureMapping {
             }
         }
         // ---------------- 文书级（必备要素，归完整性） ----------------
-        Map<String, Object> document = rules.getDocumentQualityRule();
-        if (document != null && Boolean.TRUE.equals(document.get("enabled"))) {
-            int count = 0;
-            Object types = document.get("documentTypes");
-            if (types instanceof List) {
-                for (Object type : (List<?>) types) {
-                    if (!(type instanceof Map)) {
-                        continue;
+        // [移交校审·待删] 2026-11-13 该能力已移交数据校审，合规侧不再计入四性规则数。
+        // 原实现保留供校审对照搬运：
+        // Map<String, Object> document = rules.getDocumentQualityRule();
+        // if (document != null && Boolean.TRUE.equals(document.get("enabled"))) {
+        //     int count = 0;
+        //     Object types = document.get("documentTypes");
+        //     if (types instanceof List) {
+        //         for (Object type : (List<?>) types) {
+        //             if (!(type instanceof Map)) { continue; }
+        //             Object fields = ((Map<?, ?>) type).get("requiredFields");
+        //             if (fields instanceof List && !((List<?>) fields).isEmpty()) { count++; }
+        //         }
+        //     }
+        //     add(stats, NatureType.INTEGRITY, count);
+        // }
+
+        // ---------------- 题名规范（第 4 个 tab）：按启用的检查项计规则数 ----------------
+        Map<String, Object> titleNorm = rules.getTitleNormRule();
+        if (titleNorm != null && !Boolean.FALSE.equals(titleNorm.get("enabled"))) {
+            Object rowsRaw = titleNorm.get("rules");
+            boolean hasTemplate = rowsRaw instanceof List && !((List<?>) rowsRaw).isEmpty();
+            if (hasTemplate) {
+                Object checksRaw = titleNorm.get("checks");
+                for (Map.Entry<String, NatureType> entry : TITLE_NORM_CHECKS.entrySet()) {
+                    boolean on = true;
+                    if (checksRaw instanceof Map) {
+                        Object value = ((Map<?, ?>) checksRaw).get(entry.getKey());
+                        if (value instanceof Boolean) {
+                            on = (Boolean) value;
+                        } else if (value != null) {
+                            on = !"false".equalsIgnoreCase(String.valueOf(value).trim());
+                        }
                     }
-                    // 评查规则按「文书类型 + 必备要素」计数：声明了必备要素的类型算 1 项
-                    Object fields = ((Map<?, ?>) type).get("requiredFields");
-                    if (fields instanceof List && !((List<?>) fields).isEmpty()) {
-                        count++;
+                    if (on) {
+                        add(stats, entry.getValue(), 1);
                     }
                 }
             }
-            add(stats, NatureType.INTEGRITY, count);
         }
         return stats;
     }

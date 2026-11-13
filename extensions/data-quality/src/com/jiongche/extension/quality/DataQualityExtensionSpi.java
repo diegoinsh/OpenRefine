@@ -143,6 +143,7 @@ public class DataQualityExtensionSpi implements RefineModuleSpi {
         ctx.addClientSidePaths(
                 "project/scripts",
                 "scripts/menu-bar-extension.js",
+                "scripts/title-norm-rules.js",
                 "scripts/quality-alignment.js",
                 "scripts/quality-cell-renderer.js",
                 "scripts/extraction-quality-cell-renderer.js",

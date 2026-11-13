@@ -57,9 +57,11 @@ ManageRulesDialog.prototype._loadRulesSummary = function() {
   var hasResourceConfig = (resourceConfig.pathFields && resourceConfig.pathFields.length > 0) || !!resourceConfig.basePath;
 
   var isCourt = QualityAlignment._isCourtTemplate(QualityAlignment._effectiveTemplateType());
-  var docRule = QualityAlignment._documentQualityRule;
+  // [移交校审·待删] 2026-11-13 案件质量评查已移交数据校审，合规侧摘要改为题名规范检查。
+  // var docRule = QualityAlignment._documentQualityRule;
+  var titleNormRule = QualityAlignment._titleNormRule;
 
-  if (formatCount === 0 && contentCount === 0 && !hasResourceConfig && !(isCourt && docRule)) {
+  if (formatCount === 0 && contentCount === 0 && !hasResourceConfig && !(isCourt && titleNormRule)) {
     rulesList.html('<p class="no-rules">' + $.i18n('data-quality-extension/no-rules-configured') + '</p>');
     return;
   }
@@ -126,17 +128,28 @@ ManageRulesDialog.prototype._loadRulesSummary = function() {
     });
   }
 
-  // 案件质量评查（文书必备要素）摘要：仅在法院定制模板下显示
-  if (isCourt && docRule) {
-    var docTypes = docRule.documentTypes || [];
-    var docSection = $('<div class="rules-section"></div>').appendTo(rulesList);
-    $('<h4></h4>')
-      .text($.i18n('data-quality-extension/document-quality-tab') + ' (' + docTypes.length + ' ' + $.i18n('data-quality-extension/rules') + ')')
-      .appendTo(docSection);
+  // [移交校审·待删] 2026-11-13 原「案件质量评查（文书必备要素）」摘要，保留供校审对照：
+  // if (isCourt && docRule) {
+  //   var docTypes = docRule.documentTypes || [];
+  //   var docSection = $('<div class="rules-section"></div>').appendTo(rulesList);
+  //   $('<h4></h4>')
+  //     .text($.i18n('data-quality-extension/document-quality-tab') + ' (' + docTypes.length + ' ' + $.i18n('data-quality-extension/rules') + ')')
+  //     .appendTo(docSection);
+  //   var docInfo = $('<div></div>').appendTo(docSection);
+  //   $('<p></p>').text($.i18n('data-quality-extension/doc-quality-standard') + ': ' + (docRule.standard || '-')).appendTo(docInfo);
+  //   $('<p></p>').text($.i18n('data-quality-extension/doc-quality-aggregation-key') + ': ' + ((docRule.aggregationKey || []).join(' + '))).appendTo(docInfo);
+  // }
 
-    var docInfo = $('<div></div>').appendTo(docSection);
-    $('<p></p>').text($.i18n('data-quality-extension/doc-quality-standard') + ': ' + (docRule.standard || '-')).appendTo(docInfo);
-    $('<p></p>').text($.i18n('data-quality-extension/doc-quality-aggregation-key') + ': ' + ((docRule.aggregationKey || []).join(' + '))).appendTo(docInfo);
+  // 题名规范检查摘要：仅在法院定制模板下显示
+  if (isCourt && titleNormRule) {
+    var titleRules = titleNormRule.rules || [];
+    var titleSection = $('<div class="rules-section"></div>').appendTo(rulesList);
+    $('<h4></h4>')
+      .text($.i18n('data-quality-extension/title-norm-tab') + ' (' + titleRules.length + ' ' + $.i18n('data-quality-extension/rules') + ')')
+      .appendTo(titleSection);
+    $('<p></p>')
+      .text(titleNormRule.templateName || titleNormRule.templateId || '-')
+      .appendTo(titleSection);
   }
 };
 
@@ -152,9 +165,13 @@ ManageRulesDialog.prototype._clearRules = function() {
   QualityAlignment._resourceConfig = QualityAlignment._getDefaultResourceConfig();
   QualityAlignment._contentRules = [];
   QualityAlignment._aimpConfig = { serviceUrl: '' };
-  // 法院定制档位下同时清空文书级规则
+  // [移交校审·待删] 2026-11-13 文书级规则已移交数据校审，清空时不再重置该项：
+  // if (QualityAlignment._isCourtTemplate(QualityAlignment._effectiveTemplateType())) {
+  //   QualityAlignment._documentQualityRule = QualityAlignment._defaultDocumentQualityRule();
+  // }
+  // 法院定制档位下重置题名规范检查
   if (QualityAlignment._isCourtTemplate(QualityAlignment._effectiveTemplateType())) {
-    QualityAlignment._documentQualityRule = QualityAlignment._defaultDocumentQualityRule();
+    QualityAlignment._titleNormRule = QualityAlignment._defaultTitleNormRule();
   }
 
   // Auto save to backend (silent=true)
@@ -192,9 +209,15 @@ ManageRulesDialog.prototype._exportRules = function() {
     if (QualityAlignment._templateType) {
       payload.templateType = QualityAlignment._templateType;
     }
+    // [移交校审·待删] 2026-11-13 文书级规则不再由合规导出：
+    // if (QualityAlignment._isCourtTemplate(QualityAlignment._effectiveTemplateType())
+    //     && QualityAlignment._documentQualityRule) {
+    //   payload.documentQualityRule = QualityAlignment._documentQualityRule;
+    // }
+    // 题名规范检查（第 4 个 tab）
     if (QualityAlignment._isCourtTemplate(QualityAlignment._effectiveTemplateType())
-        && QualityAlignment._documentQualityRule) {
-      payload.documentQualityRule = QualityAlignment._documentQualityRule;
+        && QualityAlignment._titleNormRule) {
+      payload.titleNormRule = QualityAlignment._titleNormRule;
     }
 
     var projectName = (theProject.metadata && theProject.metadata.name)
@@ -272,7 +295,9 @@ ManageRulesDialog.prototype._importRules = function() {
         if (rules.contentRules) QualityAlignment._contentRules = rules.contentRules;
         if (rules.aimpConfig) QualityAlignment._aimpConfig = rules.aimpConfig;
         if (rules.templateType) QualityAlignment._templateType = rules.templateType;
-        if (rules.documentQualityRule) QualityAlignment._documentQualityRule = rules.documentQualityRule;
+        // [移交校审·待删] 2026-11-13 文书级规则已移交数据校审，合规侧不再导入该段：
+        // if (rules.documentQualityRule) QualityAlignment._documentQualityRule = rules.documentQualityRule;
+        if (rules.titleNormRule) QualityAlignment._titleNormRule = rules.titleNormRule;
 
         var imageRule = rules.imageQualityRule || null;
         var uiReady = typeof ImageQualityTab !== 'undefined' && ImageQualityTab._isSetUp;

@@ -116,12 +116,13 @@ public class ExportQualityReportCommand extends Command {
             Sheet errorsSheet = workbook.createSheet("错误详情");
             createErrorsSheet(workbook, errorsSheet, results);
 
-            // Create document quality sheet (案件质量评查) — 仅法院档位有文书级结果
-            JsonNode documents = documentNodes(results);
-            if (documents != null && documents.size() > 0) {
-                Sheet docSheet = workbook.createSheet("案件质量评查");
-                createDocumentQualitySheet(workbook, docSheet, documents);
-            }
+            // [移交校审·待删] 2026-11-13 案件质量评查已移交数据校审，合规报告不再产出该 sheet。
+            // 原实现保留供校审对照：
+            // JsonNode documents = documentNodes(results);
+            // if (documents != null && documents.size() > 0) {
+            //     Sheet docSheet = workbook.createSheet("案件质量评查");
+            //     createDocumentQualitySheet(workbook, docSheet, documents);
+            // }
 
             // Create data sheet with error comments
             Sheet dataSheet = workbook.createSheet("数据表格");
@@ -177,29 +178,34 @@ public class ExportQualityReportCommand extends Command {
             createStatRow(sheet, rowNum++, "格式错误", formatErrors);
             createStatRow(sheet, rowNum++, "资源错误", resourceErrors);
             if (court) {
-                // 法院档位出「案件质量评查错误」，不出档案的内容错误
-                createStatRow(sheet, rowNum++, "案件质量评查错误",
-                        summary.path("documentQualityErrors").asInt(0));
+                // 法院档位出「题名规范错误」，不出档案的内容错误
+                createStatRow(sheet, rowNum++, "题名规范错误",
+                        summary.path("titleNormErrors").asInt(0));
             } else {
                 createStatRow(sheet, rowNum++, "内容错误", contentErrors);
             }
             createStatRow(sheet, rowNum++, "图像质量错误", imageErrors);
 
-            // 文书级（案件质量评查）：未执行时据实标注，不算通过
-            int docErrors = summary.path("documentQualityErrors").asInt(0);
-            int docChecked = summary.path("documentCheckedCount").asInt(0);
-            int docPassed = summary.path("documentPassedCount").asInt(0);
-            int docFailed = summary.path("documentFailedCount").asInt(0);
-            boolean docExecuted = summary.path("documentQualityExecuted").asBoolean(false);
-            String docSkipReason = summary.path("documentQualitySkipReason").asText("");
-            if (docChecked > 0 || docErrors > 0 || summary.has("documentQualityExecuted")) {
-                createStatRow(sheet, rowNum++, "文书检测件数", docChecked);
-                createStatRow(sheet, rowNum++, "文书通过件数", docPassed);
-                createStatRow(sheet, rowNum++, "文书失败件数", docFailed);
-                createStatRow(sheet, rowNum++, "文书级错误", docErrors);
-                if (!docExecuted) {
-                    createStatRow(sheet, rowNum++, "文书检测未执行",
-                            docSkipReason.isEmpty() ? "未执行" : "未执行（" + docSkipReason + "）");
+            // [移交校审·待删] 2026-11-13 文书级（案件质量评查）统计已移交数据校审，原实现：
+            // int docErrors = summary.path("documentQualityErrors").asInt(0);
+            // int docChecked = summary.path("documentCheckedCount").asInt(0);
+            // ... 文书检测件数 / 通过件数 / 失败件数 / 文书级错误 / 未执行
+
+            // 题名规范检查（第 4 个 tab）：未执行时据实标注，不算通过
+            int titleNormErrors = summary.path("titleNormErrors").asInt(0);
+            int titleNormChecked = summary.path("titleNormCheckedCount").asInt(0);
+            int titleNormPassed = summary.path("titleNormPassedCount").asInt(0);
+            int titleNormFailed = summary.path("titleNormFailedCount").asInt(0);
+            boolean titleNormExecuted = summary.path("titleNormExecuted").asBoolean(false);
+            String titleNormSkipReason = summary.path("titleNormSkipReason").asText("");
+            if (titleNormChecked > 0 || titleNormErrors > 0 || summary.has("titleNormExecuted")) {
+                createStatRow(sheet, rowNum++, "题名规范检测行数", titleNormChecked);
+                createStatRow(sheet, rowNum++, "题名规范通过行数", titleNormPassed);
+                createStatRow(sheet, rowNum++, "题名规范失败行数", titleNormFailed);
+                createStatRow(sheet, rowNum++, "题名规范错误", titleNormErrors);
+                if (!titleNormExecuted) {
+                    createStatRow(sheet, rowNum++, "题名规范检查未执行",
+                            titleNormSkipReason.isEmpty() ? "未执行" : "未执行（" + titleNormSkipReason + "）");
                 }
             }
         }
@@ -254,9 +260,14 @@ public class ExportQualityReportCommand extends Command {
                 createDistributionRow(sheet, rowNum++, "内容比对检查", contentErrors, totalErrors, percentStyle);
             }
             createDistributionRow(sheet, rowNum++, "图像质量检查", imageErrors, totalErrors, percentStyle);
-            int docCategoryErrors = summary == null ? 0 : summary.path("documentQualityErrors").asInt(0);
-            if (court || docCategoryErrors > 0) {
-                createDistributionRow(sheet, rowNum++, "案件质量评查", docCategoryErrors, totalErrors, percentStyle);
+            // [移交校审·待删] 2026-11-13 案件质量评查已移交数据校审：
+            // int docCategoryErrors = summary == null ? 0 : summary.path("documentQualityErrors").asInt(0);
+            // if (court || docCategoryErrors > 0) {
+            //     createDistributionRow(sheet, rowNum++, "案件质量评查", docCategoryErrors, totalErrors, percentStyle);
+            // }
+            int titleNormCategoryErrors = summary == null ? 0 : summary.path("titleNormErrors").asInt(0);
+            if (titleNormCategoryErrors > 0) {
+                createDistributionRow(sheet, rowNum++, "题名规范检查", titleNormCategoryErrors, totalErrors, percentStyle);
             }
         }
 
@@ -582,6 +593,8 @@ public class ExportQualityReportCommand extends Command {
             case "resource": return "文件资源";
             case "content": return "内容比对";
             case "image_quality": return "图像质量";
+            case "title_norm": return "题名规范";
+            // [移交校审·待删] 2026-11-13 案件质量评查已移交数据校审，历史结果仍可读出：
             case "document_quality": return "案件质量评查";
             default: return category;
         }
@@ -960,7 +973,7 @@ public class ExportQualityReportCommand extends Command {
                 addSectionTitle(document, "二、检查概况", sectHeaderFont);
                 addOverviewSection(document, headerFont, normalFont, totalRows, totalFolders, totalFiles, totalErrors,
                         checkStats, results, formatErrors, resourceErrors, contentErrors, imageErrors,
-                        true, summary == null ? 0 : summary.path("documentQualityErrors").asInt(0));
+                        true, summary == null ? 0 : summary.path("titleNormErrors").asInt(0));
                 document.add(new Paragraph(" "));
 
                 addSectionTitle(document, "三、四性检测结果汇总", sectHeaderFont);
@@ -974,7 +987,7 @@ public class ExportQualityReportCommand extends Command {
                         fileStatistics, totalRows, totalFolders, totalFiles, rulesConfig, true);
                 document.add(new Paragraph(" "));
 
-                addSectionTitle(document, "五、案件质量评查", sectHeaderFont);
+                addSectionTitle(document, "五、题名规范检查", sectHeaderFont);
                 addCaseReviewSection(document, headerFont, normalFont, smallFont, results, summary);
                 document.add(new Paragraph(" "));
 
@@ -1157,9 +1170,9 @@ public class ExportQualityReportCommand extends Command {
                                      com.itextpdf.text.Font smallFont, JsonNode results, JsonNode summary, JsonNode fileStatistics,
                                      int totalRows, int totalFolders, int totalFiles, QualityRulesConfig rulesConfig,
                                      boolean court) throws DocumentException {
-        addSubSectionTitle(document, court ? "4.1 条目与文书要素检查" : "4.1 条目与内容检查", headerFont);
+        addSubSectionTitle(document, court ? "4.1 条目与题名规范检查" : "4.1 条目与内容检查", headerFont);
         addSubSectionDesc(document, court
-                ? "检查目的：核对条目字段、文件资源关联、文书必备要素与错别字"
+                ? "检查目的：核对条目字段、文件资源关联、题名规范与错别字"
                 : "检查目的：核对条目字段、文件资源关联与内容是否一致", normalFont);
         
         document.add(new Paragraph("数据格式检查", smallFont));
@@ -1178,10 +1191,11 @@ public class ExportQualityReportCommand extends Command {
             addContentComparisonChecks(document, smallFont, results, rulesConfig, totalRows);
             document.add(new Paragraph(" "));
         } else {
-            // 法院档位不出现档案的内容比对，改为文书必备要素核对
-            document.add(new Paragraph("文书必备要素检查", smallFont));
+            // 法院档位不出现档案的内容比对，改为题名规范检查
+            // （文书必备要素核对已移交数据校审，原实现见「移交校审·待删」注释）
+            document.add(new Paragraph("题名规范检查", smallFont));
             document.add(new Paragraph(" "));
-            addCheckItemTable(document, smallFont, results, "field_missing", "文书必备要素检查");
+            addTitleNormCheckTable(document, smallFont, results, summary);
             document.add(new Paragraph(" "));
         }
 
@@ -1192,9 +1206,11 @@ public class ExportQualityReportCommand extends Command {
 
         int authenticityErrors = countErrorsByType(results, "non_empty", "unique", "regex", "date_format",
             "value_list", "content_mismatch", "content_warning", "volume_title_mismatch",
-            "field_missing", "typo");
+            "field_missing", "typo", "level_missing", "category_illegal", "template_mismatch",
+            "alias_normalize", "placeholder_missing", "party_mismatch", "template_version",
+            "title_charset", "title_length", "doc_number_format");
         String summaryText = court
-                ? "小结：本段发现" + authenticityErrors + "个问题，主要涉及条目字段、文件资源关联、文书必备要素及错别字。"
+                ? "小结：本段发现" + authenticityErrors + "个问题，主要涉及条目字段、文件资源关联、题名规范及错别字。"
                 : "小结：本段发现" + authenticityErrors + "个问题，主要涉及条目字段、文件资源关联、内容比对及错别字。";
         Paragraph summary1 = new Paragraph(summaryText, normalFont);
         summary1.setIndentationLeft(20);
@@ -1422,6 +1438,67 @@ public class ExportQualityReportCommand extends Command {
         document.add(table);
     }
 
+    /**
+     * 题名规范检查明细表（法院档位 4.1 段）：按 10 个检查项逐行统计。
+     *
+     * <p>题名规范只做单条记录与四级题名模板的比对；跨件跨卷勾稽归数据校审，不在本表出现。</p>
+     */
+    private void addTitleNormCheckTable(Document document, com.itextpdf.text.Font font,
+                                        JsonNode results, JsonNode summary) throws DocumentException {
+        String[] types = {"level_missing", "category_illegal", "template_mismatch", "alias_normalize",
+            "placeholder_missing", "party_mismatch", "template_version", "title_charset",
+            "title_length", "doc_number_format"};
+        String[] names = {"层级非空", "层级归属", "模板匹配", "别名归一", "占位符完整",
+            "当事人归属", "模板版本", "字符规范", "长度限制", "文号格式"};
+
+        int checked = summary == null ? 0 : summary.path("titleNormCheckedCount").asInt(0);
+        boolean executed = summary != null && summary.path("titleNormExecuted").asBoolean(false);
+
+        PdfPTable table = new PdfPTable(5);
+        table.setWidthPercentage(80);
+        table.setHorizontalAlignment(Element.ALIGN_LEFT);
+
+        String[] headers = {"检查项", "检查数量", "错误数", "错误率", "状态"};
+        for (String h : headers) {
+            PdfPCell cell = new PdfPCell(new Phrase(h, font));
+            cell.setBackgroundColor(BaseColor.LIGHT_GRAY);
+            cell.setPadding(3);
+            table.addCell(cell);
+        }
+
+        for (int i = 0; i < types.length; i++) {
+            int count = countErrorsByType(results, types[i]);
+            double errorRate = executed && checked > 0 ? (count * 100.0 / checked) : 0;
+            String status = executed ? (count == 0 ? "✅" : "❌") : "—";
+
+            PdfPCell nameCell = new PdfPCell(new Phrase(names[i], font));
+            nameCell.setPadding(3);
+            table.addCell(nameCell);
+
+            PdfPCell checkedCell = new PdfPCell(new Phrase(String.valueOf(checked), font));
+            checkedCell.setPadding(3);
+            table.addCell(checkedCell);
+
+            PdfPCell countCell = new PdfPCell(new Phrase(String.valueOf(count), font));
+            countCell.setPadding(3);
+            table.addCell(countCell);
+
+            PdfPCell rateCell = new PdfPCell(new Phrase(String.format("%.1f%%", errorRate), font));
+            rateCell.setPadding(3);
+            table.addCell(rateCell);
+
+            PdfPCell statusCell = new PdfPCell(new Phrase(status, font));
+            statusCell.setPadding(3);
+            statusCell.setBackgroundColor(count > 0 ? new BaseColor(255, 220, 220) : BaseColor.WHITE);
+            table.addCell(statusCell);
+        }
+
+        document.add(table);
+        if (!executed) {
+            document.add(new Paragraph("注：题名规范检查未执行（规则未启用或模板未加载），上表不计为合格。", font));
+        }
+    }
+
     private void addCheckItemsTable(Document document, com.itextpdf.text.Font font, JsonNode results, String[] errorTypes, String[] itemNames, int totalRows, int totalFolders, int totalFiles) throws DocumentException {
         JsonNode errors = results.get("errors");
 
@@ -1561,7 +1638,7 @@ public class ExportQualityReportCommand extends Command {
             document.add(new Paragraph("本次未执行四性检查（相关规则未启用）。", normalFont));
         }
         Paragraph note = new Paragraph(
-                "注：错别字计入真实性、文书必备要素缺失计入完整性；"
+                "注：错别字计入真实性、题名层级/归属与占位符缺失计入完整性、模板与写法问题计入可用性；"
                         + "工具调用失败等非四性检查项单列为“未归类”，不计入四性合计；"
                         + "未启用的四性不出章节，不按“0 问题”计为合格。", normalFont);
         note.setSpacingBefore(5);
@@ -1617,40 +1694,42 @@ public class ExportQualityReportCommand extends Command {
     private void addCaseReviewSection(Document document, com.itextpdf.text.Font headerFont,
                                       com.itextpdf.text.Font normalFont, com.itextpdf.text.Font smallFont,
                                       JsonNode results, JsonNode summary) throws DocumentException {
-        Paragraph p = new Paragraph("5.1 文书必备要素核对", headerFont);
+        Paragraph p = new Paragraph("5.1 题名规范核对", headerFont);
         p.setSpacingAfter(5);
         document.add(p);
 
-        int docChecked = summary == null ? 0 : summary.path("documentCheckedCount").asInt(0);
-        int docPassed = summary == null ? 0 : summary.path("documentPassedCount").asInt(0);
-        int docFailed = summary == null ? 0 : summary.path("documentFailedCount").asInt(0);
-        int docErrors = summary == null ? 0 : summary.path("documentQualityErrors").asInt(0);
-        boolean docExecuted = summary != null && summary.path("documentQualityExecuted").asBoolean(false);
-        String skipReason = summary == null ? "" : summary.path("documentQualitySkipReason").asText("");
+        int titleNormChecked = summary == null ? 0 : summary.path("titleNormCheckedCount").asInt(0);
+        int titleNormPassed = summary == null ? 0 : summary.path("titleNormPassedCount").asInt(0);
+        int titleNormFailed = summary == null ? 0 : summary.path("titleNormFailedCount").asInt(0);
+        int titleNormErrors = summary == null ? 0 : summary.path("titleNormErrors").asInt(0);
+        boolean titleNormExecuted = summary != null && summary.path("titleNormExecuted").asBoolean(false);
+        String skipReason = summary == null ? "" : summary.path("titleNormSkipReason").asText("");
 
         PdfPTable table = new PdfPTable(2);
         table.setWidthPercentage(80);
         table.setHorizontalAlignment(Element.ALIGN_LEFT);
         table.setWidths(new float[]{35f, 65f});
-        addInfoRow(table, "文书检测件数：", String.valueOf(docChecked), normalFont);
-        addInfoRow(table, "通过 / 失败件数：", docPassed + " / " + docFailed, normalFont);
-        addInfoRow(table, "文书必备要素缺失：", String.valueOf(docErrors), normalFont);
-        // 评查指标（图像类）替代档案的内容比对口径
-        addInfoRow(table, "重复图片：", String.valueOf(countErrorsByType(results, "repeat_image")), normalFont);
-        addInfoRow(table, "黑边：", String.valueOf(countErrorsByType(results, "edge")), normalFont);
-        addInfoRow(table, "污点：", String.valueOf(countErrorsByType(results, "stain")), normalFont);
-        addInfoRow(table, "装订孔：", String.valueOf(countErrorsByType(results, "hole")), normalFont);
-        addInfoRow(table, "倾斜 / 空白页：", countErrorsByType(results, "bias") + " / "
-                + countErrorsByType(results, "blank"), normalFont);
-        addInfoRow(table, "文书检测状态：", docExecuted ? "已执行"
+        addInfoRow(table, "检测行数：", String.valueOf(titleNormChecked), normalFont);
+        addInfoRow(table, "通过 / 失败行数：", titleNormPassed + " / " + titleNormFailed, normalFont);
+        addInfoRow(table, "题名规范问题数：", String.valueOf(titleNormErrors), normalFont);
+        addInfoRow(table, "模板匹配不通过：", String.valueOf(countErrorsByType(results, "template_mismatch")), normalFont);
+        addInfoRow(table, "别名未归一：", String.valueOf(countErrorsByType(results, "alias_normalize")), normalFont);
+        addInfoRow(table, "占位符缺失：", String.valueOf(countErrorsByType(results, "placeholder_missing")), normalFont);
+        addInfoRow(table, "层级 / 归属问题：", String.valueOf(countErrorsByType(results, "level_missing")
+                + countErrorsByType(results, "category_illegal")), normalFont);
+        addInfoRow(table, "字符 / 长度 / 文号：", String.valueOf(countErrorsByType(results, "title_charset")
+                + countErrorsByType(results, "title_length")
+                + countErrorsByType(results, "doc_number_format")), normalFont);
+        addInfoRow(table, "检查状态：", titleNormExecuted ? "已执行"
                 : (skipReason.isEmpty() ? "未执行" : "未执行（" + skipReason + "）"), normalFont);
         document.add(table);
 
-        addDocumentDetailTable(document, headerFont, normalFont, results.get("documents"));
+        // [移交校审·待删] 2026-11-13 文书必备要素明细已移交数据校审，原调用：
+        // addDocumentDetailTable(document, headerFont, normalFont, results.get("documents"));
 
         Paragraph note = new Paragraph(
-                "说明：本报告按评查口径汇总检测结果——文书必备要素缺失、重复图片等归完整性，"
-                        + "错别字归真实性；签章/指纹类判定由数据校审承担，不在本报告范围内。", smallFont);
+                "说明：题名规范检查依据四级题名模板核对层级归属、模板匹配、占位符与当事人归属、"
+                        + "字符与文号写法；问题按完整性 / 可用性归类，不涉及跨件跨卷勾稽。", smallFont);
         note.setSpacingBefore(5);
         document.add(note);
     }
@@ -2173,8 +2252,8 @@ public class ExportQualityReportCommand extends Command {
 
         dataset.setValue("数据格式检查", formatErrors);
         dataset.setValue("文件资源关联检查", resourceErrors);
-        // 法院档位不出现档案的内容比对，改为案件质量评查
-        String thirdLabel = court ? "案件质量评查" : "内容比对检查";
+        // 法院档位不出现档案的内容比对，改为题名规范检查
+        String thirdLabel = court ? "题名规范检查" : "内容比对检查";
         int thirdValue = court ? docQualityErrors : contentErrors;
         dataset.setValue(thirdLabel, thirdValue);
         dataset.setValue("图像质量检查", imageErrors);

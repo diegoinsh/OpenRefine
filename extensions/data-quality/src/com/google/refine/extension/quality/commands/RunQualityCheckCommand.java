@@ -32,6 +32,7 @@ import com.google.refine.extension.quality.checker.DocumentElementChecker;
 import com.google.refine.extension.quality.checker.FormatChecker;
 import com.google.refine.extension.quality.checker.ImageQualityChecker;
 import com.google.refine.extension.quality.checker.ResourceChecker;
+import com.google.refine.extension.quality.checker.TitleNormChecker;
 import com.google.refine.extension.quality.checker.TypoChecker;
 import com.google.refine.extension.quality.model.CheckResult;
 import com.google.refine.extension.quality.model.NatureMapping;
@@ -249,20 +250,38 @@ public class RunQualityCheckCommand extends Command {
         formatResult.setStartTime(checkStartTime);
         formatResult.setEndTime(checkEndTime);
 
-        // Run document element checks（案件质量评查：裁判文书必备要素，仅法院定制模板）
+        // [移交校审·待删] 2026-11-13 案件质量评查（裁判文书必备要素核对）整体移交数据校审。
+        // 合规侧不再执行，原实现原样保留供校审对照搬运：
+        //   按 courtProfile 用 DocumentElementChecker 读 documentQualityRule 的文书类型与必备要素，
+        //   逐件核对「该文书是否缺案号 / 日期 / 责任者等必备要素」，题名按最长模式优先匹配。
+        // CheckResult documentQualityResult = new CheckResult(DocumentElementChecker.CATEGORY);
+        // if (!dirOnly && courtProfile) {
+        //     logger.info("Running document element check");
+        //     DocumentElementChecker documentChecker = new DocumentElementChecker(view, rules);
+        //     documentQualityResult = documentChecker.runCheck();
+        //     logger.info("Document element check completed, errors: " + documentQualityResult.getErrors().size());
+        // } else {
+        //     logger.info("Skipping document element check - courtProfile=" + courtProfile + ", dirOnly=" + dirOnly);
+        //     documentQualityResult.complete();
+        // }
         CheckResult documentQualityResult = new CheckResult(DocumentElementChecker.CATEGORY);
-        if (!dirOnly && courtProfile) {
-            logger.info("Running document element check");
-            DocumentElementChecker documentChecker = new DocumentElementChecker(view, rules);
-            documentQualityResult = documentChecker.runCheck();
-            logger.info("Document element check completed, errors: " + documentQualityResult.getErrors().size());
-        } else {
-            logger.info("Skipping document element check - courtProfile=" + courtProfile + ", dirOnly=" + dirOnly);
-            documentQualityResult.complete();
+        documentQualityResult.complete();
+
+        // 题名规范检查：只做单条记录 + 四级定制模板比对；跨件跨卷勾稽归数据校审
+        logger.info("Running title norm check");
+        CheckResult titleNormResult;
+        try {
+            TitleNormChecker titleNormChecker = new TitleNormChecker(view, rules);
+            titleNormResult = titleNormChecker.runCheck();
+            logger.info("Title norm check completed, errors: " + titleNormResult.getErrors().size());
+        } catch (Exception e) {
+            logger.warn("Title norm check failed", e);
+            titleNormResult = new CheckResult(TitleNormChecker.CATEGORY);
+            titleNormResult.complete();
         }
 
         return buildResponse(totalRows, formatResult, resourceResult, contentResult, typoResult,
-                imageQualityResult, documentQualityResult, rules);
+                imageQualityResult, documentQualityResult, titleNormResult, rules);
     }
 
     /**
@@ -349,22 +368,31 @@ public class RunQualityCheckCommand extends Command {
             formatResult.setStartTime(checkStartTime);
             formatResult.setEndTime(checkEndTime);
 
-            // Phase 6: Document element checks（案件质量评查：裁判文书必备要素）
-            task.setCurrentPhase("案件质量评查");
+            // [移交校审·待删] 2026-11-13 案件质量评查（裁判文书必备要素核对）整体移交数据校审。
+            // 原异步实现原样保留供校审对照搬运：
+            //   task.setCurrentPhase("案件质量评查");
+            //   CheckResult documentQualityResult = new CheckResult(DocumentElementChecker.CATEGORY);
+            //   if (!dirOnly && courtProfile) {
+            //       DocumentElementChecker documentChecker = new DocumentElementChecker(view, rules);
+            //       documentChecker.setTask(task);
+            //       documentQualityResult = documentChecker.runCheck();
+            //       totalErrors += documentQualityResult.getErrors().size();
+            //   } else {
+            //       documentQualityResult.complete();
+            //   }
             CheckResult documentQualityResult = new CheckResult(DocumentElementChecker.CATEGORY);
-            if (!dirOnly && courtProfile) {
-                logger.info("Running async document element check");
-                DocumentElementChecker documentChecker = new DocumentElementChecker(view, rules);
-                documentChecker.setTask(task);
-                documentQualityResult = documentChecker.runCheck();
-                totalErrors += documentQualityResult.getErrors().size();
-            } else {
-                documentQualityResult.complete();
-            }
+            documentQualityResult.complete();
+
+            // Phase 6: 题名规范检查（单条记录 + 四级定制模板比对）
+            task.setCurrentPhase("题名规范检查");
+            TitleNormChecker titleNormChecker = new TitleNormChecker(view, rules);
+            titleNormChecker.setTask(task);
+            CheckResult titleNormResult = titleNormChecker.runCheck();
+            totalErrors += titleNormResult.getErrors().size();
 
             // Build and store result
             ObjectNode result = buildResponse(project.rows.size(), formatResult, resourceResult, contentResult,
-                    typoResult, imageQualityResult, documentQualityResult, rules);
+                    typoResult, imageQualityResult, documentQualityResult, titleNormResult, rules);
             task.setResult(result);
             task.setStatus(TaskStatus.COMPLETED);
             task.setCompletedAt(checkEndTime);
@@ -488,13 +516,14 @@ public class RunQualityCheckCommand extends Command {
 
     private ObjectNode buildResponse(int totalRows, CheckResult formatResult, CheckResult resourceResult, 
             CheckResult contentResult, CheckResult typoResult, CheckResult imageQualityResult,
-            CheckResult documentQualityResult, QualityRulesConfig rules) {
+            CheckResult documentQualityResult, CheckResult titleNormResult, QualityRulesConfig rules) {
         ObjectNode responseNode = mapper.createObjectNode();
         responseNode.put("code", "ok");
 
         int totalErrors = formatResult.getErrors().size() + resourceResult.getErrors().size() + 
                          contentResult.getErrors().size() + typoResult.getErrors().size() +
-                         imageQualityResult.getErrors().size() + documentQualityResult.getErrors().size();
+                         imageQualityResult.getErrors().size() + documentQualityResult.getErrors().size() +
+                         titleNormResult.getErrors().size();
 
         // 添加开始和结束时间
         responseNode.put("startTime", formatResult.getStartTime());
@@ -506,7 +535,8 @@ public class RunQualityCheckCommand extends Command {
                                      contentResult.isServiceUnavailable() || 
                                      typoResult.isServiceUnavailable() ||
                                      imageQualityResult.isServiceUnavailable() ||
-                                     documentQualityResult.isServiceUnavailable();
+                                     documentQualityResult.isServiceUnavailable() ||
+                                     titleNormResult.isServiceUnavailable();
         responseNode.put("serviceUnavailable", serviceUnavailable);
         
         String serviceUnavailableMessage = null;
@@ -547,6 +577,17 @@ public class RunQualityCheckCommand extends Command {
         summary.put("documentPassedCount", documentQualityResult.getPassedRows());
         summary.put("documentFailedCount", documentQualityResult.getFailedRows());
 
+        // 题名规范检查（第 4 个 tab）：同样如实透出「是否执行 / 为什么没执行」
+        summary.put("titleNormErrors", titleNormResult.getErrors().size());
+        summary.put("titleNormExecuted", titleNormResult.getExecuted() == null
+                ? false : titleNormResult.getExecuted());
+        if (titleNormResult.getSkipReason() != null) {
+            summary.put("titleNormSkipReason", titleNormResult.getSkipReason());
+        }
+        summary.put("titleNormCheckedCount", titleNormResult.getCheckedRows());
+        summary.put("titleNormPassedCount", titleNormResult.getPassedRows());
+        summary.put("titleNormFailedCount", titleNormResult.getFailedRows());
+
         ArrayNode allErrors = mapper.createArrayNode();
         for (CheckResult.CheckError err : formatResult.getErrors()) {
             tagNature(err, "format");
@@ -570,6 +611,10 @@ public class RunQualityCheckCommand extends Command {
         }
         for (CheckResult.CheckError err : documentQualityResult.getErrors()) {
             tagNature(err, DocumentElementChecker.CATEGORY);
+            allErrors.add(mapper.valueToTree(err));
+        }
+        for (CheckResult.CheckError err : titleNormResult.getErrors()) {
+            tagNature(err, TitleNormChecker.CATEGORY);
             allErrors.add(mapper.valueToTree(err));
         }
         responseNode.set("errors", allErrors);
@@ -617,6 +662,7 @@ public class RunQualityCheckCommand extends Command {
         responseNode.set("typoResult", mapper.valueToTree(typoResult));
         responseNode.set("imageQualityResult", mapper.valueToTree(imageQualityResult));
         responseNode.set("documentQualityResult", mapper.valueToTree(documentQualityResult));
+        responseNode.set("titleNormResult", mapper.valueToTree(titleNormResult));
 
         return responseNode;
     }
