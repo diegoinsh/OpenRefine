@@ -52,7 +52,10 @@ var QualityAlignment = {
   _templateType: '',
 
   // 文书级（案件质量评查）规则；null = 不启用
-  _documentQualityRule: null
+  _documentQualityRule: null,
+
+  // 报告视图：空 = 档案数据质量检测；'court-case-review' = 案件质量评查
+  _reportProfile: ''
 };
 
 /**
@@ -3206,7 +3209,7 @@ QualityAlignment._getColumnNameMapping = function() {
  * Find all matching columns in all project sheets
  * Returns array of { matched: true/false, columnName: actualColumnName, displayName: displayName, sheetId: sheetId }
  */
-QualityAlignment._findMatchingColumns = function(templateColumnName) {
+QualityAlignment._findMatchingColumns = function(templateColumnName, exactOnly) {
   var allColumns = [];
   var columnNames = [];
   var columnToSheetMap = {};
@@ -3247,7 +3250,7 @@ QualityAlignment._findMatchingColumns = function(templateColumnName) {
   console.log('[_findMatchingColumns] templateColumnName:', templateColumnName, 'columnNames:', columnNames);
 
   // Define fallback mappings: if primary not found, try these alternatives
-  var fallbacks = {
+  var fallbacks = exactOnly ? {} : {
     '题名': ['案卷题名', '卷内题名', '文件题名', '档案题名'],
     '成文时间': ['成文日期', '时间', '日期', '发文日期', '发文时间'],
     '文号': ['文件级档号', '文件号', '发文号', '文档号'],
@@ -3362,6 +3365,47 @@ QualityAlignment._findMatchingColumns = function(templateColumnName) {
 };
 
 /**
+ * 格式检查模板：模板 id → 字段规则，口径与平台预置模板一致。
+ * exactOnly：只按列名/别名精确匹配，不走 fallback（如 FYSS 的「题名」不应回退成「案卷题名」）。
+ */
+QualityAlignment._formatTemplateRules = {
+  // 档案著录规则-2022版
+  'document-2022': [
+    { name: '档号', rule: { nonEmpty: true, unique: true, regex: '', dateFormat: '', valueList: [] } },
+    { name: '题名', rule: { nonEmpty: true, unique: false, regex: '', dateFormat: '', valueList: [] } },
+    { name: '日期', rule: { nonEmpty: true, unique: false, regex: '', dateFormat: 'yyyyMMdd', valueList: [] } },
+    { name: '责任者', rule: { nonEmpty: true, unique: false, regex: '', dateFormat: '', valueList: [] } },
+    { name: '保管期限', rule: { nonEmpty: false, unique: false, regex: '', dateFormat: '', valueList: ['永久', '定期30年', '定期10年'] } },
+    { name: '密级', rule: { nonEmpty: false, unique: false, regex: '', dateFormat: '', valueList: ['公开', '内部', '秘密', '机密', '绝密'] } }
+  ],
+  // 法院案件质量评查规则（FYSS）：与 entry:fyss-litigation 的 formatRules 保持一致
+  'fyss-litigation': [
+    { name: '档号', rule: { nonEmpty: true, unique: false, regex: '', dateFormat: '', valueList: [] } },
+    { name: '案卷题名', exactOnly: true, rule: { nonEmpty: true, unique: false, regex: '', dateFormat: '', valueList: [] } },
+    { name: '一级分类', rule: { nonEmpty: true, unique: false, regex: '', dateFormat: '', valueList: ['正卷', '副卷'] } },
+    { name: '二级分类', rule: { nonEmpty: true, unique: false, regex: '', dateFormat: '', valueList: [] } },
+    { name: '件号', rule: { nonEmpty: true, unique: true, regex: '^\\d+$', dateFormat: '', valueList: [] } },
+    { name: '页号', rule: { nonEmpty: true, unique: false, regex: '^\\d+$', dateFormat: '', valueList: [] } },
+    { name: '题名', exactOnly: true, rule: { nonEmpty: true, unique: false, regex: '', dateFormat: '', valueList: [] } },
+    { name: '责任者', rule: { nonEmpty: true, unique: false, regex: '', dateFormat: '', valueList: [] } },
+    { name: '日期', rule: { nonEmpty: true, unique: false, regex: '', dateFormat: 'yyyy-MM-dd', valueList: [] } },
+    { name: '文件路径', rule: { nonEmpty: true, unique: false, regex: '', dateFormat: '', valueList: [] } },
+    { name: '案号', rule: { nonEmpty: false, unique: false, regex: '^[（(]\\d{4}[）)][\\u4e00-\\u9fa5A-Za-z0-9]+号$', dateFormat: '', valueList: [] } },
+    { name: '开庭时间', rule: { nonEmpty: false, unique: false, regex: '', dateFormat: 'yyyy-MM-dd HH:mm', valueList: [] } }
+  ]
+};
+
+/** 模板附带的资源关联配置：字段名在应用时按项目实际列名解析 */
+QualityAlignment._formatTemplateResource = {
+  'fyss-litigation': { pathFields: ['文件路径'], pathMode: 'separator', separator: '' }
+};
+
+/** 模板附带的报告视图：决定导出报告按档案检测还是案件质量评查口径出 */
+QualityAlignment._formatTemplateProfile = {
+  'fyss-litigation': 'court-case-review'
+};
+
+/**
  * Apply format template
  */
 QualityAlignment._applyFormatTemplate = function(templateId) {
@@ -3370,87 +3414,110 @@ QualityAlignment._applyFormatTemplate = function(templateId) {
     return;
   }
 
-  if (templateId === 'document-2022') {
-    // 档案著录规则-2022版
-    var templateRules = [
-      { name: '档号', rule: { nonEmpty: true, unique: true, regex: '', dateFormat: '', valueList: [] } },
-      { name: '题名', rule: { nonEmpty: true, unique: false, regex: '', dateFormat: '', valueList: [] } },
-      { name: '日期', rule: { nonEmpty: true, unique: false, regex: '', dateFormat: 'yyyyMMdd', valueList: [] } },
-      { name: '责任者', rule: { nonEmpty: true, unique: false, regex: '', dateFormat: '', valueList: [] } },
-      { name: '保管期限', rule: { nonEmpty: false, unique: false, regex: '', dateFormat: '', valueList: ['永久', '定期30年', '定期10年'] } },
-      { name: '密级', rule: { nonEmpty: false, unique: false, regex: '', dateFormat: '', valueList: ['公开', '内部', '秘密', '机密', '绝密'] } }
-    ];
+  var templateRules = QualityAlignment._formatTemplateRules[templateId];
+  if (!templateRules) {
+    return;
+  }
 
-    var self = this;
-    var unmatchedCount = 0;
-    this._formatRules = {};
+  var self = this;
+  var unmatchedCount = 0;
+
+  // 模板自带的界面档位与报告视图；非法院评查模板清空，避免沿用上一套档位
+  this._templateType = this._isCourtTemplate(templateId) ? templateId : '';
+  this._reportProfile = QualityAlignment._formatTemplateProfile[templateId] || '';
+  if (this._reportProfile) {
+    this._ensureDocumentQualityRule();
+  }
+
+  this._formatRules = {};
+  
+  // Track matched column names to avoid duplicates
+  var matchedColumnNames = {};
+
+  templateRules.forEach(function(item) {
+    var matches = self._findMatchingColumns(item.name, item.exactOnly);
     
-    // Track matched column names to avoid duplicates
-    var matchedColumnNames = {};
-
-    templateRules.forEach(function(item) {
-      var matches = self._findMatchingColumns(item.name);
-      
-      matches.forEach(function(match) {
-        if (match.matched) {
-          // For each sheet ID, create a separate rule
-          if (match.sheetIds && Array.isArray(match.sheetIds) && match.sheetIds.length > 0) {
-            match.sheetIds.forEach(function(sheetId) {
-              // Check if this column name + sheet ID combination has already been matched
-              var key = match.columnName + '|' + sheetId;
-              if (matchedColumnNames[key]) {
-                // Same column name + sheet ID already matched, skip this one
-                return;
-              }
-              matchedColumnNames[key] = true;
-              
-              // Store rule with additional metadata
-              var rule = JSON.parse(JSON.stringify(item.rule));
-              rule._templateName = item.name;
-              rule._matched = match.matched;
-              rule._sheetId = sheetId;
-              rule._sheetIds = [sheetId];
-              self._formatRules[key] = rule;
-            });
-          } else {
-            // No sheet IDs, create a single rule
-            if (matchedColumnNames[match.columnName]) {
-              // Same column name already matched, skip this one
+    matches.forEach(function(match) {
+      if (match.matched) {
+        // For each sheet ID, create a separate rule
+        if (match.sheetIds && Array.isArray(match.sheetIds) && match.sheetIds.length > 0) {
+          match.sheetIds.forEach(function(sheetId) {
+            // Check if this column name + sheet ID combination has already been matched
+            var key = match.columnName + '|' + sheetId;
+            if (matchedColumnNames[key]) {
+              // Same column name + sheet ID already matched, skip this one
               return;
             }
-            matchedColumnNames[match.columnName] = true;
+            matchedColumnNames[key] = true;
             
             // Store rule with additional metadata
             var rule = JSON.parse(JSON.stringify(item.rule));
             rule._templateName = item.name;
             rule._matched = match.matched;
-            rule._sheetId = '';
-            rule._sheetIds = [];
-            self._formatRules[match.columnName] = rule;
-          }
+            rule._sheetId = sheetId;
+            rule._sheetIds = [sheetId];
+            self._formatRules[key] = rule;
+          });
         } else {
-          // Unmatched column, add as is
+          // No sheet IDs, create a single rule
+          if (matchedColumnNames[match.columnName]) {
+            // Same column name already matched, skip this one
+            return;
+          }
+          matchedColumnNames[match.columnName] = true;
+          
+          // Store rule with additional metadata
           var rule = JSON.parse(JSON.stringify(item.rule));
           rule._templateName = item.name;
           rule._matched = match.matched;
           rule._sheetId = '';
           rule._sheetIds = [];
           self._formatRules[match.columnName] = rule;
-          unmatchedCount++;
         }
-      });
+      } else {
+        // Unmatched column, add as is
+        var rule = JSON.parse(JSON.stringify(item.rule));
+        rule._templateName = item.name;
+        rule._matched = match.matched;
+        rule._sheetId = '';
+        rule._sheetIds = [];
+        self._formatRules[match.columnName] = rule;
+        unmatchedCount++;
+      }
     });
+  });
 
-    this._hasUnsavedChanges = true;
-    if (this._unsavedIndicator) this._unsavedIndicator.show();
-    this._refreshFormatRulesTable();
-
-    if (unmatchedCount > 0) {
-      alert($.i18n('data-quality-extension/template-applied') + '\n' +
-            $.i18n('data-quality-extension/unmatched-columns', unmatchedCount));
-    } else {
-      alert($.i18n('data-quality-extension/template-applied'));
+  // 资源关联检查：模板声明的路径字段按项目实际列名解析后填入
+  var resourceTemplate = QualityAlignment._formatTemplateResource[templateId];
+  if (resourceTemplate) {
+    var pathFields = (resourceTemplate.pathFields || []).map(function(field) {
+      var m = self._findMatchingColumns(field, true)[0];
+      return m && m.matched ? m.columnName : null;
+    }).filter(function(field) { return !!field; });
+    if (pathFields.length > 0) {
+      this._resourceConfig.pathFields = pathFields;
+      this._resourceConfig.pathMode = resourceTemplate.pathMode || 'separator';
+      if (resourceTemplate.separator != null) {
+        this._resourceConfig.separator = resourceTemplate.separator;
+      }
     }
+    this._renderResourceCheckTab();
+  }
+
+  this._hasUnsavedChanges = true;
+  if (this._unsavedIndicator) this._unsavedIndicator.show();
+  if (this._isSetUp) {
+    // 整面板重绘，让 tab 组随模板档位切换（法院评查多出「案件质量评查」页）
+    this._renderRulesTab();
+  } else {
+    this._refreshFormatRulesTable();
+  }
+
+  if (unmatchedCount > 0) {
+    alert($.i18n('data-quality-extension/template-applied') + '\n' +
+          $.i18n('data-quality-extension/unmatched-columns', unmatchedCount));
+  } else {
+    alert($.i18n('data-quality-extension/template-applied'));
   }
 };
 
@@ -4217,6 +4284,9 @@ QualityAlignment._saveRules = function(callback, silent) {
   if (this._templateType) {
     rules.templateType = this._templateType;
   }
+  if (this._reportProfile) {
+    rules.reportProfile = this._reportProfile;
+  }
   if (this._isCourtTemplate(effectiveTemplateType) && this._documentQualityRule) {
     rules.documentQualityRule = this._documentQualityRule;
   }
@@ -4288,6 +4358,7 @@ QualityAlignment._loadRules = function() {
         // 模板类别与文书级规则：老项目为 undefined，保持原有界面
         self._templateType = response.rules.templateType || self._templateType || '';
         self._documentQualityRule = response.rules.documentQualityRule || self._documentQualityRule || null;
+        self._reportProfile = response.rules.reportProfile || self._reportProfile || '';
 
         // Re-render if already set up（整面板重绘，确保 tab 组按模板类别切换）
         if (self._isSetUp) {

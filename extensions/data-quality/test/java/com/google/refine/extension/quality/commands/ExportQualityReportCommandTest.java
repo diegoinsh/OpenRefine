@@ -50,7 +50,7 @@ public class ExportQualityReportCommandTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final String ARCHIVE_TITLE = "档案数据质量检测报告";
-    private static final String COURT_TITLE = "案件质量评查报告";
+    private static final String COURT_TITLE = "法院案件质量评查报告";
 
     private static final String EMPTY_RESULT =
             "{\"summary\":{\"totalRows\":1,\"totalErrors\":0},\"errors\":[]}";
@@ -121,34 +121,40 @@ public class ExportQualityReportCommandTest {
 
     @Test
     public void derivesNatureStatsFromErrorsWhenResultIsLegacy() throws Exception {
-        String json = "{\"summary\":{\"totalRows\":4,\"totalErrors\":2,\"formatErrors\":2},\"errors\":["
+        String json = "{\"summary\":{\"totalRows\":4,\"totalErrors\":3,\"formatErrors\":2},\"errors\":["
                 + "{\"rowIndex\":0,\"column\":\"档号\",\"value\":\"\",\"errorType\":\"non_empty\","
                 + "\"category\":\"format\",\"message\":\"不能为空\"},"
                 + "{\"rowIndex\":1,\"column\":\"题名\",\"value\":\"甲\",\"errorType\":\"typo\","
-                + "\"category\":\"format\",\"message\":\"疑似错别字\"}"
+                + "\"category\":\"format\",\"message\":\"疑似错别字\"},"
+                + "{\"rowIndex\":2,\"column\":\"案号\",\"value\":\"\",\"errorType\":\"field_missing\","
+                + "\"category\":\"document_quality\",\"message\":\"缺少必备要素：案号\"}"
                 + "]}";
-        // 只启用一条「非空」格式规则；资源检查与图像检查全部关闭
+        // 启用「档号非空」与「题名错别字」两条规则；资源检查与图像检查全部关闭
         QualityRulesConfig rules = disabledRules();
         Map<String, FormatRule> formatRules = new HashMap<>();
         FormatRule nonEmpty = new FormatRule();
         nonEmpty.setNonEmpty(true);
         formatRules.put("档号", nonEmpty);
+        FormatRule title = new FormatRule();
+        title.setTypoCheckEnabled(true);
+        formatRules.put("题名", title);
         rules.setFormatRules(formatRules);
 
         List<List<String>> rows = summarySheet(MAPPER.readTree(json), rules, "archive-four-nature");
 
+        // 完整性：non_empty 与必备要素缺失（field_missing）都归完整性
         List<String> integrity = natureRow(rows, "完整性");
-        assertNotNull(integrity, "non_empty 应归入完整性");
+        assertNotNull(integrity, "non_empty / field_missing 应归入完整性");
         assertEquals(integrity.get(1), "1");
-        assertEquals(integrity.get(2), "1");
+        assertEquals(integrity.get(2), "2");
         assertEquals(integrity.get(3), "不通过");
 
-        // typo 不是四性检查项，单列「未归类」，不计入四性
-        List<String> unknown = natureRow(rows, "未归类");
-        assertNotNull(unknown, "错别字应单列未归类");
-        assertEquals(unknown.get(2), "1");
+        // 真实性：错别字（typo）改变文字内容，归真实性
+        List<String> authenticity = natureRow(rows, "真实性");
+        assertNotNull(authenticity, "错别字应归入真实性");
+        assertEquals(authenticity.get(2), "1");
 
-        assertNull(natureRow(rows, "真实性"));
+        assertNull(natureRow(rows, "未归类"), "typo 已归真实性，不应再出现未归类");
         assertNull(natureRow(rows, "可用性"));
         assertNull(natureRow(rows, "安全性"));
     }

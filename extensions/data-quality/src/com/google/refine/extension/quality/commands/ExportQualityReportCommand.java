@@ -76,7 +76,15 @@ public class ExportQualityReportCommand extends Command {
 
             JsonNode results = mapper.readTree(resultsJson);
             // 报告视图：archive-four-nature（档案数据质量检测，缺省）/ court-case-review（案件质量评查）
-            String profile = normalizeProfile(request.getParameter("profile"));
+            // 请求未显式指定时，回落到项目规则里保存的 reportProfile（模板应用时写入）
+            String rawProfile = request.getParameter("profile");
+            if (rawProfile == null || rawProfile.trim().isEmpty()) {
+                Object rulesConfig = project.overlayModels.get(GetQualityRulesCommand.QUALITY_RULES_KEY);
+                if (rulesConfig instanceof QualityRulesConfig) {
+                    rawProfile = ((QualityRulesConfig) rulesConfig).getReportProfile();
+                }
+            }
+            String profile = normalizeProfile(rawProfile);
 
             if ("excel".equalsIgnoreCase(format)) {
                 exportExcel(response, results, project, profile);
@@ -129,6 +137,9 @@ public class ExportQualityReportCommand extends Command {
         CellStyle percentStyle = workbook.createCellStyle();
         percentStyle.setDataFormat(workbook.createDataFormat().getFormat("0.0%"));
 
+        // 法院档位：统计口径换成「法院诉讼案件质量评查」指标，不再出现档案的内容比对
+        boolean court = PROFILE_COURT_CASE_REVIEW.equals(normalizeProfile(profile));
+
         int rowNum = 0;
 
         // Title
@@ -165,7 +176,13 @@ public class ExportQualityReportCommand extends Command {
             createStatRow(sheet, rowNum++, "总错误数", totalErrors);
             createStatRow(sheet, rowNum++, "格式错误", formatErrors);
             createStatRow(sheet, rowNum++, "资源错误", resourceErrors);
-            createStatRow(sheet, rowNum++, "内容错误", contentErrors);
+            if (court) {
+                // 法院档位出「案件质量评查错误」，不出档案的内容错误
+                createStatRow(sheet, rowNum++, "案件质量评查错误",
+                        summary.path("documentQualityErrors").asInt(0));
+            } else {
+                createStatRow(sheet, rowNum++, "内容错误", contentErrors);
+            }
             createStatRow(sheet, rowNum++, "图像质量错误", imageErrors);
 
             // 文书级（案件质量评查）：未执行时据实标注，不算通过
@@ -233,10 +250,12 @@ public class ExportQualityReportCommand extends Command {
             // Data rows
             createDistributionRow(sheet, rowNum++, "数据格式检查", formatErrors, totalErrors, percentStyle);
             createDistributionRow(sheet, rowNum++, "文件资源关联检查", resourceErrors, totalErrors, percentStyle);
-            createDistributionRow(sheet, rowNum++, "内容比对检查", contentErrors, totalErrors, percentStyle);
+            if (!court) {
+                createDistributionRow(sheet, rowNum++, "内容比对检查", contentErrors, totalErrors, percentStyle);
+            }
             createDistributionRow(sheet, rowNum++, "图像质量检查", imageErrors, totalErrors, percentStyle);
             int docCategoryErrors = summary == null ? 0 : summary.path("documentQualityErrors").asInt(0);
-            if (docCategoryErrors > 0) {
+            if (court || docCategoryErrors > 0) {
                 createDistributionRow(sheet, rowNum++, "案件质量评查", docCategoryErrors, totalErrors, percentStyle);
             }
         }
@@ -264,7 +283,7 @@ public class ExportQualityReportCommand extends Command {
     }
 
     private String reportTitle(String profile) {
-        return PROFILE_COURT_CASE_REVIEW.equals(profile) ? "案件质量评查报告" : "档案数据质量检测报告";
+        return PROFILE_COURT_CASE_REVIEW.equals(profile) ? "法院案件质量评查报告" : "档案数据质量检测报告";
     }
 
     /**
@@ -940,7 +959,8 @@ public class ExportQualityReportCommand extends Command {
 
                 addSectionTitle(document, "二、检查概况", sectHeaderFont);
                 addOverviewSection(document, headerFont, normalFont, totalRows, totalFolders, totalFiles, totalErrors,
-                        checkStats, results, formatErrors, resourceErrors, contentErrors, imageErrors);
+                        checkStats, results, formatErrors, resourceErrors, contentErrors, imageErrors,
+                        true, summary == null ? 0 : summary.path("documentQualityErrors").asInt(0));
                 document.add(new Paragraph(" "));
 
                 addSectionTitle(document, "三、四性检测结果汇总", sectHeaderFont);
@@ -951,7 +971,7 @@ public class ExportQualityReportCommand extends Command {
 
                 addSectionTitle(document, "四、分项检测结果", sectHeaderFont);
                 addFourPropertiesSection(document, headerFont, normalFont, smallFont, results, summary,
-                        fileStatistics, totalRows, totalFolders, totalFiles, rulesConfig);
+                        fileStatistics, totalRows, totalFolders, totalFiles, rulesConfig, true);
                 document.add(new Paragraph(" "));
 
                 addSectionTitle(document, "五、案件质量评查", sectHeaderFont);
@@ -973,7 +993,7 @@ public class ExportQualityReportCommand extends Command {
 
                 addSectionTitle(document, "二、检查概况", sectHeaderFont);
                 addOverviewSection(document, headerFont, normalFont, totalRows, totalFolders, totalFiles, totalErrors,
-                        checkStats, results, formatErrors, resourceErrors, contentErrors, imageErrors);
+                        checkStats, results, formatErrors, resourceErrors, contentErrors, imageErrors, false, 0);
                 document.add(new Paragraph(" "));
 
                 addSectionTitle(document, "三、检测结果汇总", sectHeaderFont);
@@ -984,7 +1004,7 @@ public class ExportQualityReportCommand extends Command {
 
                 addSectionTitle(document, "四、检测结果统计详情", sectHeaderFont);
                 addFourPropertiesSection(document, headerFont, normalFont, smallFont, results, summary,
-                        fileStatistics, totalRows, totalFolders, totalFiles, rulesConfig);
+                        fileStatistics, totalRows, totalFolders, totalFiles, rulesConfig, false);
                 document.add(new Paragraph(" "));
 
                 addSectionTitle(document, "五、问题分析与建议", sectHeaderFont);
@@ -1060,7 +1080,8 @@ public class ExportQualityReportCommand extends Command {
 
     private void addOverviewSection(Document document, com.itextpdf.text.Font headerFont, com.itextpdf.text.Font normalFont,
                                int totalRows, int totalFolders, int totalFiles, int totalErrors, CheckStatistics checkStats, JsonNode results,
-                               int formatErrors, int resourceErrors, int contentErrors, int imageErrors) throws DocumentException, IOException {
+                               int formatErrors, int resourceErrors, int contentErrors, int imageErrors,
+                               boolean court, int docQualityErrors) throws DocumentException, IOException {
         Paragraph p1 = new Paragraph("总体统计", headerFont);
         p1.setSpacingAfter(5);
         document.add(p1);
@@ -1114,7 +1135,8 @@ public class ExportQualityReportCommand extends Command {
         document.add(resultTable);
         document.add(new Paragraph(" "));
 
-        addQualityChart(document, headerFont, normalFont, formatErrors, resourceErrors, contentErrors, imageErrors, totalErrors);
+        addQualityChart(document, headerFont, normalFont, formatErrors, resourceErrors, contentErrors, imageErrors,
+                totalErrors, court, docQualityErrors);
     }
 
     private void addOverviewRow(PdfPTable table, String dimension, String count, String remark, com.itextpdf.text.Font font) {
@@ -1133,9 +1155,12 @@ public class ExportQualityReportCommand extends Command {
 
     private void addFourPropertiesSection(Document document, com.itextpdf.text.Font headerFont, com.itextpdf.text.Font normalFont,
                                      com.itextpdf.text.Font smallFont, JsonNode results, JsonNode summary, JsonNode fileStatistics,
-                                     int totalRows, int totalFolders, int totalFiles, QualityRulesConfig rulesConfig) throws DocumentException {
-        addSubSectionTitle(document, "4.1 条目与内容检查", headerFont);
-        addSubSectionDesc(document, "检查目的：核对条目字段、文件资源关联与内容是否一致", normalFont);
+                                     int totalRows, int totalFolders, int totalFiles, QualityRulesConfig rulesConfig,
+                                     boolean court) throws DocumentException {
+        addSubSectionTitle(document, court ? "4.1 条目与文书要素检查" : "4.1 条目与内容检查", headerFont);
+        addSubSectionDesc(document, court
+                ? "检查目的：核对条目字段、文件资源关联、文书必备要素与错别字"
+                : "检查目的：核对条目字段、文件资源关联与内容是否一致", normalFont);
         
         document.add(new Paragraph("数据格式检查", smallFont));
         document.add(new Paragraph(" "));
@@ -1147,10 +1172,18 @@ public class ExportQualityReportCommand extends Command {
         addFileResourceChecks(document, smallFont, results, rulesConfig, totalRows, totalFolders, totalFiles);
         document.add(new Paragraph(" "));
         
-        document.add(new Paragraph("内容比对检查", smallFont));
-        document.add(new Paragraph(" "));
-        addContentComparisonChecks(document, smallFont, results, rulesConfig, totalRows);
-        document.add(new Paragraph(" "));
+        if (!court) {
+            document.add(new Paragraph("内容比对检查", smallFont));
+            document.add(new Paragraph(" "));
+            addContentComparisonChecks(document, smallFont, results, rulesConfig, totalRows);
+            document.add(new Paragraph(" "));
+        } else {
+            // 法院档位不出现档案的内容比对，改为文书必备要素核对
+            document.add(new Paragraph("文书必备要素检查", smallFont));
+            document.add(new Paragraph(" "));
+            addCheckItemTable(document, smallFont, results, "field_missing", "文书必备要素检查");
+            document.add(new Paragraph(" "));
+        }
 
         document.add(new Paragraph("错别字检查", smallFont));
         document.add(new Paragraph(" "));
@@ -1160,7 +1193,10 @@ public class ExportQualityReportCommand extends Command {
         int authenticityErrors = countErrorsByType(results, "non_empty", "unique", "regex", "date_format",
             "value_list", "content_mismatch", "content_warning", "volume_title_mismatch",
             "field_missing", "typo");
-        Paragraph summary1 = new Paragraph("小结：本段发现" + authenticityErrors + "个问题，主要涉及条目字段、文件资源关联、内容比对及错别字。", normalFont);
+        String summaryText = court
+                ? "小结：本段发现" + authenticityErrors + "个问题，主要涉及条目字段、文件资源关联、文书必备要素及错别字。"
+                : "小结：本段发现" + authenticityErrors + "个问题，主要涉及条目字段、文件资源关联、内容比对及错别字。";
+        Paragraph summary1 = new Paragraph(summaryText, normalFont);
         summary1.setIndentationLeft(20);
         summary1.setSpacingBefore(5);
         summary1.setSpacingAfter(10);
@@ -1525,7 +1561,8 @@ public class ExportQualityReportCommand extends Command {
             document.add(new Paragraph("本次未执行四性检查（相关规则未启用）。", normalFont));
         }
         Paragraph note = new Paragraph(
-                "注：四性之外的检查项（如错别字、工具调用失败）单列为“未归类”，不计入四性合计；"
+                "注：错别字计入真实性、文书必备要素缺失计入完整性；"
+                        + "工具调用失败等非四性检查项单列为“未归类”，不计入四性合计；"
                         + "未启用的四性不出章节，不按“0 问题”计为合格。", normalFont);
         note.setSpacingBefore(5);
         document.add(note);
@@ -1588,7 +1625,6 @@ public class ExportQualityReportCommand extends Command {
         int docPassed = summary == null ? 0 : summary.path("documentPassedCount").asInt(0);
         int docFailed = summary == null ? 0 : summary.path("documentFailedCount").asInt(0);
         int docErrors = summary == null ? 0 : summary.path("documentQualityErrors").asInt(0);
-        int contentErrors = summary == null ? 0 : summary.path("contentErrors").asInt(0);
         boolean docExecuted = summary != null && summary.path("documentQualityExecuted").asBoolean(false);
         String skipReason = summary == null ? "" : summary.path("documentQualitySkipReason").asText("");
 
@@ -1598,8 +1634,14 @@ public class ExportQualityReportCommand extends Command {
         table.setWidths(new float[]{35f, 65f});
         addInfoRow(table, "文书检测件数：", String.valueOf(docChecked), normalFont);
         addInfoRow(table, "通过 / 失败件数：", docPassed + " / " + docFailed, normalFont);
-        addInfoRow(table, "文书级问题数：", String.valueOf(docErrors), normalFont);
-        addInfoRow(table, "内容比对问题数：", String.valueOf(contentErrors), normalFont);
+        addInfoRow(table, "文书必备要素缺失：", String.valueOf(docErrors), normalFont);
+        // 评查指标（图像类）替代档案的内容比对口径
+        addInfoRow(table, "重复图片：", String.valueOf(countErrorsByType(results, "repeat_image")), normalFont);
+        addInfoRow(table, "黑边：", String.valueOf(countErrorsByType(results, "edge")), normalFont);
+        addInfoRow(table, "污点：", String.valueOf(countErrorsByType(results, "stain")), normalFont);
+        addInfoRow(table, "装订孔：", String.valueOf(countErrorsByType(results, "hole")), normalFont);
+        addInfoRow(table, "倾斜 / 空白页：", countErrorsByType(results, "bias") + " / "
+                + countErrorsByType(results, "blank"), normalFont);
         addInfoRow(table, "文书检测状态：", docExecuted ? "已执行"
                 : (skipReason.isEmpty() ? "未执行" : "未执行（" + skipReason + "）"), normalFont);
         document.add(table);
@@ -1607,8 +1649,8 @@ public class ExportQualityReportCommand extends Command {
         addDocumentDetailTable(document, headerFont, normalFont, results.get("documents"));
 
         Paragraph note = new Paragraph(
-                "说明：本报告按评查口径汇总检测结果——文书必备要素缺失归完整性，"
-                        + "内容与实体不符、错别字归真实性。", smallFont);
+                "说明：本报告按评查口径汇总检测结果——文书必备要素缺失、重复图片等归完整性，"
+                        + "错别字归真实性；签章/指纹类判定由数据校审承担，不在本报告范围内。", smallFont);
         note.setSpacingBefore(5);
         document.add(note);
     }
@@ -2125,12 +2167,16 @@ public class ExportQualityReportCommand extends Command {
     }
 
     private void addQualityChart(Document document, com.itextpdf.text.Font headerFont, com.itextpdf.text.Font normalFont,
-                                int formatErrors, int resourceErrors, int contentErrors, int imageErrors, int totalErrors) throws DocumentException, IOException {
+                                int formatErrors, int resourceErrors, int contentErrors, int imageErrors, int totalErrors,
+                                boolean court, int docQualityErrors) throws DocumentException, IOException {
         DefaultPieDataset dataset = new DefaultPieDataset();
-        
+
         dataset.setValue("数据格式检查", formatErrors);
         dataset.setValue("文件资源关联检查", resourceErrors);
-        dataset.setValue("内容比对检查", contentErrors);
+        // 法院档位不出现档案的内容比对，改为案件质量评查
+        String thirdLabel = court ? "案件质量评查" : "内容比对检查";
+        int thirdValue = court ? docQualityErrors : contentErrors;
+        dataset.setValue(thirdLabel, thirdValue);
         dataset.setValue("图像质量检查", imageErrors);
 
         JFreeChart chart = ChartFactory.createPieChart(
@@ -2145,7 +2191,7 @@ public class ExportQualityReportCommand extends Command {
         plot.setLabelGenerator(null);
         plot.setSectionPaint("数据格式检查", new Color(231, 76, 60));
         plot.setSectionPaint("文件资源关联检查", new Color(243, 156, 18));
-        plot.setSectionPaint("内容比对检查", new Color(52, 152, 219));
+        plot.setSectionPaint(thirdLabel, new Color(52, 152, 219));
         plot.setSectionPaint("图像质量检查", new Color(155, 89, 182));
         plot.setBackgroundPaint(Color.WHITE);
         plot.setOutlinePaint(Color.WHITE);
@@ -2175,7 +2221,7 @@ public class ExportQualityReportCommand extends Command {
 
         addLegendRow(legendTable, "数据格式检查", formatErrors, totalErrors, normalFont, new BaseColor(231, 76, 60));
         addLegendRow(legendTable, "文件资源关联检查", resourceErrors, totalErrors, normalFont, new BaseColor(243, 156, 18));
-        addLegendRow(legendTable, "内容比对检查", contentErrors, totalErrors, normalFont, new BaseColor(52, 152, 219));
+        addLegendRow(legendTable, thirdLabel, thirdValue, totalErrors, normalFont, new BaseColor(52, 152, 219));
         addLegendRow(legendTable, "图像质量检查", imageErrors, totalErrors, normalFont, new BaseColor(155, 89, 182));
 
         PdfPCell legendCell = new PdfPCell(legendTable);

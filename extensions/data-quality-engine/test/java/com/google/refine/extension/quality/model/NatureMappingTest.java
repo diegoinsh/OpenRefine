@@ -62,6 +62,9 @@ public class NatureMappingTest {
         assertEquals(NatureMapping.ofErrorType("typo", null), NatureType.AUTHENTICITY);
         assertEquals(NatureMapping.ofErrorType("llm_error", "格式"), NatureType.UNKNOWN);
         assertEquals(NatureMapping.ofErrorType(" TYPO ", null), NatureType.AUTHENTICITY);
+        // 文书必备要素缺失（评查项）是「缺」而不是「失真」，固定归完整性
+        assertEquals(NatureMapping.ofErrorType("field_missing", "document_quality"), NatureType.INTEGRITY);
+        assertEquals(NatureMapping.ofErrorType("field_missing", null), NatureType.INTEGRITY);
     }
 
     @Test

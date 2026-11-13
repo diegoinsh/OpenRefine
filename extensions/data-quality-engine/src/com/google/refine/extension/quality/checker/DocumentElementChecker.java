@@ -100,9 +100,13 @@ public class DocumentElementChecker {
                     continue;
                 }
                 Integer idx = columnIndexMap.get(field);
+                if (idx == null && "日期".equals(field)) {
+                    // 卷宗目录/著录表的列名为「成文日期」，必备要素口径写作「日期」
+                    idx = columnIndexMap.get("成文日期");
+                }
                 if (idx == null || cell(view, rowIndex, idx).isEmpty()) {
                     rowFailed = true;
-                    DocumentCheckError err = baseError(rowIndex, title, docType, archiveNo, pieceNo);
+                    DocumentCheckError err = baseDocument(rowIndex, title, docType, archiveNo, pieceNo);
                     err.setErrorType("field_missing");
                     err.setMissingField(field);
                     err.setMessage(docType.typeName + "缺少必备要素：" + field);
@@ -115,6 +119,9 @@ public class DocumentElementChecker {
                 failedDocuments++;
             } else {
                 passedDocuments++;
+                // 通过的件也要落一条明细：报告/前端的「文书级明细」是逐件清单，
+                // 只记失败件会让全部合格时明细为空（看起来像没执行）
+                result.getDocuments().add(baseDocument(rowIndex, title, docType, archiveNo, pieceNo));
             }
         }
 
@@ -156,8 +163,8 @@ public class DocumentElementChecker {
         return null;
     }
 
-    private static DocumentCheckError baseError(int rowIndex, String title, DocType docType,
-                                                String archiveNo, String pieceNo) {
+    private static DocumentCheckError baseDocument(int rowIndex, String title, DocType docType,
+                                                   String archiveNo, String pieceNo) {
         DocumentCheckError err = new DocumentCheckError();
         err.setRowIndex(rowIndex);
         err.setArchiveNo(archiveNo);

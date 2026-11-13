@@ -70,6 +70,9 @@ public class RunQualityCheckCommand extends Command {
                 respondJSON(response, createErrorResponse("error-project-not-found", "Project not found"));
                 return;
             }
+            // 判定输入固定取「条目」表：双表项目的活动表若停在目录层级表，
+            // 后续检查会按目录表取列（没有题名 → 文书级检查静默跳过、documents 为空）
+            activateEntrySheet(project);
 
             // Check if async mode is requested
             String asyncParam = request.getParameter("async");
@@ -637,6 +640,20 @@ public class RunQualityCheckCommand extends Command {
         Object kind = project.getMetadata() == null ? null
                 : project.getMetadata().getCustomMetadata(IngestProjectCommand.META_SHEET_KIND);
         return kind != null && "dir".equals(String.valueOf(kind));
+    }
+
+    /**
+     * 有「条目」表时把活动表切回它：目录层级表只有一级目录/文件数量/图像数量三列，
+     * 若活动表停留在目录表，检查取到的列与行都不是判定对象。
+     */
+    static void activateEntrySheet(Project project) {
+        if (!project.isMultiSheetProject
+                || IngestProjectCommand.ENTRY_SHEET_ID.equals(project.activeSheetId)) {
+            return;
+        }
+        if (project.getSheetData(IngestProjectCommand.ENTRY_SHEET_ID) != null) {
+            project.setActiveSheet(IngestProjectCommand.ENTRY_SHEET_ID);
+        }
     }
 
     /** 法院定制模板类别（如 fyss-litigation）：内容比对不参与，避免对人工终稿再抽取比对 */

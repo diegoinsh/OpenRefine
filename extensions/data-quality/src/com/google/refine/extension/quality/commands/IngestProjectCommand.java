@@ -355,13 +355,14 @@ public class IngestProjectCommand extends Command {
             throw new IllegalArgumentException("catalog.items 为空，无法建立条目表");
         }
         String[] headers = {"档号", "件号", "题名", "一级分类", "二级分类", "三级题名",
-                "页数", "责任者", "成文日期", "文件路径"};
+                "页数", "责任者", "成文日期", "文件路径", "案号"};
         int[] cellIndex = new int[headers.length];
         for (int i = 0; i < headers.length; i++) {
             cellIndex[i] = columnModel.allocateNewCellIndex();
             columnModel.addColumn(-1, new Column(cellIndex[i], headers[i]), false);
         }
         String volumeArchiveNo = textOf(volume, "archiveNo");
+        String volumeCaseNo = textOf(volume, "caseNo");
         String volumeLevel1 = textOf(volume, "level1");
         for (com.fasterxml.jackson.databind.JsonNode item : items) {
             com.fasterxml.jackson.databind.JsonNode pages = item.path("pages");
@@ -381,6 +382,7 @@ public class IngestProjectCommand extends Command {
             row.setCell(cellIndex[7], new Cell(textOf(item, "responsible"), null));
             row.setCell(cellIndex[8], new Cell(textOf(item, "docDate"), null));
             row.setCell(cellIndex[9], new Cell(parentOf(firstFile, imageRoot), null));
+            row.setCell(cellIndex[10], new Cell(volumeCaseNo, null));
             rows.add(row);
         }
     }
