@@ -65,9 +65,13 @@ public class ExportQualityReportCommand extends Command {
         }
 
         try {
-            Project project = getProject(request);
             String format = request.getParameter("format");
-            String resultsJson = request.getParameter("results");
+            // 入参名：编排统一报告（profile=archive-inspection）按契约用 payload；
+            // 旧入口沿用 results。两者都给时以 payload 为准。
+            String resultsJson = request.getParameter("payload");
+            if (resultsJson == null || resultsJson.isEmpty()) {
+                resultsJson = request.getParameter("results");
+            }
 
             if (resultsJson == null || resultsJson.isEmpty()) {
                 response.sendError(HttpServletResponse.SC_BAD_REQUEST, "No results data provided");
@@ -76,8 +80,15 @@ public class ExportQualityReportCommand extends Command {
 
             JsonNode results = mapper.readTree(resultsJson);
             // 报告视图：archive-four-nature（档案数据质量检测，缺省）/ court-case-review（案件质量评查）
+            //          / archive-inspection（编排统一归档检查报告，不依赖 OR 项目）
             // 请求未显式指定时，回落到项目规则里保存的 reportProfile（模板应用时写入）
             String rawProfile = request.getParameter("profile");
+            boolean archiveInspection = PROFILE_ARCHIVE_INSPECTION.equals(normalizeProfile(rawProfile));
+            Project project = archiveInspection ? null : getProject(request);
+            if (archiveInspection) {
+                exportArchiveInspection(response, results, format);
+                return;
+            }
             if (rawProfile == null || rawProfile.trim().isEmpty()) {
                 Object rulesConfig = project.overlayModels.get(GetQualityRulesCommand.QUALITY_RULES_KEY);
                 if (rulesConfig instanceof QualityRulesConfig) {
@@ -130,6 +141,356 @@ public class ExportQualityReportCommand extends Command {
 
             workbook.write(out);
         }
+    }
+
+    // ================= 归档检查编排报告（profile=archive-inspection） =================
+
+    /**
+     * 编排统一归档检查报告：输入为 RCP 编排结果（{@code summary} + {@code issues}）。
+     *
+     * <p>不依赖 OR 项目（无需 projectId），只排版不重算；与合规报告一致，直接写 response，不落盘。</p>
+     */
+    private void exportArchiveInspection(HttpServletResponse response, JsonNode results, String format)
+            throws IOException, DocumentException {
+        String fmt = format == null ? "xlsx" : format.trim().toLowerCase();
+        if ("pdf".equals(fmt)) {
+            exportArchiveInspectionPdf(response, results);
+            return;
+        }
+        if ("xlsx".equals(fmt) || "excel".equals(fmt)) {
+            exportArchiveInspectionExcel(response, results);
+            return;
+        }
+        response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid format: " + format);
+    }
+
+    private void exportArchiveInspectionExcel(HttpServletResponse response, JsonNode results)
+            throws IOException {
+        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        response.setHeader("Content-Disposition", "attachment; filename=archive_inspection_report.xlsx");
+
+        try (Workbook workbook = new XSSFWorkbook();
+             OutputStream out = response.getOutputStream()) {
+            CellStyle headerStyle = createHeaderStyle(workbook);
+            Sheet summarySheet = workbook.createSheet("汇总");
+            createArchiveInspectionSummarySheet(workbook, summarySheet, results, headerStyle);
+            Sheet issuesSheet = workbook.createSheet("问题清单");
+            createArchiveInspectionIssuesSheet(workbook, issuesSheet, results, headerStyle);
+            workbook.write(out);
+        }
+    }
+
+    private void createArchiveInspectionSummarySheet(Workbook workbook, Sheet sheet, JsonNode results,
+                                                     CellStyle headerStyle) {
+        JsonNode summary = results.path("summary");
+        int rowNum = 0;
+        Row title = sheet.createRow(rowNum++);
+        Cell titleCell = title.createCell(0);
+        titleCell.setCellValue("归档检查报告");
+        titleCell.setCellStyle(headerStyle);
+
+        rowNum++;
+        rowNum = summaryRow(sheet, rowNum, "项目编号", results.path("projectId").asText(""));
+        rowNum = summaryRow(sheet, rowNum, "档号", firstArchiveNo(results));
+        rowNum = summaryRow(sheet, rowNum, "编排轮次", results.path("round").asText(""));
+        rowNum = summaryRow(sheet, rowNum, "编排状态", results.path("status").asText(""));
+        rowNum = summaryRow(sheet, rowNum, "问题总数", summary.path("total").asText("0"));
+        rowNum = summaryRow(sheet, rowNum, "阻断（blocking）", summary.path("blocking").asText("0"));
+        rowNum = summaryRow(sheet, rowNum, "警告（warning）", summary.path("warning").asText("0"));
+        rowNum = summaryRow(sheet, rowNum, "提示（info）", summary.path("info").asText("0"));
+        rowNum = summaryRow(sheet, rowNum, "合规侧状态", summary.path("complianceStatus").asText(""));
+        rowNum = summaryRow(sheet, rowNum, "校审侧状态", summary.path("reviewStatus").asText(""));
+        rowNum = summaryRow(sheet, rowNum, "编排错误数", summary.path("errorCount").asText("0"));
+        rowNum = summaryRow(sheet, rowNum, "问题清单是否截断",
+                summary.path("truncated").asBoolean(false) ? "是（已截断）" : "否");
+
+        rowNum++;
+        rowNum = distributionTable(workbook, sheet, rowNum, "四性分布", "byNature", summary, headerStyle);
+        rowNum = distributionTable(workbook, sheet, rowNum, "维度分布", "byDimension", summary, headerStyle);
+        distributionTable(workbook, sheet, rowNum, "来源分布", "bySource", summary, headerStyle);
+        sheet.setColumnWidth(0, 24 * 256);
+        sheet.setColumnWidth(1, 24 * 256);
+        sheet.setColumnWidth(2, 12 * 256);
+    }
+
+    private static int summaryRow(Sheet sheet, int rowNum, String name, String value) {
+        Row row = sheet.createRow(rowNum);
+        row.createCell(0).setCellValue(name);
+        row.createCell(1).setCellValue(value == null ? "" : value);
+        return rowNum + 1;
+    }
+
+    private static int distributionTable(Workbook workbook, Sheet sheet, int rowNum, String title,
+                                         String field, JsonNode summary, CellStyle headerStyle) {
+        Row head = sheet.createRow(rowNum++);
+        Cell c0 = head.createCell(0);
+        c0.setCellValue(title);
+        c0.setCellStyle(headerStyle);
+        head.createCell(1).setCellValue("分类");
+        head.createCell(2).setCellValue("数量");
+        JsonNode node = summary.path(field);
+        Iterator<Map.Entry<String, JsonNode>> it = node.fields();
+        while (it.hasNext()) {
+            Map.Entry<String, JsonNode> e = it.next();
+            Row row = sheet.createRow(rowNum++);
+            row.createCell(1).setCellValue(enumLabel(enumField(field), e.getKey()));
+            row.createCell(2).setCellValue(e.getValue().asInt(0));
+        }
+        return rowNum + 1;
+    }
+
+    /** 汇总里的分布表字段名 → 枚举字段名（byNature → nature）。 */
+    private static String enumField(String summaryField) {
+        if (summaryField == null) {
+            return "";
+        }
+        return summaryField.startsWith("by") && summaryField.length() > 2
+                ? summaryField.substring(2).toLowerCase() : summaryField.toLowerCase();
+    }
+
+    /** 枚举展示名映射（契约 §5：未知值原样输出，不报错）。 */
+    private static final Map<String, Map<String, String>> ENUM_LABELS = enumLabels();
+
+    private static Map<String, Map<String, String>> enumLabels() {
+        Map<String, Map<String, String>> labels = new HashMap<>();
+        labels.put("source", labels("compliance", "合规审查", "review", "数据校审"));
+        labels.put("dimension", labels("format", "格式", "image", "图像", "content", "内容",
+                "completeness", "完整性", "signature", "签章", "ordering", "顺序",
+                "reconciliation", "勾稽", "volume", "卷级"));
+        labels.put("nature", labels("authenticity", "真实性", "completeness", "完整性",
+                "usability", "可用性", "security", "安全性"));
+        labels.put("severity", labels("blocking", "阻断", "warning", "警告", "info", "提示"));
+        labels.put("scope", labels("row", "行", "page", "页", "piece", "件", "volume", "卷"));
+        labels.put("status", labels("open", "待处理", "fixed", "已修复",
+                "persisting", "仍存在", "new", "新增"));
+        return labels;
+    }
+
+    private static Map<String, String> labels(String... pairs) {
+        Map<String, String> out = new HashMap<>();
+        for (int i = 0; i + 1 < pairs.length; i += 2) {
+            out.put(pairs[i], pairs[i + 1]);
+        }
+        return out;
+    }
+
+    /**
+     * 枚举展示名（契约 §5：按中文名映射渲染，未知值原样输出，不报错、不计入识别错误）。
+     */
+    private static String enumLabel(String field, String value) {
+        if (value == null || value.isEmpty()) {
+            return "";
+        }
+        String raw = value.trim();
+        Map<String, String> fieldLabels = ENUM_LABELS.get(field == null ? "" : field.toLowerCase());
+        if (fieldLabels == null) {
+            return raw;
+        }
+        String label = fieldLabels.get(raw.toLowerCase());
+        return label == null ? raw : label;
+    }
+
+    /** 档号：优先 {@code payload.archiveNo}，其次取首个问题的 {@code location.archiveNo}；都缺则留空。 */
+    private static String firstArchiveNo(JsonNode results) {
+        String direct = results.path("archiveNo").asText("");
+        if (!direct.isEmpty()) {
+            return direct;
+        }
+        for (JsonNode issue : results.path("issues")) {
+            String archiveNo = issue.path("location").path("archiveNo").asText("");
+            if (!archiveNo.isEmpty()) {
+                return archiveNo;
+            }
+        }
+        return "";
+    }
+
+    private static final String[] INSPECTION_ISSUE_HEADERS = {
+            "来源", "维度", "四性", "级别", "范围", "卷号", "件号", "件题名", "页码",
+            "规则key", "规则名称", "期望", "实际", "整改提示", "状态", "issueKey"
+    };
+
+    private void createArchiveInspectionIssuesSheet(Workbook workbook, Sheet sheet, JsonNode results,
+                                                    CellStyle headerStyle) {
+        Row header = sheet.createRow(0);
+        for (int i = 0; i < INSPECTION_ISSUE_HEADERS.length; i++) {
+            Cell cell = header.createCell(i);
+            cell.setCellValue(INSPECTION_ISSUE_HEADERS[i]);
+            cell.setCellStyle(headerStyle);
+        }
+        int rowNum = 1;
+        for (JsonNode issue : sortedIssues(results.path("issues"))) {
+            JsonNode location = issue.path("location");
+            JsonNode rule = issue.path("rule");
+            Row row = sheet.createRow(rowNum++);
+            int col = 0;
+            row.createCell(col++).setCellValue(enumLabel("source", issue.path("source").asText("")));
+            row.createCell(col++).setCellValue(enumLabel("dimension", issue.path("dimension").asText("")));
+            row.createCell(col++).setCellValue(enumLabel("nature", issue.path("nature").asText("")));
+            row.createCell(col++).setCellValue(enumLabel("severity", issue.path("severity").asText("")));
+            row.createCell(col++).setCellValue(enumLabel("scope", issue.path("scope").asText("")));
+            row.createCell(col++).setCellValue(location.path("volumeNo").asText(""));
+            row.createCell(col++).setCellValue(location.path("pieceNo").asText(""));
+            row.createCell(col++).setCellValue(location.path("pieceTitle").asText(""));
+            row.createCell(col++).setCellValue(location.path("page").asText(""));
+            row.createCell(col++).setCellValue(rule.path("key").asText(""));
+            row.createCell(col++).setCellValue(rule.path("name").asText(""));
+            row.createCell(col++).setCellValue(issue.path("expected").asText(""));
+            row.createCell(col++).setCellValue(issue.path("actual").asText(""));
+            row.createCell(col++).setCellValue(issue.path("fixHint").asText(""));
+            row.createCell(col++).setCellValue(enumLabel("status", issue.path("status").asText("")));
+            row.createCell(col).setCellValue(issue.path("issueKey").asText(""));
+        }
+        int[] widths = {10, 12, 12, 10, 8, 8, 8, 24, 8, 18, 18, 18, 32, 24, 8, 40};
+        for (int i = 0; i < widths.length; i++) {
+            sheet.setColumnWidth(i, widths[i] * 256);
+        }
+    }
+
+    /** 排序：级别（blocking→warning→info）→ 来源 → 卷号 → 件号 → 页码 → 规则key。 */
+    private static List<JsonNode> sortedIssues(JsonNode issues) {
+        List<JsonNode> list = new ArrayList<>();
+        if (issues != null && issues.isArray()) {
+            for (JsonNode n : issues) {
+                list.add(n);
+            }
+        }
+        list.sort((a, b) -> {
+            int c = Integer.compare(severityRank(a.path("severity").asText("")),
+                    severityRank(b.path("severity").asText("")));
+            if (c != 0) {
+                return c;
+            }
+            c = a.path("source").asText("").compareTo(b.path("source").asText(""));
+            if (c != 0) {
+                return c;
+            }
+            c = a.path("location").path("volumeNo").asText("")
+                    .compareTo(b.path("location").path("volumeNo").asText(""));
+            if (c != 0) {
+                return c;
+            }
+            c = a.path("location").path("pieceNo").asText("")
+                    .compareTo(b.path("location").path("pieceNo").asText(""));
+            if (c != 0) {
+                return c;
+            }
+            c = a.path("location").path("page").asText("")
+                    .compareTo(b.path("location").path("page").asText(""));
+            if (c != 0) {
+                return c;
+            }
+            return a.path("rule").path("key").asText("").compareTo(b.path("rule").path("key").asText(""));
+        });
+        return list;
+    }
+
+    private static int severityRank(String severity) {
+        if ("blocking".equals(severity)) {
+            return 0;
+        }
+        if ("warning".equals(severity)) {
+            return 1;
+        }
+        if ("info".equals(severity)) {
+            return 2;
+        }
+        return 3;
+    }
+
+    private void exportArchiveInspectionPdf(HttpServletResponse response, JsonNode results)
+            throws IOException, DocumentException {
+        response.setContentType("application/pdf");
+        response.setHeader("Content-Disposition", "attachment; filename=archive_inspection_report.pdf");
+
+        try (OutputStream out = response.getOutputStream()) {
+            Document document = new Document(PageSize.A4.rotate(), 28, 28, 28, 28);
+            PdfWriter.getInstance(document, out);
+            document.open();
+
+            BaseFont bf = BaseFont.createFont("STSong-Light", "UniGB-UCS2-H", BaseFont.NOT_EMBEDDED);
+            com.itextpdf.text.Font titleFont = new com.itextpdf.text.Font(bf, 18, com.itextpdf.text.Font.BOLD);
+            com.itextpdf.text.Font sectFont = new com.itextpdf.text.Font(bf, 13, com.itextpdf.text.Font.BOLD);
+            com.itextpdf.text.Font normalFont = new com.itextpdf.text.Font(bf, 9);
+            com.itextpdf.text.Font headFont = new com.itextpdf.text.Font(bf, 9, com.itextpdf.text.Font.BOLD);
+
+            Paragraph title = new Paragraph("归档检查报告", titleFont);
+            title.setAlignment(Element.ALIGN_CENTER);
+            title.setSpacingAfter(16);
+            document.add(title);
+
+            JsonNode summary = results.path("summary");
+            Paragraph basic = new Paragraph("项目编号：" + results.path("projectId").asText("")
+                    + "    档号：" + firstArchiveNo(results)
+                    + "    轮次：" + results.path("round").asText("")
+                    + "    状态：" + results.path("status").asText("")
+                    + "    问题总数：" + summary.path("total").asText("0")
+                    + "（阻断 " + summary.path("blocking").asText("0")
+                    + " / 警告 " + summary.path("warning").asText("0")
+                    + " / 提示 " + summary.path("info").asText("0") + "）", normalFont);
+            basic.setSpacingAfter(6);
+            document.add(basic);
+
+            Paragraph statuses = new Paragraph("合规侧：" + summary.path("complianceStatus").asText("-")
+                    + "    校审侧：" + summary.path("reviewStatus").asText("-")
+                    + "    编排错误数：" + summary.path("errorCount").asText("0")
+                    + (summary.path("truncated").asBoolean(false) ? "    【问题清单已截断】" : ""), normalFont);
+            statuses.setSpacingAfter(14);
+            document.add(statuses);
+
+            Paragraph issuesTitle = new Paragraph("问题清单", sectFont);
+            issuesTitle.setSpacingAfter(8);
+            document.add(issuesTitle);
+
+            String[] heads = {"#", "来源", "维度", "四性", "级别", "位置", "规则", "期望", "实际", "整改提示", "状态"};
+            float[] widths = {4, 8, 9, 9, 8, 20, 14, 12, 26, 18, 8};
+            PdfPTable table = new PdfPTable(widths.length);
+            table.setWidthPercentage(100);
+            table.setWidths(widths);
+            for (String h : heads) {
+                PdfPCell cell = new PdfPCell(new Phrase(h, headFont));
+                cell.setHorizontalAlignment(Element.ALIGN_CENTER);
+                cell.setBackgroundColor(new BaseColor(230, 236, 245));
+                table.addCell(cell);
+            }
+            int idx = 1;
+            for (JsonNode issue : sortedIssues(results.path("issues"))) {
+                JsonNode location = issue.path("location");
+                JsonNode rule = issue.path("rule");
+                String where = join(location.path("volumeNo").asText(""),
+                        location.path("pieceNo").asText(""),
+                        location.path("pieceTitle").asText(""),
+                        location.path("page").asText(""));
+                table.addCell(new Phrase(String.valueOf(idx++), normalFont));
+                table.addCell(new Phrase(enumLabel("source", issue.path("source").asText("")), normalFont));
+                table.addCell(new Phrase(enumLabel("dimension", issue.path("dimension").asText("")), normalFont));
+                table.addCell(new Phrase(enumLabel("nature", issue.path("nature").asText("")), normalFont));
+                table.addCell(new Phrase(enumLabel("severity", issue.path("severity").asText("")), normalFont));
+                table.addCell(new Phrase(where, normalFont));
+                table.addCell(new Phrase(rule.path("name").asText(rule.path("key").asText("")), normalFont));
+                table.addCell(new Phrase(issue.path("expected").asText(""), normalFont));
+                table.addCell(new Phrase(issue.path("actual").asText(""), normalFont));
+                table.addCell(new Phrase(issue.path("fixHint").asText(""), normalFont));
+                table.addCell(new Phrase(enumLabel("status", issue.path("status").asText("")), normalFont));
+            }
+            document.add(table);
+            document.close();
+        }
+    }
+
+    /** 位置拼接：卷/件/题名/页，只拼非空部分。 */
+    private static String join(String... parts) {
+        StringBuilder sb = new StringBuilder();
+        for (String p : parts) {
+            if (p == null || p.isEmpty()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(' ');
+            }
+            sb.append(p);
+        }
+        return sb.toString();
     }
 
     private void createSummarySheet(Workbook workbook, Sheet sheet, JsonNode results, Project project,
@@ -282,6 +643,9 @@ public class ExportQualityReportCommand extends Command {
     /** 报告视图：档案数据质量检测（缺省）。 */
     private static final String PROFILE_ARCHIVE_FOUR_NATURE = "archive-four-nature";
 
+    /** 报告视图：编排统一归档检查报告（合规+校审 issues），不依赖 OR 项目。 */
+    private static final String PROFILE_ARCHIVE_INSPECTION = "archive-inspection";
+
     private static String normalizeProfile(String profile) {
         if (profile == null || profile.trim().isEmpty()) {
             return PROFILE_ARCHIVE_FOUR_NATURE;
@@ -289,6 +653,9 @@ public class ExportQualityReportCommand extends Command {
         String p = profile.trim().toLowerCase();
         if (PROFILE_COURT_CASE_REVIEW.equals(p) || "court".equals(p) || "case-review".equals(p)) {
             return PROFILE_COURT_CASE_REVIEW;
+        }
+        if (PROFILE_ARCHIVE_INSPECTION.equals(p)) {
+            return PROFILE_ARCHIVE_INSPECTION;
         }
         return PROFILE_ARCHIVE_FOUR_NATURE;
     }

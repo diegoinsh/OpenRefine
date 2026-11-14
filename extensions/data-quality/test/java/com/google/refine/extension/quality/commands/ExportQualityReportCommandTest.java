@@ -315,4 +315,84 @@ public class ExportQualityReportCommandTest {
         }
         return null;
     }
+
+    // ------------------------------------------- 编排统一报告（profile=archive-inspection）
+
+    @Test
+    public void enumLabelsRenderChineseAndKeepUnknownValues() throws Exception {
+        assertEquals(enumLabel("source", "compliance"), "合规审查");
+        assertEquals(enumLabel("dimension", "completeness"), "完整性");
+        assertEquals(enumLabel("nature", "authenticity"), "真实性");
+        assertEquals(enumLabel("severity", "blocking"), "阻断");
+        assertEquals(enumLabel("scope", "piece"), "件");
+        assertEquals(enumLabel("status", "open"), "待处理");
+        // 未知值原样输出，不报错
+        assertEquals(enumLabel("dimension", "custom-x"), "custom-x");
+        assertEquals(enumLabel("status", ""), "");
+        assertEquals(enumField("byNature"), "nature");
+        assertEquals(enumField("byDimension"), "dimension");
+    }
+
+    @Test
+    public void archiveNoFallsBackToFirstIssueLocation() throws Exception {
+        assertEquals(firstArchiveNo(MAPPER.readTree(
+                "{\"archiveNo\":\"ZJ01-2026-M1-0128\",\"issues\":[]}")), "ZJ01-2026-M1-0128");
+
+        assertEquals(firstArchiveNo(MAPPER.readTree("{\"projectId\":\"p1\",\"issues\":["
+                + "{\"location\":{\"volumeNo\":\"1\",\"pieceNo\":\"3\",\"archiveNo\":\"HB07-2024-M1-1836\"}}]}")),
+                "HB07-2024-M1-1836");
+
+        assertEquals(firstArchiveNo(MAPPER.readTree("{\"issues\":[]}")), "");
+    }
+
+    @Test
+    public void issuesSheetWritesChineseLabelsAndPieceTitle() throws Exception {
+        JsonNode results = MAPPER.readTree("{\"projectId\":\"p1\",\"issues\":["
+                + "{\"issueKey\":\"review|1|3|missing_page\",\"source\":\"review\","
+                + "\"dimension\":\"completeness\",\"nature\":\"completeness\",\"severity\":\"blocking\","
+                + "\"scope\":\"piece\",\"status\":\"open\","
+                + "\"location\":{\"volumeNo\":\"1\",\"pieceNo\":\"3\",\"pieceTitle\":\"民事起诉状\",\"page\":\"2\"},"
+                + "\"rule\":{\"key\":\"missing_page\",\"name\":\"缺页\"},"
+                + "\"message\":\"件 3 缺页：2\"}]}");
+        Workbook workbook = new XSSFWorkbook();
+        try {
+            Sheet sheet = workbook.createSheet("问题清单");
+            Method m = ExportQualityReportCommand.class.getDeclaredMethod(
+                    "createArchiveInspectionIssuesSheet", Workbook.class, Sheet.class, JsonNode.class,
+                    org.apache.poi.ss.usermodel.CellStyle.class);
+            m.setAccessible(true);
+            m.invoke(new ExportQualityReportCommand(), workbook, sheet, results, null);
+
+            Row row = sheet.getRow(1);
+            assertEquals(cellText(row.getCell(0)), "数据校审");
+            assertEquals(cellText(row.getCell(1)), "完整性");
+            assertEquals(cellText(row.getCell(2)), "完整性");
+            assertEquals(cellText(row.getCell(3)), "阻断");
+            assertEquals(cellText(row.getCell(4)), "件");
+            assertEquals(cellText(row.getCell(5)), "1");
+            assertEquals(cellText(row.getCell(6)), "3");
+            assertEquals(cellText(row.getCell(7)), "民事起诉状");
+            assertEquals(cellText(row.getCell(14)), "待处理");
+        } finally {
+            workbook.close();
+        }
+    }
+
+    private static String enumLabel(String field, String value) throws Exception {
+        Method m = ExportQualityReportCommand.class.getDeclaredMethod("enumLabel", String.class, String.class);
+        m.setAccessible(true);
+        return (String) m.invoke(null, field, value);
+    }
+
+    private static String enumField(String summaryField) throws Exception {
+        Method m = ExportQualityReportCommand.class.getDeclaredMethod("enumField", String.class);
+        m.setAccessible(true);
+        return (String) m.invoke(null, summaryField);
+    }
+
+    private static String firstArchiveNo(JsonNode results) throws Exception {
+        Method m = ExportQualityReportCommand.class.getDeclaredMethod("firstArchiveNo", JsonNode.class);
+        m.setAccessible(true);
+        return (String) m.invoke(null, results);
+    }
 }
