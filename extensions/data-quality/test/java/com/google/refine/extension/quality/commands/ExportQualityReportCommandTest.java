@@ -378,6 +378,42 @@ public class ExportQualityReportCommandTest {
         }
     }
 
+    /** 契约自检（§5）：16 列表头顺序固定，问题按 severity（blocking→warning→info）排序。 */
+    @Test
+    public void issueSheetHeadersAndSortFollowContract() throws Exception {
+        JsonNode results = MAPPER.readTree("{\"projectId\":\"p1\",\"issues\":["
+                + "{\"issueKey\":\"r|1|9|b\",\"source\":\"review\",\"dimension\":\"completeness\","
+                + "\"nature\":\"completeness\",\"severity\":\"warning\",\"scope\":\"piece\",\"status\":\"open\","
+                + "\"location\":{\"volumeNo\":\"1\",\"pieceNo\":\"9\",\"pieceTitle\":\"送达回证\"},"
+                + "\"rule\":{\"key\":\"piece_order\"}},"
+                + "{\"issueKey\":\"c|1|2|a\",\"source\":\"compliance\",\"dimension\":\"format\","
+                + "\"nature\":\"usability\",\"severity\":\"blocking\",\"scope\":\"row\",\"status\":\"open\","
+                + "\"location\":{\"archiveNo\":\"A1\",\"pieceNo\":\"2\"},"
+                + "\"rule\":{\"key\":\"non_empty\"}}]}");
+        Workbook workbook = new XSSFWorkbook();
+        try {
+            Sheet sheet = workbook.createSheet("问题清单");
+            Method m = ExportQualityReportCommand.class.getDeclaredMethod(
+                    "createArchiveInspectionIssuesSheet", Workbook.class, Sheet.class, JsonNode.class,
+                    org.apache.poi.ss.usermodel.CellStyle.class);
+            m.setAccessible(true);
+            m.invoke(new ExportQualityReportCommand(), workbook, sheet, results, null);
+
+            String[] expected = {"来源", "维度", "四性", "级别", "范围", "卷号", "件号", "件题名", "页码",
+                    "规则key", "规则名称", "期望", "实际", "整改提示", "状态", "issueKey"};
+            Row head = sheet.getRow(0);
+            assertEquals(expected.length, (int) head.getLastCellNum());
+            for (int i = 0; i < expected.length; i++) {
+                assertEquals(cellText(head.getCell(i)), expected[i]);
+            }
+            // blocking 先于 warning
+            assertEquals("non_empty", cellText(sheet.getRow(1).getCell(9)));
+            assertEquals("piece_order", cellText(sheet.getRow(2).getCell(9)));
+        } finally {
+            workbook.close();
+        }
+    }
+
     private static String enumLabel(String field, String value) throws Exception {
         Method m = ExportQualityReportCommand.class.getDeclaredMethod("enumLabel", String.class, String.class);
         m.setAccessible(true);

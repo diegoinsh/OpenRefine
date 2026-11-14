@@ -174,7 +174,7 @@ public class NatureMappingTest {
     }
 
     @Test
-    public void ruleStatsCountsDocumentChecks() {
+    public void ruleStatsExcludesDocumentChecksMovedToReview() {
         QualityRulesConfig config = new QualityRulesConfig();
         config.setResourceConfig(new ResourceCheckConfig(
                 "", new ArrayList<>(), "separator", "", "",
@@ -191,8 +191,8 @@ public class NatureMappingTest {
         document.put("documentTypes", Arrays.asList(judgment, mediation));
         config.setDocumentQualityRule(document);
 
-        // 只有声明了必备要素的文书类型计 1 项，且归完整性
-        assertEquals(NatureMapping.ruleStats(config).get("integrity"), Integer.valueOf(1));
+        // 文书必备要素校验已移交数据校审（2026-11-13），合规四性不再计入该项
+        assertEquals(NatureMapping.ruleStats(config).get("integrity"), Integer.valueOf(0));
         assertEquals(NatureMapping.ruleStats(config).get("authenticity"), Integer.valueOf(0));
     }
 
