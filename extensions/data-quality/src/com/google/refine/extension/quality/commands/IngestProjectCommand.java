@@ -104,6 +104,13 @@ public class IngestProjectCommand extends Command {
 
     /** 项目元数据键：记录当前项目里有哪些表（entry / dir / both）；检查入口据此判定是否跳过条目类检查。 */
     public static final String META_SHEET_KIND = "ssoSheetKind";
+    /**
+     * 项目元数据键：catalog 的三级字段口径（{@code new} / {@code legacy} / {@code mixed}）。
+     * 2026-11-15 起 {@code level3Title} 表示「三级材料类别」、{@code level4Title} 表示四级件题名；
+     * 此前下游回传的 {@code level3Title} 实为定制后的四级题名（无 level4Title），
+     * 导入时按 legacy 处理，绝不能当成材料类别。
+     */
+    public static final String META_CATALOG_SEMANTICS = "catalogSemantics";
 
     private static final String[] DIGITS = {"零", "一", "二", "三", "四", "五", "六", "七", "八", "九"};
 
@@ -226,9 +233,10 @@ public class IngestProjectCommand extends Command {
 
         boolean hasEntrySource = excel != null || catalog != null;
         DirScan scan = imageRoot != null ? scanDirectories(imageRoot) : null;
+        String catalogSemantics = null;
         if (hasEntrySource && scan != null) {
             SheetData entry = new SheetData(ENTRY_SHEET_ID, ENTRY_SHEET_NAME, "");
-            applyEntrySource(entry.columnModel, entry.rows, excel, catalog, imageRoot);
+            catalogSemantics = applyEntrySource(entry.columnModel, entry.rows, excel, catalog, imageRoot);
             SheetData dir = new SheetData(DIR_SHEET_ID, DIR_SHEET_NAME, "");
             applyDirectory(dir.columnModel, dir.rows, scan);
             project.addSheetData(entry);
@@ -238,11 +246,14 @@ public class IngestProjectCommand extends Command {
             dir.columnModel.update();
             metadata.setCustomMetadata(META_SHEET_KIND, "both");
         } else if (hasEntrySource) {
-            applyEntrySource(project.columnModel, project.rows, excel, catalog, imageRoot);
+            catalogSemantics = applyEntrySource(project.columnModel, project.rows, excel, catalog, imageRoot);
             metadata.setCustomMetadata(META_SHEET_KIND, "entry");
         } else {
             applyDirectory(project.columnModel, project.rows, scan);
             metadata.setCustomMetadata(META_SHEET_KIND, "dir");
+        }
+        if (catalogSemantics != null) {
+            metadata.setCustomMetadata(META_CATALOG_SEMANTICS, catalogSemantics);
         }
 
         project.update();
@@ -280,7 +291,10 @@ public class IngestProjectCommand extends Command {
                 entry.rows.clear();
                 entry.columnModel = new ColumnModel();
             }
-            applyEntrySource(entry.columnModel, entry.rows, excel, catalog, imageRoot);
+            String catalogSemantics = applyEntrySource(entry.columnModel, entry.rows, excel, catalog, imageRoot);
+            if (catalogSemantics != null && metadata != null) {
+                metadata.setCustomMetadata(META_CATALOG_SEMANTICS, catalogSemantics);
+            }
             entry.columnModel.update();
             project.setActiveSheet(ENTRY_SHEET_ID);
         }
@@ -320,27 +334,36 @@ public class IngestProjectCommand extends Command {
     }
 
     /** 条目来源（Excel / catalog JSON）二选一写入条目表；调用方已保证不同时提供。 */
-    private static void applyEntrySource(ColumnModel columnModel, List<Row> rows, File excel, File catalog,
+    private static String applyEntrySource(ColumnModel columnModel, List<Row> rows, File excel, File catalog,
             File imageRoot) throws Exception {
         if (catalog != null) {
-            applyCatalog(columnModel, rows, catalog, imageRoot);
-        } else {
-            applyExcel(columnModel, rows, excel);
+            return applyCatalog(columnModel, rows, catalog, imageRoot);
         }
+        applyExcel(columnModel, rows, excel);
+        return null;
     }
 
     /**
      * 规范化卷宗目录 JSON → 条目表（一件一行）。
      *
-     * <p>列固定为：档号 / 件号 / 题名 / 一级分类 / 二级分类 / 三级题名 / 页数 /
-     * 责任者 / 成文日期 / 文件路径。缺省值写空串，保持列齐全。
+     * <p>列固定为：档号 / 件号 / 题名 / 一级分类 / 二级分类 / 三级题名 / 四级题名 /
+     * 材料类别 / 页数 / 责任者 / 成文日期 / 文件路径 / 案号。缺省值写空串，保持列齐全。
      * 「文件路径」取该件首页文件的父目录——引擎按目录核对件内页数与挂接。</p>
+     *
+     * <p><b>三级字段口径</b>（2026-11-15 起）：{@code level3Title} 是「三级材料类别」、
+     * {@code level4Title} 是「定制后的四级件题名」。历史下游数据没有 level4Title，
+     * 其 {@code level3Title} 放的是成品题名——按 legacy 处理：把 level3Title 当四级题名，
+     * 材料类别留空，避免把成品题名误当材料类别。返回值即 {@code new}/{@code legacy}/{@code mixed}。</p>
+     *
+     * <p>一级/二级分类会去掉下游可能带上的序号前缀（{@code "13 原告举证材料"} →
+     * {@code "原告举证材料"}）：词表里的二级目录名不带序号，带前缀会被误判
+     * 「二级分类不在模板清单内」。</p>
      *
      * <p>catalog 里的页文件常是相对名（如 {@code 0001.jpg}）。相对名必须以本次请求的
      * {@code imagePath} 为基准展开；没有 imagePath 时留空，**绝不能**按 OR 进程工作目录展开——
      * 否则「文件路径」会变成 OpenRefine 仓库根，资源/图像检查会把整个仓库当成一个件扫描。</p>
      */
-    private static void applyCatalog(ColumnModel columnModel, List<Row> rows, File catalog, File imageRoot)
+    private static String applyCatalog(ColumnModel columnModel, List<Row> rows, File catalog, File imageRoot)
             throws Exception {
         com.fasterxml.jackson.databind.JsonNode root;
         try (InputStream in = Files.newInputStream(catalog.toPath())) {
@@ -355,7 +378,7 @@ public class IngestProjectCommand extends Command {
             throw new IllegalArgumentException("catalog.items 为空，无法建立条目表");
         }
         String[] headers = {"档号", "件号", "题名", "一级分类", "二级分类", "三级题名",
-                "页数", "责任者", "成文日期", "文件路径", "案号"};
+                "四级题名", "材料类别", "页数", "责任者", "成文日期", "文件路径", "案号"};
         int[] cellIndex = new int[headers.length];
         for (int i = 0; i < headers.length; i++) {
             cellIndex[i] = columnModel.allocateNewCellIndex();
@@ -364,6 +387,14 @@ public class IngestProjectCommand extends Command {
         String volumeArchiveNo = textOf(volume, "archiveNo");
         String volumeCaseNo = textOf(volume, "caseNo");
         String volumeLevel1 = textOf(volume, "level1");
+        int modernCount = 0;
+        for (com.fasterxml.jackson.databind.JsonNode item : items) {
+            if (isModernItem(item)) {
+                modernCount++;
+            }
+        }
+        String semantics = modernCount == 0 ? "legacy"
+                : (modernCount == items.size() ? "new" : "mixed");
         for (com.fasterxml.jackson.databind.JsonNode item : items) {
             com.fasterxml.jackson.databind.JsonNode pages = item.path("pages");
             String firstFile = pages.isArray() && pages.size() > 0 ? textOf(pages.get(0), "file") : "";
@@ -371,20 +402,52 @@ public class IngestProjectCommand extends Command {
             if (pageCount <= 0 && pages.isArray()) {
                 pageCount = pages.size();
             }
+            boolean modern = isModernItem(item);
+            String level3 = textOf(item, "level3Title");
+            // 新口径：level4Title 是四级件题名；旧口径：level3Title 实为定制后的四级件题名
+            String level4 = modern ? textOf(item, "level4Title") : level3;
+            if (level4.isEmpty()) {
+                level4 = textOf(item, "title");
+            }
+            // 新口径：level3Title 是三级材料类别；旧口径没有材料类别，留空
+            String materialCategory = modern ? firstNonBlank(textOf(item, "materialCategory"), level3) : "";
             Row row = new Row(headers.length);
             row.setCell(cellIndex[0], new Cell(volumeArchiveNo, null));
             row.setCell(cellIndex[1], new Cell(textOf(item, "pieceNo"), null));
             row.setCell(cellIndex[2], new Cell(textOf(item, "title"), null));
-            row.setCell(cellIndex[3], new Cell(firstNonBlank(textOf(item, "level1"), volumeLevel1), null));
-            row.setCell(cellIndex[4], new Cell(textOf(item, "level2"), null));
-            row.setCell(cellIndex[5], new Cell(textOf(item, "level3Title"), null));
-            row.setCell(cellIndex[6], new Cell(pageCount > 0 ? String.valueOf(pageCount) : "", null));
-            row.setCell(cellIndex[7], new Cell(textOf(item, "responsible"), null));
-            row.setCell(cellIndex[8], new Cell(textOf(item, "docDate"), null));
-            row.setCell(cellIndex[9], new Cell(parentOf(firstFile, imageRoot), null));
-            row.setCell(cellIndex[10], new Cell(volumeCaseNo, null));
+            row.setCell(cellIndex[3],
+                    new Cell(stripOrderPrefix(firstNonBlank(textOf(item, "level1"), volumeLevel1)), null));
+            row.setCell(cellIndex[4], new Cell(stripOrderPrefix(textOf(item, "level2")), null));
+            row.setCell(cellIndex[5], new Cell(level3, null));
+            row.setCell(cellIndex[6], new Cell(level4, null));
+            row.setCell(cellIndex[7], new Cell(materialCategory, null));
+            row.setCell(cellIndex[8], new Cell(pageCount > 0 ? String.valueOf(pageCount) : "", null));
+            row.setCell(cellIndex[9], new Cell(textOf(item, "responsible"), null));
+            row.setCell(cellIndex[10], new Cell(textOf(item, "docDate"), null));
+            row.setCell(cellIndex[11], new Cell(parentOf(firstFile, imageRoot), null));
+            row.setCell(cellIndex[12], new Cell(volumeCaseNo, null));
             rows.add(row);
         }
+        return semantics;
+    }
+
+    /** 新口径（2026-11-15 起）带 level4Title 或 materialCategory；两者都没有即旧口径。 */
+    private static boolean isModernItem(com.fasterxml.jackson.databind.JsonNode item) {
+        return !textOf(item, "level4Title").isEmpty() || !textOf(item, "materialCategory").isEmpty();
+    }
+
+    /**
+     * 去掉一级/二级分类的序号前缀（{@code "13 原告举证材料"} / {@code "06、起诉状"} →
+     * {@code "原告举证材料"} / {@code "起诉状"}）。
+     *
+     * <p>只在该数字后跟分隔符（空白或标点）时裁剪，避免把 {@code "2024年…"} 这类以数字开头的
+     * 名称本身裁坏。</p>
+     */
+    private static String stripOrderPrefix(String name) {
+        if (name == null) {
+            return "";
+        }
+        return name.replaceFirst("^\\s*\\d{1,3}\\s*(?:[、.．,，:：\\-]\\s*|\\s+)", "").trim();
     }
 
     private static String textOf(com.fasterxml.jackson.databind.JsonNode node, String field) {

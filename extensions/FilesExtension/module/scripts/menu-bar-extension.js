@@ -40,6 +40,13 @@
           click: function() {
             ReviewProjectPanel.open();
           }
+        },
+        {
+          id: 'data-review/run',
+          label: '立即校审...',
+          click: function() {
+            ReviewProjectPanel.runDialog();
+          }
         }
       ]
     });

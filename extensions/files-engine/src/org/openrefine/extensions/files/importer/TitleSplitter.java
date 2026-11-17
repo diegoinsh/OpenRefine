@@ -40,6 +40,13 @@ public class TitleSplitter {
         public String partyName = "";
         /** 纯文种（剥掉方别与当事人后的题名片段）。 */
         public String docType = "";
+        /**
+         * 三级「材料类别」（AIMP 归桶结果，客户词表口径）。空串表示 AIMP 未给出，
+         * 由下游（RCP）回退本地词表分类。
+         */
+        public String level3Title = "";
+        /** 材料类别来源：table/retrieval/neighbor-inherit/model/missing（见 AIMP 归桶）。 */
+        public String level3Source = "";
 
         public int pageCount() {
             return endPage - startPage + 1;

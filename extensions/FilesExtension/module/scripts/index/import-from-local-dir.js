@@ -159,15 +159,8 @@ Refine.REVIEW_RULE_CATEGORIES = [
 // 元数据（version/caseType/instance/volumeScope/reportProfile）与平台内置模板
 // ReviewRuleTemplates.defaultPayload 保持一致；params 为模板关键参数，供页签参数行只读展示。
 // 平台模板库是唯一模板源，OR 侧不提供新增/覆盖（另存为/导入/导出置灰）。
+// 2026-11-17：「法院民事一审 · 1991 归档办法」已下线，不再出现在下拉中。
 Refine.REVIEW_RULE_TEMPLATES = [
-  { id: 'court-m1-s1', name: '法院民事一审 · 1991 归档办法',
-    version: 'v2026.11', source: 'builtin', caseType: 'civil', instance: 'first',
-    volumeScope: ['main', 'deputy'], reportProfile: 'four-nature+case-quality',
-    baseline: 's1-1991',
-    params: { matchThreshold: 0.82, sealConfidence: 0.75, signConfidence: 0.70,
-              onDeviation: 'warning', mergeAttachments: true, pouchElements: true },
-    rules: ['seal', 'fingerprint', 'missing_piece', 'missing_page', 'empty_piece',
-            'missing_attachment', 'piece_order', 'volume_toc', 'document_element'] },
   { id: 'court-m1-s5', name: '法院民事一审 · 2018 电子卷宗',
     version: 'v2026.11', source: 'builtin', caseType: 'civil', instance: 'first',
     volumeScope: ['main', 'deputy'], reportProfile: 'four-nature+case-quality',

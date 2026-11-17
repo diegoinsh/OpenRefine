@@ -1107,7 +1107,7 @@ public class ImageQualityChecker {
             logger.info("[convertToCheckErrors] 检测到空白图片，开始创建CheckError");
             CheckError error = new CheckError();
             error.setErrorType("blank");
-            error.setMessage("Blank page detected: " + imageFile.getName());
+            error.setMessage("检测到空白页: " + imageFile.getName());
             error.setCategory("image_quality");
             error.setColumn("resource");
             error.setValue(resourcePath);
@@ -1121,7 +1121,7 @@ public class ImageQualityChecker {
             CheckError error = new CheckError();
             error.setErrorType("bias");
             error.setCategory("image_quality");
-            error.setMessage("Image skew detected: " + imageFile.getName() + ", angle: " + aiResult.getRectify());
+            error.setMessage("检测到图像倾斜: " + imageFile.getName() + ", 角度: " + aiResult.getRectify());
             error.setColumn("resource");
             error.setValue(resourcePath);
             error.setHiddenFileName(imageFile.getName());
@@ -1306,11 +1306,12 @@ public class ImageQualityChecker {
                     Object maxKbObj = kbItem.getParameter("maxKb", Object.class);
                     int minKb = minKbObj != null ? Integer.parseInt(minKbObj.toString()) : 10;
                     int maxKb = maxKbObj != null ? Integer.parseInt(maxKbObj.toString()) : 10000;
-                    String sizeMessage = aiResult.getKb() < minKb ? "File size too small" : "File size too large";
+                    String sizeMessage = aiResult.getKb() < minKb ? "文件大小过小" : "文件大小过大";
                     CheckError error = new CheckError();
                     error.setErrorType("file-size");
                     error.setCategory("image_quality");
-                    error.setMessage(sizeMessage + ": " + imageFile.getName() + ", Size: " + aiResult.getKb() + "KB (expected: " + minKb + "-" + maxKb + "KB)");
+                    error.setMessage(sizeMessage + ": " + imageFile.getName() + ", 当前 " + aiResult.getKb()
+                            + "KB（要求 " + minKb + "-" + maxKb + "KB）");
                     error.setColumn("resource");
                     error.setValue(resourcePath);
                     error.setExtractedValue(String.valueOf(aiResult.getKb()));
@@ -1348,7 +1349,8 @@ public class ImageQualityChecker {
                     CheckError error = new CheckError();
                     error.setErrorType("bit_depth");
                     error.setCategory("image_quality");
-                    error.setMessage("位深度过低: " + imageFile.getName() + ", 位深度: " + aiResult.getBitDepth() + " (最低要求: " + minBitDepth + ")");
+                    error.setMessage("位深度过低: " + imageFile.getName() + ", 当前 " + aiResult.getBitDepth()
+                            + "（最低要求 " + minBitDepth + "）");
                     error.setColumn("resource");
                     error.setValue(resourcePath);
                     error.setExtractedValue(String.valueOf(aiResult.getBitDepth()));

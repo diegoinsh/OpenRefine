@@ -2929,6 +2929,8 @@ public class BatchExtractionManager {
             mapped.startPage = startIdx + 1;
             mapped.endPage = endIdx + 1;
             mapped.title = p.title;
+            mapped.level3Title = p.level3Title;
+            mapped.level3Source = p.level3Source;
             mapped.startPageNo = pageNoAt(unit, startIdx);
             mapped.endPageNo = pageNoAt(unit, endIdx);
             pieces.add(mapped);
@@ -3135,6 +3137,9 @@ public class BatchExtractionManager {
         put(columnModel, row, "题名", piece.title == null ? "" : piece.title);
         ensureInnerColumn(columnModel, "四级题名");
         put(columnModel, row, "四级题名", PartyTitleComposer.displayTitle(piece));
+        // 三级「材料类别」：AIMP 归桶结果（客户词表口径）；空表示未给出，下游回退本地词表分类
+        ensureInnerColumn(columnModel, "材料类别");
+        put(columnModel, row, "材料类别", piece.level3Title == null ? "" : piece.level3Title);
         put(columnModel, row, "责任者", responsibleParty);
         put(columnModel, row, "文号", get(values, "document_number"));
         put(columnModel, row, "成文日期", documentDate);

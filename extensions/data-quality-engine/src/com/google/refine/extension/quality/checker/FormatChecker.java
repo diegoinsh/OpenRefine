@@ -117,7 +117,7 @@ public class FormatChecker {
 
                 // Non-empty check
                 if (rule.isNonEmpty() && isEmpty(value)) {
-                    addError(result, rule, rowIndex, colName, value, "non_empty", "Value is empty");
+                    addError(result, rule, rowIndex, colName, value, "non_empty", "值为空");
                     rowPassed = false;
                 }
 
@@ -125,7 +125,7 @@ public class FormatChecker {
                 if (rule.getRegex() != null && !rule.getRegex().isEmpty() && !isEmpty(value)) {
                     if (!matchesRegex(value, rule.getRegex())) {
                         addError(result, rule, rowIndex, colName, value, "regex",
-                            "Value does not match pattern: " + rule.getRegex());
+                            "值不符合正则格式: " + rule.getRegex());
                         rowPassed = false;
                     }
                 }
@@ -134,7 +134,7 @@ public class FormatChecker {
                 if (rule.getDateFormat() != null && !rule.getDateFormat().isEmpty() && !isEmpty(value)) {
                     if (!matchesDateFormat(value, rule.getDateFormat())) {
                         addError(result, rule, rowIndex, colName, value, "date_format",
-                            "Value does not match date format: " + rule.getDateFormat());
+                            "值不符合日期格式: " + rule.getDateFormat());
                         rowPassed = false;
                     }
                 }
@@ -144,7 +144,7 @@ public class FormatChecker {
                 if (valueList != null && !valueList.isEmpty() && !isEmpty(value)) {
                     if (!valueList.contains(value)) {
                         addError(result, rule, rowIndex, colName, value, "value_list",
-                            "Value not in allowed list");
+                            "值不在允许取值列表内");
                         rowPassed = false;
                     }
                 }
@@ -154,7 +154,7 @@ public class FormatChecker {
                     Set<String> seen = uniqueValues.get(colName);
                     if (seen.contains(value)) {
                         addError(result, rule, rowIndex, colName, value, "unique",
-                            "Duplicate value found");
+                            "存在重复值");
                         rowPassed = false;
                     } else {
                         seen.add(value);

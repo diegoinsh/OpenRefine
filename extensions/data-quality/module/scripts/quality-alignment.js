@@ -2332,13 +2332,14 @@ QualityAlignment._renderResultsTab = function() {
     .appendTo(summaryContent);
 
   // Get category counts from result
-  var formatErrors = 0, resourceErrors = 0, contentErrors = 0, typoErrors = 0, imageErrors = 0;
+  var formatErrors = 0, resourceErrors = 0, contentErrors = 0, typoErrors = 0, imageErrors = 0, titleNormErrors = 0;
   if (result && result.summary) {
     formatErrors = result.summary.formatErrors || 0;
     resourceErrors = result.summary.resourceErrors || 0;
     contentErrors = result.summary.contentErrors || 0;
     typoErrors = result.summary.typoErrors || 0;
     imageErrors = result.summary.imageQualityErrors || result.summary.imageErrors || 0;
+    titleNormErrors = result.summary.titleNormErrors || 0;
   } else if (result && result.errors) {
     // Calculate from errors if summary not available
     // Error types from backend:
@@ -2348,6 +2349,11 @@ QualityAlignment._renderResultsTab = function() {
     // Image: image_quality (blank, bias, stain, hole, dpi, kb, edge)
     result.errors.forEach(function(err) {
       var errType = err.errorType || err.category || '';
+      // 题名规范错误单列一类（否则 doc_number_format 会被下面的 format 命中）
+      if (err.category === 'title_norm') {
+        titleNormErrors++;
+        return;
+      }
       // Format errors
       if (errType === 'non_empty' || errType === 'regex' || errType === 'date_format' ||
           errType === 'value_list' || errType === 'unique' || errType.indexOf('format') >= 0) {
@@ -2382,11 +2388,21 @@ QualityAlignment._renderResultsTab = function() {
     });
   }
 
+  // 兜底：summary 未带题名规范计数（历史结果或其它入口组装的 summary）时按错误明细统计
+  if (!titleNormErrors && result && result.errors) {
+    for (var tn = 0; tn < result.errors.length; tn++) {
+      if (result.errors[tn].category === 'title_norm') {
+        titleNormErrors++;
+      }
+    }
+  }
+
   this._renderPieChart(chartSection, {
     format: formatErrors + typoErrors,
     resource: resourceErrors,
     content: contentErrors,
-    image: imageErrors
+    image: imageErrors,
+    title_norm: titleNormErrors
   });
 
   // Export buttons
@@ -2424,6 +2440,7 @@ QualityAlignment._renderResultsTab = function() {
   $('<option value="resource">' + $.i18n('data-quality-extension/resource-check-tab') + '</option>').appendTo(categoryFilter);
   $('<option value="content">' + $.i18n('data-quality-extension/content-check-tab') + '</option>').appendTo(categoryFilter);
   $('<option value="image_quality">' + $.i18n('data-quality-extension/image-quality-check-tab') + '</option>').appendTo(categoryFilter);
+  $('<option value="title_norm">' + $.i18n('data-quality-extension/title-norm-tab') + '</option>').appendTo(categoryFilter);
 
   categoryFilter.on('change', function() {
     self._filterCategory = $(this).val();
@@ -2479,6 +2496,18 @@ QualityAlignment._renderResultsTab = function() {
   
   $('<option value="quality">' + $.i18n('data-quality-extension/quality-check') + '</option>').appendTo(imageGroup);
   $('<option value="pdfImageUniformity">' + $.i18n('data-quality-extension/pdf-image-uniformity-check') + '</option>').appendTo(imageGroup);
+
+  var titleNormGroup = $('<optgroup label="' + $.i18n('data-quality-extension/title-norm-tab') + '"></optgroup>').appendTo(typeFilter);
+  $('<option value="level_missing">' + $.i18n('data-quality-extension/title-norm-check-levelNotEmpty') + '</option>').appendTo(titleNormGroup);
+  $('<option value="category_illegal">' + $.i18n('data-quality-extension/title-norm-check-levelOwnership') + '</option>').appendTo(titleNormGroup);
+  $('<option value="template_mismatch">' + $.i18n('data-quality-extension/title-norm-check-templateMatch') + '</option>').appendTo(titleNormGroup);
+  $('<option value="alias_normalize">' + $.i18n('data-quality-extension/title-norm-check-aliasNormalize') + '</option>').appendTo(titleNormGroup);
+  $('<option value="placeholder_missing">' + $.i18n('data-quality-extension/title-norm-check-placeholderMissing') + '</option>').appendTo(titleNormGroup);
+  $('<option value="party_mismatch">' + $.i18n('data-quality-extension/title-norm-check-partyOwnership') + '</option>').appendTo(titleNormGroup);
+  $('<option value="template_version">' + $.i18n('data-quality-extension/title-norm-check-templateVersion') + '</option>').appendTo(titleNormGroup);
+  $('<option value="title_charset">' + $.i18n('data-quality-extension/title-norm-check-charSet') + '</option>').appendTo(titleNormGroup);
+  $('<option value="title_length">' + $.i18n('data-quality-extension/title-norm-check-lengthLimit') + '</option>').appendTo(titleNormGroup);
+  $('<option value="doc_number_format">' + $.i18n('data-quality-extension/title-norm-check-docNumberFormat') + '</option>').appendTo(titleNormGroup);
 
   typeFilter.on('change', function() {
     self._filterErrorType = $(this).val();
@@ -2999,7 +3028,18 @@ QualityAlignment._getErrorTypeLabel = function(errorType) {
     // Legacy mappings
     'stain': $.i18n('data-quality-extension/stain-check'),
     'edge': $.i18n('data-quality-extension/edge-check'),
-    'bit_depth': $.i18n('data-quality-extension/bit-depth-check')
+    'bit_depth': $.i18n('data-quality-extension/bit-depth-check'),
+    // Title norm checks
+    'level_missing': $.i18n('data-quality-extension/title-norm-check-levelNotEmpty'),
+    'category_illegal': $.i18n('data-quality-extension/title-norm-check-levelOwnership'),
+    'template_mismatch': $.i18n('data-quality-extension/title-norm-check-templateMatch'),
+    'alias_normalize': $.i18n('data-quality-extension/title-norm-check-aliasNormalize'),
+    'placeholder_missing': $.i18n('data-quality-extension/title-norm-check-placeholderMissing'),
+    'party_mismatch': $.i18n('data-quality-extension/title-norm-check-partyOwnership'),
+    'template_version': $.i18n('data-quality-extension/title-norm-check-templateVersion'),
+    'title_charset': $.i18n('data-quality-extension/title-norm-check-charSet'),
+    'title_length': $.i18n('data-quality-extension/title-norm-check-lengthLimit'),
+    'doc_number_format': $.i18n('data-quality-extension/title-norm-check-docNumberFormat')
   };
   return labels[errorType] || errorType;
 };
@@ -3153,7 +3193,7 @@ QualityAlignment._formatErrorMessage = function(error) {
       return '文本方向错误: ' + (message || '');
     }
     if (errorType === 'bias') {
-      var biasMatch = message.match(/angle: ([-]?\d+(?:\.\d+)?)/);
+      var biasMatch = message.match(/(?:angle|角度)\s*[:：]?\s*([-]?\d+(?:\.\d+)?)/i);
       return '检测到图像倾斜' + (biasMatch ? ', 角度: ' + biasMatch[1] + '°' : '');
     }
     if (errorType === 'edgeRemove' || errorType === 'edge') {
@@ -3184,7 +3224,7 @@ QualityAlignment._formatErrorMessage = function(error) {
       return message;
     }
     if (errorType === 'blank') {
-      var blankMatch = message.match(/Blank page detected: (\S+)/);
+      var blankMatch = message.match(/(?:Blank page detected:|检测到空白页)\s*[:：]?\s*(\S+)/);
       return '检测到空白页: ' + (blankMatch ? blankMatch[1] : '');
     }
     if (errorType === 'counting') {
@@ -3221,8 +3261,12 @@ QualityAlignment._formatErrorMessage = function(error) {
       }
       return message;
     }
-    if (errorType === 'kb') {
-      var kbMatch = message.match(/Size: (\d+)KB.*minimum: (\d+)KB/);
+    if (errorType === 'kb' || errorType === 'file-size') {
+      // 新结果已是中文（文件大小过小/过大: xxx，当前 500KB（要求 10-10000KB）），直接展示
+      if (/[\u4e00-\u9fa5]/.test(message || '')) {
+        return message;
+      }
+      var kbMatch = message.match(/(?:Size|当前)\s*[:：]?\s*(\d+)KB.*?(?:minimum|expected|要求|最低要求)\s*[:：]?\s*(\d+)/i);
       if (kbMatch) {
         return '文件大小不足: ' + kbMatch[1] + 'KB, 最低要求: ' + kbMatch[2] + 'KB';
       }
@@ -3309,7 +3353,7 @@ QualityAlignment._renderSummaryStats = function(container, stats) {
 QualityAlignment._renderPieChart = function(container, data) {
   container.empty();
 
-  var total = data.format + data.resource + data.content + data.image;
+  var total = data.format + data.resource + data.content + data.image + (data.title_norm || 0);
   if (total === 0) {
     $('<div class="chart-no-data"></div>')
       .text($.i18n('data-quality-extension/no-errors'))
@@ -3329,12 +3373,13 @@ QualityAlignment._renderPieChart = function(container, data) {
     format: '#e74c3c',    // Red
     resource: '#f39c12',  // Orange
     content: '#3498db',   // Blue
-    image: '#9b59b6'      // Purple
+    image: '#9b59b6',     // Purple
+    title_norm: '#16a085' // Teal
   };
 
   // Draw pie slices
   var startAngle = -Math.PI / 2;
-  var categories = ['format', 'resource', 'content', 'image'];
+  var categories = ['format', 'resource', 'content', 'image', 'title_norm'];
 
   categories.forEach(function(cat) {
     if (data[cat] > 0) {
@@ -3356,7 +3401,8 @@ QualityAlignment._renderPieChart = function(container, data) {
     format: $.i18n('data-quality-extension/format-check-tab'),
     resource: $.i18n('data-quality-extension/resource-check-tab'),
     content: $.i18n('data-quality-extension/content-check-tab'),
-    image: $.i18n('data-quality-extension/image-quality-check-tab')
+    image: $.i18n('data-quality-extension/image-quality-check-tab'),
+    title_norm: $.i18n('data-quality-extension/title-norm-tab')
   };
 
   categories.forEach(function(cat) {
@@ -4684,9 +4730,12 @@ QualityAlignment._buildExportData = function(result) {
   var contentErrors = 0;
   var typoErrors = 0;
   var imageErrors = 0;
+  var titleNormErrors = 0;
 
   errors.forEach(function(err) {
-    if (err.category === 'format') {
+    if (err.category === 'title_norm') {
+      titleNormErrors++;
+    } else if (err.category === 'format') {
       formatErrors++;
       if (err.errorType === 'typo') {
         typoErrors++;
@@ -4708,7 +4757,8 @@ QualityAlignment._buildExportData = function(result) {
       resourceErrors: resourceErrors,
       contentErrors: contentErrors,
       typoErrors: typoErrors,
-      imageQualityErrors: imageErrors
+      imageQualityErrors: imageErrors,
+      titleNormErrors: titleNormErrors
     },
     errors: errors
   };

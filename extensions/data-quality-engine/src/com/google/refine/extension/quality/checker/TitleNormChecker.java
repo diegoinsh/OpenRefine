@@ -103,14 +103,39 @@ public class TitleNormChecker {
         }
 
         Map<String, Integer> columnIndexMap = TableViews.columnIndexMap(view);
-        String titleColumn = findColumn(columnIndexMap, "题名");
+        // 抽取结果的两套列口径：
+        //  ① 质检表：题名 / 一级分类 / 二级分类 / 当事人
+        //  ② 自动著录抽取结果：四级题名 / 材料类别 / 原告·被告·第三人 / 案卷号（一级/二级/件）
+        // 故按「四级题名 → 题名 → 件题名」取四级列，其余按候选逐级兜底。
+        String titleColumn = findColumn(columnIndexMap, "四级题名", "题名", "件题名");
         if (titleColumn == null) {
             return skip(result, "no_title_column");
         }
         Integer titleIndex = columnIndexMap.get(titleColumn);
+        // 四级题名未识别时按行回退「题名」，避免把有输出题名的行误判为四级为空
+        Integer fallbackTitleIndex = null;
+        for (String alt : new String[]{"题名", "件题名"}) {
+            Integer idx = columnIndexMap.get(alt);
+            if (idx != null && !alt.equals(titleColumn)) {
+                fallbackTitleIndex = idx;
+                break;
+            }
+        }
         Integer level1Index = findIndex(columnIndexMap, "一级分类", "一级目录");
         Integer level2Index = findIndex(columnIndexMap, "二级分类", "二级目录");
+        // 一级/二级列都缺失时（抽取结果只有路径式案卷号），从路径前两段解析
+        Integer casePathIndex = (level1Index == null && level2Index == null)
+                ? findIndex(columnIndexMap, "案卷号", "文件夹路径")
+                : null;
         Integer partyIndex = findIndex(columnIndexMap, "当事人");
+        // 当事人拆成「原告/被告/第三人」多列时，按非空列反推角色（取第一个非空）
+        Map<Integer, String> roleColumns = new LinkedHashMap<>();
+        for (String role : new String[]{"原告", "被告", "第三人", "上诉人", "被上诉人"}) {
+            Integer idx = columnIndexMap.get(role);
+            if (idx != null) {
+                roleColumns.put(idx, role);
+            }
+        }
 
         result.setExecuted(true);
 
@@ -124,9 +149,27 @@ public class TitleNormChecker {
                 break;
             }
             String title = cell(view, rowIndex, titleIndex);
-            String level1 = cell(view, rowIndex, level1Index);
-            String level2 = cell(view, rowIndex, level2Index);
+            if (title.isEmpty() && fallbackTitleIndex != null) {
+                title = cell(view, rowIndex, fallbackTitleIndex);
+            }
+            String level1 = stripOrderPrefix(cell(view, rowIndex, level1Index));
+            String level2 = stripOrderPrefix(cell(view, rowIndex, level2Index));
+            if (level1.isEmpty() && level2.isEmpty() && casePathIndex != null) {
+                String[] segs = splitCategoryPath(cell(view, rowIndex, casePathIndex));
+                if (segs.length >= 2) {
+                    level1 = stripOrderPrefix(segs[0]);
+                    level2 = stripOrderPrefix(segs[1]);
+                }
+            }
             String party = cell(view, rowIndex, partyIndex);
+            if (party.isEmpty() && !roleColumns.isEmpty()) {
+                for (Map.Entry<Integer, String> role : roleColumns.entrySet()) {
+                    if (!cell(view, rowIndex, role.getKey()).isEmpty()) {
+                        party = role.getValue();
+                        break;
+                    }
+                }
+            }
             if (title.isEmpty() && level1.isEmpty() && level2.isEmpty()) {
                 continue;  // 空行不参与（真正的空值由层级完整性项在有效行上报出）
             }
@@ -340,15 +383,43 @@ public class TitleNormChecker {
         return null;
     }
 
-    /** 列名命中（精确，兼容「件题名」别名）。 */
-    private static String findColumn(Map<String, Integer> columnIndexMap, String name) {
-        if (columnIndexMap.get(name) != null) {
-            return name;
-        }
-        if ("题名".equals(name) && columnIndexMap.get("件题名") != null) {
-            return "件题名";
+    /** 列名命中（按候选顺序，精确匹配；「件题名」作为「题名」别名由调用处显式列入）。 */
+    private static String findColumn(Map<String, Integer> columnIndexMap, String... names) {
+        for (String name : names) {
+            if (columnIndexMap.get(name) != null) {
+                return name;
+            }
         }
         return null;
+    }
+
+    /** 从「一级/二级/件文件夹」式路径列解析前两级；不足两级返回空数组。 */
+    private static String[] splitCategoryPath(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return new String[0];
+        }
+        List<String> segments = new ArrayList<>();
+        for (String segment : raw.split("[/\\\\]")) {
+            String trimmed = segment.trim();
+            if (!trimmed.isEmpty()) {
+                segments.add(trimmed);
+            }
+        }
+        return segments.toArray(new String[0]);
+    }
+
+    /**
+     * 去掉一级/二级分类的序号前缀（{@code "13 原告举证材料"} → {@code "原告举证材料"}）。
+     *
+     * <p>下游回传的分类名有的带序号（已归类到第 N 个二级目录）、有的不带（当时没能归类），
+     * 而编目词表里的二级目录名不带序号，带前缀会被 {@code category_illegal} 误报。
+     * 仅当数字后跟分隔符（空白或标点）时才裁剪，避免把 {@code "2024年…"} 这类名称裁坏。</p>
+     */
+    private static String stripOrderPrefix(String name) {
+        if (name == null) {
+            return "";
+        }
+        return name.replaceFirst("^\\s*\\d{1,3}\\s*(?:[、.．,，:：\\-]\\s*|\\s+)", "").trim();
     }
 
     /** 单行匹配结果。 */

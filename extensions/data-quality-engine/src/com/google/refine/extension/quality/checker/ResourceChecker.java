@@ -123,7 +123,7 @@ public class ResourceChecker {
             if (config.getFolderChecks().isExistence()) {
                 if (!resourceDir.exists() || !resourceDir.isDirectory()) {
                     CheckError error = new CheckError(rowIndex, "resource_path", resourcePath,
-                        "folder_existence", "Folder does not exist: " + resourcePath);
+                        "folder_existence", "文件夹不存在: " + resourcePath);
                     error.setCategory("resource");
                     result.addError(error);
                     rowPassed = false;
@@ -144,7 +144,7 @@ public class ResourceChecker {
                     String folderName = resourceDir.getName();
                     if (!matchesPattern(folderName, folderNameFormat)) {
                         CheckError error = new CheckError(rowIndex, "folder_name", folderName,
-                            "folder_name_format", "Folder name does not match format: " + folderNameFormat);
+                            "folder_name_format", "文件夹命名不符合格式: " + folderNameFormat);
                         error.setCategory("resource");
                         result.addError(error);
                         rowPassed = false;
@@ -156,7 +156,7 @@ public class ResourceChecker {
                     String folderName = resourceDir.getName();
                     if (!matchesSequentialPattern(folderName)) {
                         CheckError error = new CheckError(rowIndex, "folder_name", folderName,
-                            "folder_sequential", "Folder name is not sequential: " + folderName);
+                            "folder_sequential", "文件夹序号不连续: " + folderName);
                         error.setCategory("resource");
                         result.addError(error);
                         rowPassed = false;
@@ -174,7 +174,7 @@ public class ResourceChecker {
                     }
                     if (!hasImageFiles) {
                         CheckError error = new CheckError(rowIndex, "resource_path", resourcePath,
-                            "empty_folder", "Empty folder: " + resourcePath);
+                            "empty_folder", "空文件夹: " + resourcePath);
                         error.setCategory("resource");
                         result.addError(error);
                         rowPassed = false;
@@ -193,7 +193,7 @@ public class ResourceChecker {
                             if (expected >= 0 && expected != actual) {
                                 String severity = Math.abs(expected - actual) <= 1 ? "warning" : "error";
                                 CheckError error = new CheckError(rowIndex, countColumn, String.valueOf(actual),
-                                    "file_count", "File count mismatch: expected " + expected + ", actual " + actual);
+                                    "file_count", "文件数量不匹配: 期望 " + expected + " 个，实际 " + actual + " 个");
                                 error.setCategory("resource");
                                 result.addError(error);
                                 if (severity.equals("error")) rowPassed = false;
@@ -208,7 +208,7 @@ public class ResourceChecker {
                     for (File f : fileList) {
                         if (f.isFile() && !matchesPattern(f.getName(), nameFormat)) {
                             CheckError error = new CheckError(rowIndex, "file_name", f.getName(),
-                                "file_name_format", "File name does not match format: " + nameFormat);
+                                "file_name_format", "文件命名不符合格式: " + nameFormat);
                             error.setCategory("resource");
                             result.addError(error);
                             rowPassed = false;
@@ -362,7 +362,7 @@ public class ResourceChecker {
             int prev = numbers.get(i - 1);
             int curr = numbers.get(i);
             if (curr - prev > 1) {
-                errors.add("Sequence gap: missing number(s) between " + prev + " and " + curr);
+                errors.add("序号不连续: " + prev + " 和 " + curr + " 之间有缺失");
             }
         }
 

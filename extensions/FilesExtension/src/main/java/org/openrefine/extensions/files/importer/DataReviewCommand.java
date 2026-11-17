@@ -27,6 +27,7 @@ import com.google.refine.model.Row;
 import com.jiongche.sdk.aimp.AimpTransport;
 import com.jiongche.sdk.aimp.HttpAimpTransport;
 import com.jiongche.sdk.aimp.Multipart;
+import org.openrefine.extensions.files.review.CatalogChecklist;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -164,7 +165,7 @@ public class DataReviewCommand extends Command {
             // 「数据来源 / 二级目录 / 四级题名 / 件页」，不再反查抽取任务（FR-P-06）
             String catalogJson = trim(UnicodeText.decode(request.getParameter("catalog")));
             // 纯数据模式（平台只选缺件/缺页等数据规则）：只建项目 + 登记提交目录，
-            // 供项目页展示与参数回显；判定在平台侧完成，此模式不扫描目录、不调用 AI 服务。
+            // 结构判定在引擎侧按提交目录完成；有 rootPath 时顺带扫描件目录，供项目页预览原件。
             boolean catalogOnly = "true".equalsIgnoreCase(request.getParameter("catalogOnly"));
 
             if (rootPath.isEmpty() && !catalogOnly) {
@@ -178,7 +179,7 @@ public class DataReviewCommand extends Command {
                 return;
             }
             for (ReviewRule rule : rules) {
-                if (!isReviewRuleKey(rule.key)) {
+                if (!isReviewRuleKey(rule.key) && !(catalogOnly && isCatalogRuleKey(rule.key))) {
                     respondError(response, "暂不支持的校审规则: " + rule.name);
                     return;
                 }
@@ -226,12 +227,37 @@ public class DataReviewCommand extends Command {
                     respondError(response, "纯数据校审需要同时提供 catalog");
                     return;
                 }
+                // 判定与落盘都在引擎侧完成（与合规同构）：平台只下发目录与规则，
+                // 结果写项目 overlay，平台用 get-result 读回。
+                CatalogChecklist.Catalog parsed = CatalogChecklist.parse(catalogNode);
+                Map<String, Object> checklist = CatalogChecklist.evaluate(parsed);
                 Project project = prepareProject(projectName, reuseProject);
-                List<Map<String, Object>> catalogItems = summarizeCatalog(catalogNode);
+                List<Map<String, Object>> catalogItems = summarizeParsedCatalog(parsed);
                 int catalogPages = 0;
                 for (Map<String, Object> item : catalogItems) {
-                    catalogPages += (Integer) item.get("pages");
+                    catalogPages += intOf(item.get("pages"));
                 }
+                // 数据行的「文件夹路径」要能直接预览原件：按下发件题名匹配真实件目录
+                // （正卷/二级目录/序号 件名/页图），匹配不到才退回卷内相对路径。
+                List<UnitScanner.Volume> units = new ArrayList<>();
+                if (!rootPath.isEmpty()) {
+                    try {
+                        units = scanUnits(rootPath);
+                    } catch (Exception e) {
+                        logger.warn("纯数据校审扫描目录失败（预览路径退回相对路径）: {}", e.getMessage());
+                    }
+                }
+                writeCatalogRows(project, parsed, units);
+
+                Map<String, Object> summary = asMap(checklist.get("summary"));
+                int errorCount = intOf(summary.get("errorCount"));
+                int warningCount = intOf(summary.get("warningCount"));
+                int missing = intOf(summary.get("missing"));
+                int unknown = intOf(summary.get("unknown"));
+                long now = System.currentTimeMillis();
+                int version = writeCatalogReviewResult(project, rules, checklist, catalogItems,
+                        catalogPages, now);
+
                 Map<String, Object> record = new LinkedHashMap<>();
                 record.put("projectId", project.id);
                 record.put("projectName", project.getMetadata() == null
@@ -240,24 +266,32 @@ public class DataReviewCommand extends Command {
                 record.put("mode", "review-data");
                 record.put("rules", rulesJson == null ? "" : rulesJson);
                 record.put("totalFiles", catalogPages);
-                record.put("processedFiles", 0);
-                record.put("passed", 0);
-                record.put("failed", 0);
-                record.put("unknown", 0);
+                record.put("processedFiles", catalogPages);
+                record.put("passed", missing == 0 ? 1 : 0);
+                record.put("failed", errorCount);
+                record.put("unknown", unknown);
                 record.put("status", STATUS_COMPLETED);
                 record.put("catalogOnly", true);
                 record.put("catalogSource", "downstream");
                 record.put("catalog", mapper.convertValue(catalogNode, Map.class));
                 record.put("pieceList", catalogItems);
-                record.put("startedAt", System.currentTimeMillis());
-                record.put("finishedAt", System.currentTimeMillis());
+                record.put("templateId", trim(request.getParameter("templateId")));
+                record.put("templateVersion", trim(request.getParameter("templateVersion")));
+                record.put("resultVersion", version);
+                record.put("hasResult", true);
+                record.put("issueCount", errorCount + warningCount);
+                record.put("startedAt", now);
+                record.put("finishedAt", now);
                 DataReviewTaskRegistry.upsert(project.id, record);
+                ProjectManager.singleton.ensureProjectSaved(project.id);
 
                 ObjectNode result = mapper.createObjectNode();
                 result.put("code", "ok");
                 result.put("projectId", project.id);
                 result.put("projectName", projectName);
                 result.put("totalFiles", catalogPages);
+                result.put("resultVersion", version);
+                result.put("issueCount", errorCount + warningCount);
                 respondJSON(response, result);
                 return;
             }
@@ -281,13 +315,19 @@ public class DataReviewCommand extends Command {
             int totalFiles = 0;
             for (UnitScanner.Volume unit : units) totalFiles += unit.pages.size();
             if (pieces != null) {
-                totalFiles = 0;
-                for (PieceSpec piece : pieces) totalFiles += piece.pages.size();
+                // 件级路径的总页数以平台下发的逐页清单为准；目录拆分形态下平台拿不到逐页
+                // 文件名、pages 为空，此时退回扫描到的总页数，避免进度分母恒为 0。
+                int piecePages = 0;
+                for (PieceSpec piece : pieces) piecePages += piece.pages.size();
+                if (piecePages > 0) {
+                    totalFiles = piecePages;
+                }
             }
 
             Project project = prepareProject(projectName, reuseProject);
             Task task = new Task(project.id, rootPath, aimpUrl, confidence, rules, units, totalFiles);
             task.pieces = pieces;
+            task.catalog = catalogNode;
             TASKS.put(project.id, task);
 
             Map<String, Object> record = new LinkedHashMap<>();
@@ -303,6 +343,9 @@ public class DataReviewCommand extends Command {
             record.put("unknown", 0);
             record.put("status", STATUS_RUNNING);
             record.put("startedAt", task.startedAt);
+            // 模板标识：件级/文件级链路也要登记，项目页据此还原模板栏与各页签参数
+            record.put("templateId", trim(request.getParameter("templateId")));
+            record.put("templateVersion", trim(request.getParameter("templateVersion")));
             // 件级链路把件清单摘要一并登记：参数页（view=review-params）据此只读展示
             // 「本件有哪些件、每件要求什么」，不必重跑校审；旧链路不写，记录保持原样。
             if (pieces != null) {
@@ -525,6 +568,15 @@ public class DataReviewCommand extends Command {
             }
             if (task.pieces != null) {
                 runPieces(task, project);
+                // 结构类判定（缺件/缺页/空件/卷内目录/件序/文书要素/内容组合）统一在引擎侧算，
+                // 与件级签章结论同一次结果落 overlay，平台只读回、不另算一套。
+                if (task.catalog != null) {
+                    try {
+                        task.checklist = CatalogChecklist.evaluate(CatalogChecklist.parse(task.catalog));
+                    } catch (Exception e) {
+                        logger.warn("件级结构判定跳过: {}", e.getMessage());
+                    }
+                }
             } else {
                 runFiles(task, project);
             }
@@ -622,12 +674,18 @@ public class DataReviewCommand extends Command {
                     refs.add(ref);
                 }
             }
+            // 目录拆分形态：下游按「正卷/二级目录/序号 件名/页图」提交时，catalog 通常不带
+            // 逐页文件名，平台也就无法下发 pages[]。按件目录名（去前导序号）与件题名匹配兜底，
+            // 取该目录全部页，避免整卷被判成「件内页未匹配到」。
+            if (refs.isEmpty()) {
+                refs = refsByDirectory(task, piece);
+            }
             String keys = pieceRuleKeys(piece);
 
             PieceOutcome outcome = evaluatePiece(task, piece, refs, cache, keys);
             PageRef first = refs.isEmpty() ? null : refs.get(0);
             Row row = buildInputRow(project.columnModel, rowIndex + 1, piece.volumeNo,
-                    first == null ? "" : first.fileName, String.valueOf(piece.pages.size()),
+                    first == null ? "" : first.fileName, String.valueOf(refs.size()),
                     first == null ? "" : first.unit.path);
             ObjectNode pageMapRow = refs.isEmpty() ? null
                     : buildPiecePageMapRow(refs, piece, outcome, keys, cache);
@@ -651,7 +709,7 @@ public class DataReviewCommand extends Command {
                 extra.put("present", String.join("、", outcome.presentNames));
                 extra.put("missing", String.join("、", outcome.missingNames));
                 task.fileResults.add(fileResult(rowIndex, piece.volumeNo,
-                        first == null ? "" : first.fileName, String.valueOf(piece.pages.size()),
+                        first == null ? "" : first.fileName, String.valueOf(refs.size()),
                         String.join("、", outcome.ruleNames(piece)), outcome.resultLabel,
                         String.valueOf(outcome.sealSum), String.valueOf(outcome.fpSum),
                         outcome.detail, first == null ? "" : first.unit.path, extra));
@@ -739,6 +797,46 @@ public class DataReviewCommand extends Command {
             }
         }
         return p;
+    }
+
+    /**
+     * 按件目录兜底匹配页：目录拆分形态（{@code 正卷/二级目录/序号 件名/页图}）下，
+     * 下游提交目录一般不逐页给文件名，按件目录名去掉前导序号后与件题名比对。
+     * 命中多个时取页数最多的目录（同名件极少数见于分卷）。
+     */
+    private static List<PageRef> refsByDirectory(Task task, PieceSpec piece) {
+        return refsByDirectory(task.units, piece.title);
+    }
+
+    /** 同上的纯目录版本（纯数据校审没有 Task，只按件题名在扫描结果里找件目录）。 */
+    private static List<PageRef> refsByDirectory(List<UnitScanner.Volume> units, String title) {
+        String want = stripPieceNo(title);
+        List<PageRef> best = new ArrayList<>();
+        if (want.isEmpty() || units == null) {
+            return best;
+        }
+        for (UnitScanner.Volume unit : units) {
+            String name = unit.name == null ? "" : unit.name;
+            String segment = name.substring(name.lastIndexOf('/') + 1);
+            String got = stripPieceNo(segment);
+            if (got.isEmpty() || !(got.equals(want) || got.contains(want) || want.contains(got))) {
+                continue;
+            }
+            List<PageRef> refs = new ArrayList<>();
+            for (int i = 0; i < unit.pages.size(); i++) {
+                String path = unit.pages.get(i);
+                refs.add(new PageRef(unit, path, new File(path).getName(), pageNoOf(unit, i)));
+            }
+            if (refs.size() > best.size()) {
+                best = refs;
+            }
+        }
+        return best;
+    }
+
+    /** 去掉件目录名的前导序号（如 {@code 01 询问、调查取证材料} → {@code 询问、调查取证材料}）。 */
+    private static String stripPieceNo(String s) {
+        return s == null ? "" : s.replaceFirst("^\\s*\\d+[\\s.、_\\-]*", "").trim();
     }
 
     /** 文件名 → 扫描页索引（卷名 + 文件名精确匹配优先，退回全局文件名）。 */
@@ -1023,6 +1121,161 @@ public class DataReviewCommand extends Command {
         return String.join(",", keys);
     }
 
+    /**
+     * 纯数据校审写数据行：一件一行，只承载本次提交目录（结果一律进 overlay）。
+     *
+     * <p>{@code units} 为本卷根目录的扫描结果：件题名能匹配到真实件目录时，
+     * 「文件夹路径」写该目录的绝对路径，项目页点行即可预览原件；匹配不到时退回
+     * 「卷N/二级目录」的展示路径。</p>
+     */
+    private static void writeCatalogRows(Project project, CatalogChecklist.Catalog catalog,
+                                         List<UnitScanner.Volume> units) {
+        String archiveNo = catalog.archiveNo != null && !catalog.archiveNo.isBlank()
+                ? catalog.archiveNo
+                : (catalog.caseNo == null ? "" : catalog.caseNo);
+        synchronized (project) {
+            project.rows.clear();
+            int seq = 0;
+            for (CatalogChecklist.Volume volume : catalog.volumes) {
+                for (CatalogChecklist.Item item : volume.items) {
+                    seq++;
+                    String level2 = item.level2 == null ? "" : item.level2;
+                    String display = "卷" + volume.volumeNo + (level2.isEmpty() ? "" : "/" + level2);
+                    List<PageRef> refs = refsByDirectory(units, item.title);
+                    String folder = refs.isEmpty() ? display : refs.get(0).unit.path;
+                    String range = item.startPage > 0 && item.endPage >= item.startPage
+                            ? "（第" + item.startPage + "-" + item.endPage + "页）" : "";
+                    project.rows.add(buildInputRow(project.columnModel, seq, archiveNo,
+                            (item.title == null ? "" : item.title) + range,
+                            String.valueOf(item.pageCount), folder));
+                }
+            }
+            project.update();
+        }
+    }
+
+    /** 解析后的目录 → 件清单摘要（任务记录 pieceList 与 overlay.pieces 共用）。 */
+    private static List<Map<String, Object>> summarizeParsedCatalog(CatalogChecklist.Catalog catalog) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (CatalogChecklist.Volume volume : catalog.volumes) {
+            for (CatalogChecklist.Item item : volume.items) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("volumeNo", volume.volumeNo);
+                m.put("pieceNo", item.pieceNo);
+                m.put("title", item.title);
+                m.put("level1", item.level1);
+                m.put("level2", item.level2);
+                m.put("level3Title", item.level3Title);
+                m.put("startPage", item.startPage);
+                m.put("endPage", item.endPage);
+                m.put("pages", item.pageCount);
+                out.add(m);
+            }
+        }
+        return out;
+    }
+
+    /** 纯数据校审结果落盘：overlay 里写完整 checklist（平台 get-result 读的同一份）。 */
+    private int writeCatalogReviewResult(Project project, List<ReviewRule> rules,
+                                         Map<String, Object> checklist,
+                                         List<Map<String, Object>> catalogItems,
+                                         int catalogPages, long now) {
+        int version = 1;
+        Object prev = project.overlayModels.get(REVIEW_RESULT_KEY);
+        if (prev instanceof ReviewResultOverlay
+                && ((ReviewResultOverlay) prev).getResult() != null) {
+            version = ((ReviewResultOverlay) prev).getResult().path("resultVersion").asInt(0) + 1;
+        }
+        ObjectNode r = mapper.createObjectNode();
+        r.put("mode", "review-data");
+        r.put("pieceMode", true);
+        r.put("projectId", project.id);
+        r.put("status", STATUS_COMPLETED);
+        r.put("resultVersion", version);
+        ArrayNode rulesArr = r.putArray("rules");
+        for (ReviewRule rule : rules) {
+            ObjectNode n = rulesArr.addObject();
+            n.put("key", rule.key);
+            n.put("name", rule.name);
+            n.put("category", rule.category);
+        }
+        ObjectNode summary = mapper.valueToTree(asMap(checklist.get("summary")));
+        summary.put("totalFiles", catalogPages);
+        summary.put("processedFiles", catalogPages);
+        summary.put("totalPieces", catalogItems.size());
+        summary.put("processedPieces", catalogItems.size());
+        r.set("checklist", mapper.valueToTree(checklist));
+        // 件级结论：checklist.issues 里带件号的按件聚合，项目页结果表直接展示
+        Map<String, List<String>> notesByPiece = new LinkedHashMap<>();
+        for (Map<String, Object> issue : listOfMaps(checklist.get("issues"))) {
+            String key = asText(issue.get("volumeNo")) + "#" + asText(issue.get("pieceNo"));
+            notesByPiece.computeIfAbsent(key, k -> new ArrayList<>()).add(asText(issue.get("message")));
+        }
+        int passedPieces = 0;
+        int failedPieces = 0;
+        ArrayNode pieces = r.putArray("pieces");
+        for (Map<String, Object> item : catalogItems) {
+            String volumeNo = asText(item.get("volumeNo"));
+            String pieceNo = asText(item.get("pieceNo"));
+            List<String> notes = notesByPiece.get(volumeNo + "#" + pieceNo);
+            if (notes == null) {
+                notes = new ArrayList<>();
+            }
+            ObjectNode p = pieces.addObject();
+            p.put("volumeNo", volumeNo);
+            p.put("pieceNo", pieceNo);
+            p.put("title", asText(item.get("title")));
+            p.put("level2", asText(item.get("level2")));
+            p.put("pageCount", intOf(item.get("pages")));
+            p.put("status", notes.isEmpty() ? "passed" : "failed");
+            p.putArray("matched");
+            p.putArray("missing");
+            ArrayNode noteArr = p.putArray("notes");
+            for (String note : notes) {
+                noteArr.add(note);
+            }
+            if (notes.isEmpty()) {
+                passedPieces++;
+            } else {
+                failedPieces++;
+            }
+        }
+        summary.put("passedPieces", passedPieces);
+        summary.put("failedPieces", failedPieces);
+        summary.put("unknownPieces", 0);
+        r.set("summary", summary);
+        r.putArray("files");
+        r.put("startedAt", now);
+        r.put("finishedAt", now);
+        synchronized (project) {
+            project.overlayModels.put(REVIEW_RESULT_KEY, new ReviewResultOverlay(r));
+            project.getMetadata().updateModified();
+        }
+        return version;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asMap(Object value) {
+        return value instanceof Map ? (Map<String, Object>) value : new LinkedHashMap<>();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> listOfMaps(Object value) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (value instanceof List) {
+            for (Object o : (List<?>) value) {
+                if (o instanceof Map) {
+                    out.add((Map<String, Object>) o);
+                }
+            }
+        }
+        return out;
+    }
+
+    private static String asText(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
     /** 下游提交目录 → 项目页件清单（只读展示用，不含检测结论）。 */
     private static List<Map<String, Object>> summarizeCatalog(JsonNode catalog) {
         List<Map<String, Object>> out = new ArrayList<>();
@@ -1084,7 +1337,15 @@ public class DataReviewCommand extends Command {
         return false;
     }
 
-    /** 全局规则清单允许的键：存在类检测能力 + 内容组合类占位项。 */
+    /** 纯数据（catalogOnly）可判定的规则键：不调检测模型，只按提交目录比对。 */
+    private static final List<String> CATALOG_RULE_KEYS = List.of(
+            "missing_piece", "missing_page", "empty_piece", "missing_attachment",
+            "piece_order", "volume_toc", "document_element", CONTENT_COMBO_KEY);
+
+    private static boolean isCatalogRuleKey(String key) {
+        return CATALOG_RULE_KEYS.contains(key);
+    }
+
     private static boolean isReviewRuleKey(String key) {
         return isDetectionRuleKey(key) || CONTENT_COMBO_KEY.equals(key);
     }
@@ -1310,6 +1571,10 @@ public class DataReviewCommand extends Command {
             ArrayNode pieces = r.putArray("pieces");
             synchronized (task) {
                 for (ObjectNode p : task.pieceResults) pieces.add(p);
+            }
+            // 结构类判定随件级结果一起落盘（平台 getReviewResult 优先读它，不再自行计算）
+            if (task.checklist != null) {
+                r.set("checklist", mapper.valueToTree(task.checklist));
             }
         }
         r.put("startedAt", task.startedAt);
@@ -1836,6 +2101,10 @@ public class DataReviewCommand extends Command {
         final long startedAt = System.currentTimeMillis();
         /** 件级校审参数；null = 旧链路（按文件逐页校审） */
         List<PieceSpec> pieces;
+        /** 下游提交目录原文：件级路径同样据它做结构类判定（单一权威在引擎侧） */
+        JsonNode catalog;
+        /** 结构类判定结果（CatalogChecklist.evaluate），终态随结果写 overlay */
+        Map<String, Object> checklist;
 
         String status = STATUS_RUNNING;
         String message = "";

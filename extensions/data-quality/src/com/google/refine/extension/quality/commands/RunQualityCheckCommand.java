@@ -459,6 +459,11 @@ public class RunQualityCheckCommand extends Command {
                     err.setCategory(DocumentElementChecker.CATEGORY);
                     combinedResult.addError(err);
                 }
+                // 题名规范错误同样落盘，否则刷新页面后结果页/报告会丢失该类别
+                for (CheckResult.CheckError err : titleNormResult.getErrors()) {
+                    err.setCategory(TitleNormChecker.CATEGORY);
+                    combinedResult.addError(err);
+                }
                 // 文书级明细随 combined 落盘，结果页/下游才能看到「哪件文书缺哪个要素」
                 if (documentQualityResult.getDocuments() != null) {
                     combinedResult.setDocuments(documentQualityResult.getDocuments());

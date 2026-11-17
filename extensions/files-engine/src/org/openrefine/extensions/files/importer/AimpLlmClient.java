@@ -645,6 +645,8 @@ public class AimpLlmClient {
                         p.startPage = n.path(AimpFields.START).asInt(0);
                         p.endPage = n.path(AimpFields.END).asInt(0);
                         p.title = n.path(AimpFields.TITLE).asText("");
+                        p.level3Title = n.path("level3Title").asText("");
+                        p.level3Source = n.path("level3Source").asText("");
                         r.pieces.add(p);
                     }
                 }

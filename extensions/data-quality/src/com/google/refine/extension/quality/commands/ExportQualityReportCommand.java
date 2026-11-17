@@ -538,10 +538,10 @@ public class ExportQualityReportCommand extends Command {
             createStatRow(sheet, rowNum++, "总错误数", totalErrors);
             createStatRow(sheet, rowNum++, "格式错误", formatErrors);
             createStatRow(sheet, rowNum++, "资源错误", resourceErrors);
+            int titleNormErrors = titleNormErrorsOf(summary, results.get("errors"));
             if (court) {
                 // 法院档位出「题名规范错误」，不出档案的内容错误
-                createStatRow(sheet, rowNum++, "题名规范错误",
-                        summary.path("titleNormErrors").asInt(0));
+                createStatRow(sheet, rowNum++, "题名规范错误", titleNormErrors);
             } else {
                 createStatRow(sheet, rowNum++, "内容错误", contentErrors);
             }
@@ -553,7 +553,6 @@ public class ExportQualityReportCommand extends Command {
             // ... 文书检测件数 / 通过件数 / 失败件数 / 文书级错误 / 未执行
 
             // 题名规范检查（第 4 个 tab）：未执行时据实标注，不算通过
-            int titleNormErrors = summary.path("titleNormErrors").asInt(0);
             int titleNormChecked = summary.path("titleNormCheckedCount").asInt(0);
             int titleNormPassed = summary.path("titleNormPassedCount").asInt(0);
             int titleNormFailed = summary.path("titleNormFailedCount").asInt(0);
@@ -626,8 +625,8 @@ public class ExportQualityReportCommand extends Command {
             // if (court || docCategoryErrors > 0) {
             //     createDistributionRow(sheet, rowNum++, "案件质量评查", docCategoryErrors, totalErrors, percentStyle);
             // }
-            int titleNormCategoryErrors = summary == null ? 0 : summary.path("titleNormErrors").asInt(0);
-            if (titleNormCategoryErrors > 0) {
+            int titleNormCategoryErrors = titleNormErrorsOf(summary, results.get("errors"));
+            if (court || titleNormCategoryErrors > 0) {
                 createDistributionRow(sheet, rowNum++, "题名规范检查", titleNormCategoryErrors, totalErrors, percentStyle);
             }
         }
@@ -968,6 +967,26 @@ public class ExportQualityReportCommand extends Command {
     }
 
     /**
+     * 题名规范错误数：优先用 summary 里本轮检查的统计；
+     * 结果来自 overlay/旧版本或上游重组的 payload 时 summary 可能缺该字段，
+     * 此时按错误明细的 category=title_norm 现算，避免报告把「有错」显示为 0。
+     */
+    private int titleNormErrorsOf(JsonNode summary, JsonNode errors) {
+        if (summary != null && summary.has("titleNormErrors")) {
+            return summary.path("titleNormErrors").asInt(0);
+        }
+        int count = 0;
+        if (errors != null && errors.isArray()) {
+            for (JsonNode err : errors) {
+                if ("title_norm".equals(err.path("category").asText(""))) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    /**
      * Translate error type to Chinese.
      */
     private String getErrorTypeLabel(String errorType) {
@@ -1006,6 +1025,17 @@ public class ExportQualityReportCommand extends Command {
             case "typo": return "错别字检查";
             case "field_missing": return "必备要素缺失";
             case "folder_name_format": return "文件夹命名格式";
+            // 题名规范检查（第 4 个 tab，TenCheck 项）
+            case "level_missing": return "层级完整性检查";
+            case "category_illegal": return "类别归属合法性检查";
+            case "template_mismatch": return "四级题名模板匹配";
+            case "alias_normalize": return "别名归一检查";
+            case "placeholder_missing": return "模板占位符缺失";
+            case "party_mismatch": return "当事人归属匹配";
+            case "template_version": return "模板版本一致性";
+            case "title_charset": return "题名字符规范";
+            case "title_length": return "题名长度上限";
+            case "doc_number_format": return "案号 / 文号格式";
             default: return errorType;
         }
     }
@@ -1016,6 +1046,11 @@ public class ExportQualityReportCommand extends Command {
     private String translateErrorMessage(String message, String errorType) {
         if (message == null || message.isEmpty()) return "(空)";
 
+        // 早期结果的 data_existence 错误写的是国际化资源键，导出时换成中文
+        if ("data-quality-extension/error-msg-data-existence".equals(message)) {
+            return "文件夹对应的数据条目不存在";
+        }
+
         // Value not in allowed list
         if (message.equals("Value not in allowed list")) {
             return "不在允许值列表中";
@@ -1025,8 +1060,8 @@ public class ExportQualityReportCommand extends Command {
             return "值为空";
         }
         // Duplicate value
-        if (message.equals("Duplicate value")) {
-            return "重复值";
+        if (message.equals("Duplicate value") || message.equals("Duplicate value found")) {
+            return "存在重复值";
         }
         // File count mismatch: expected X, actual Y
         if (message.startsWith("File count mismatch:")) {
@@ -1069,6 +1104,11 @@ public class ExportQualityReportCommand extends Command {
             String pattern = message.substring("Does not match pattern:".length()).trim();
             return "不匹配格式：" + pattern;
         }
+        // File name does not match format
+        if (message.startsWith("File name does not match format:")) {
+            String format = message.substring("File name does not match format:".length()).trim();
+            return "文件命名不符合格式：" + format;
+        }
         // Value does not match pattern
         if (message.startsWith("Value does not match pattern:")) {
             String pattern = message.substring("Value does not match pattern:".length()).trim();
@@ -1087,13 +1127,16 @@ public class ExportQualityReportCommand extends Command {
         }
 
         // Image quality errors - skew
-        if (message.startsWith("Skew detected:")) {
-            java.util.regex.Pattern p = java.util.regex.Pattern.compile("angle: ([-]?\\d+)");
-            java.util.regex.Matcher m = p.matcher(message);
+        // 历史结果里的英文格式：Image skew detected: 0012.jpg, angle: -0.6（角度可能是小数/负数）
+        if (message.startsWith("Image skew detected:") || message.startsWith("Skew detected:")) {
+            String rest = message.substring(message.indexOf(':') + 1).trim();
+            String fileName = rest.split(",")[0].trim();
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile("angle:\\s*([-]?\\d+(?:\\.\\d+)?)");
+            java.util.regex.Matcher m = p.matcher(rest);
             if (m.find()) {
-                return "检测到图像倾斜, 角度: " + m.group(1) + "°";
+                return "检测到图像倾斜: " + fileName + "，角度 " + m.group(1) + "°";
             }
-            return "检测到图像倾斜";
+            return "检测到图像倾斜: " + fileName;
         }
 
         // Image quality errors - stain
@@ -1115,9 +1158,20 @@ public class ExportQualityReportCommand extends Command {
         }
 
         // Image quality errors - file size
-        if (message.startsWith("File size too large:")) {
-            String size = message.substring("File size too large:".length()).trim();
-            return "文件过大: " + size;
+        // 历史结果里的英文格式：File size too small: 0012.jpg, Size: 500KB (expected: 10-10000KB)
+        if (message.startsWith("File size too small:") || message.startsWith("File size too large:")) {
+            boolean tooSmall = message.startsWith("File size too small:");
+            String rest = message.substring(message.indexOf(':') + 1).trim();
+            String fileName = rest.split(",")[0].trim();
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "Size:\\s*(\\d+)KB\\s*\\(expected:\\s*(\\d+)\\s*-\\s*(\\d+)KB\\)");
+            java.util.regex.Matcher m = p.matcher(rest);
+            String label = tooSmall ? "文件大小过小" : "文件大小过大";
+            if (m.find()) {
+                return label + ": " + fileName + "，当前 " + m.group(1)
+                        + "KB（要求 " + m.group(2) + "-" + m.group(3) + "KB）";
+            }
+            return label + ": " + rest;
         }
 
         // Image quality errors - edge
@@ -1340,7 +1394,7 @@ public class ExportQualityReportCommand extends Command {
                 addSectionTitle(document, "二、检查概况", sectHeaderFont);
                 addOverviewSection(document, headerFont, normalFont, totalRows, totalFolders, totalFiles, totalErrors,
                         checkStats, results, formatErrors, resourceErrors, contentErrors, imageErrors,
-                        true, summary == null ? 0 : summary.path("titleNormErrors").asInt(0));
+                        true, titleNormErrorsOf(summary, errors));
                 document.add(new Paragraph(" "));
 
                 addSectionTitle(document, "三、四性检测结果汇总", sectHeaderFont);
@@ -2068,7 +2122,7 @@ public class ExportQualityReportCommand extends Command {
         int titleNormChecked = summary == null ? 0 : summary.path("titleNormCheckedCount").asInt(0);
         int titleNormPassed = summary == null ? 0 : summary.path("titleNormPassedCount").asInt(0);
         int titleNormFailed = summary == null ? 0 : summary.path("titleNormFailedCount").asInt(0);
-        int titleNormErrors = summary == null ? 0 : summary.path("titleNormErrors").asInt(0);
+        int titleNormErrors = titleNormErrorsOf(summary, results.get("errors"));
         boolean titleNormExecuted = summary != null && summary.path("titleNormExecuted").asBoolean(false);
         String skipReason = summary == null ? "" : summary.path("titleNormSkipReason").asText("");
 
@@ -2783,6 +2837,17 @@ public class ExportQualityReportCommand extends Command {
             case "pageSize": return "尺幅大小统计";
             case "content_mismatch": return "内容比对检查";
             case "typo": return "错别字检查";
+            // 题名规范检查（第 4 个 tab）
+            case "level_missing": return "层级完整性检查";
+            case "category_illegal": return "类别归属合法性检查";
+            case "template_mismatch": return "四级题名模板匹配";
+            case "alias_normalize": return "别名归一检查";
+            case "placeholder_missing": return "模板占位符缺失";
+            case "party_mismatch": return "当事人归属匹配";
+            case "template_version": return "模板版本一致性";
+            case "title_charset": return "题名字符规范";
+            case "title_length": return "题名长度上限";
+            case "doc_number_format": return "案号 / 文号格式";
             default: return errorType;
         }
     }

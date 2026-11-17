@@ -227,6 +227,11 @@ var ReviewProjectPanel = (function() {
   function render(task) {
     currentTask = task;
     state = ReviewConfigPanelUI.createState(parseSavedRules(task));
+    // 模板标识随任务落盘（平台下发 templateId）：项目页把模板栏还原成选中状态，
+    // 各页签参数按模板回显，不再显示「按模板默认」。
+    if (task.templateId) {
+      state.templateId = task.templateId;
+    }
     // 内容组合类页签的判定输入：优先用平台随任务下发的「下游本次提交目录」，
     // 未下发时回退到件清单摘要（旧任务）；两者都为只读展示。
     var catalog = (task.catalog && task.catalog.items) ? task.catalog : null;
@@ -258,23 +263,19 @@ var ReviewProjectPanel = (function() {
 
     elmts.hint = $('<div class="review-params-hint"></div>').appendTo(form);
 
-    // 件级清单（只读）：件数据由平台按抽取项目号/模板下发，随启动任务登记到 record，
-    // 参数页直接展示，避免下游还要去平台模板页才能确认「本件有哪些件、每件要求什么」。
-    if (task.pieceList && task.pieceList.length) {
-      renderPieceList(form, task.pieceList);
-    } else if (task.mode === 'review-piece') {
-      $('<div class="review-piece-list-empty"></div>')
-        .text('件级任务（pieceMode=true），但该任务记录没有件清单（旧任务）；'
-            + '由平台按件重新启动校审后，这里会显示本件清单。')
-        .appendTo(form);
-    }
-
     refreshHint();
 
     ReviewConfigPanelUI.render(elmts.tabs, elmts.list, elmts.note, state, refreshHint);
 
     var actions = $('<div class="review-params-actions"></div>').appendTo(panel);
     var running = (task.status === 'running');
+    // 立即校审：与合规「扩展 → 数据质量 → 立即检查...」同口径，按本任务的登记参数
+    // （目录 + 规则 + 提交目录）重新跑一轮校审，结果覆盖写并可在「校审结果」页签查看。
+    elmts.runButton = $('<button class="button"></button>')
+      .text('立即校审')
+      .prop('disabled', running || !task.projectId)
+      .on('click', openRunDialog)
+      .appendTo(actions);
     elmts.saveButton = $('<button class="button"></button>')
       .text('保存')
       .prop('disabled', running || !task.rootPath)
@@ -303,43 +304,6 @@ var ReviewProjectPanel = (function() {
     } else {
       elmts.hint.text('保存后的规则对之后启动的校审任务生效，已完成的校审结果不会回写。');
     }
-  }
-
-  /**
-   * 件级清单（只读）：一行一件，展示件号/题名/页数/页文件/要求项（含覆盖方式与必填性）。
-   * 数据来自任务记录 pieceList（平台启动校审时随 pieceMap 下发，由引擎摘要登记）。
-   */
-  function renderPieceList(form, list) {
-    var box = $('<div class="review-piece-list"></div>').appendTo(form);
-    $('<h3></h3>').text('件级清单（只读，按平台下发的件模板）').appendTo(box);
-
-    var table = $('<table class="review-piece-table"></table>').appendTo(box);
-    var head = $('<tr></tr>').appendTo($('<thead></thead>').appendTo(table));
-    ['件号', '件题名', '页数', '页文件', '要求项'].forEach(function(text) {
-      $('<th></th>').text(text).appendTo(head);
-    });
-
-    var body = $('<tbody></tbody>').appendTo(table);
-    list.forEach(function(piece) {
-      var row = $('<tr></tr>').appendTo(body);
-      $('<td></td>').text(piece.pieceNo || '').appendTo(row);
-      $('<td></td>').text(piece.title || '').appendTo(row);
-      $('<td></td>').text(piece.pages == null ? '' : String(piece.pages)).appendTo(row);
-      var files = (piece.pageFiles || []).join('、');
-      $('<td class="review-piece-files"></td>').text(files || '—')
-        .attr('title', files).appendTo(row);
-      var reqs = (piece.rules || []).map(function(rule) {
-        var text = rule.name || rule.key;
-        if (rule.coverage === 'everyPage') {
-          text += '（逐页）';
-        }
-        if (rule.required === false) {
-          text += '（选填）';
-        }
-        return text;
-      });
-      $('<td></td>').text(reqs.join('、') || '—').appendTo(row);
-    });
   }
 
   // ---- 校审结果 tab ------------------------------------------------------
@@ -401,7 +365,7 @@ var ReviewProjectPanel = (function() {
     var pieces = result.pieces || [];
     var files = result.files || [];
     if (pieces.length) {
-      renderResultPieces(form, pieces, files);
+      renderResultPieces(form, pieces, files, result);
     } else if (files.length) {
       renderResultFiles(form, files);
     } else {
@@ -410,8 +374,16 @@ var ReviewProjectPanel = (function() {
     }
   }
 
-  /** 件级明细：命中项/缺失项/结论；点行打开该件首页的原件预览 */
-  function renderResultPieces(form, pieces, files) {
+  /**
+   * 件级明细：命中项/缺失项/说明；点行打开该件首页的原件预览。
+   *
+   * 两种结果形态要一起兼容：
+   * - 件级检测（mode=review-piece）：引擎逐件给 present/missing/detail，pages/files 齐备；
+   * - 纯数据校审（mode=review-data，平台只下发提交目录）：overlay 里给的是
+   *   matched/missing/notes + pageCount，没有 files[]，命中的规则名需要按
+   *   checklist.issues 的 rule 归并出来，数据行按件序与目录逐件对应。
+   */
+  function renderResultPieces(form, pieces, files, result) {
     var box = $('<div class="review-piece-list"></div>').appendTo(form);
     $('<h3></h3>').text($.i18n('files-import/review-results-pieces-title')).appendTo(box);
     var table = $('<table class="review-piece-table review-results-table"></table>').appendTo(box);
@@ -420,19 +392,88 @@ var ReviewProjectPanel = (function() {
       $('<th></th>').text($.i18n('files-import/review-results-col-' + key)).appendTo(head);
     });
     var body = $('<tbody></tbody>').appendTo(table);
-    pieces.forEach(function(piece) {
+    var catalogRows = (result.mode === 'review-data');
+    pieces.forEach(function(piece, index) {
+      var issues = pieceIssues(result, piece);
+      var notes = (piece.notes || []).slice();
+      if (!notes.length && piece.detail) {
+        notes.push(piece.detail);
+      }
+      issues.forEach(function(issue) {
+        if (issue.message && notes.indexOf(issue.message) === -1) {
+          notes.push(issue.message);
+        }
+      });
+      var missing = piece.missing || [];
+      if (!missing.length && issues.length) {
+        missing = issueLabels(issues);
+      }
+      var pageCount = (piece.pages && piece.pages.length)
+        ? piece.pages.length : (piece.pageCount == null ? null : Number(piece.pageCount));
+
       var row = $('<tr></tr>').appendTo(body);
       $('<td></td>').text(piece.pieceNo || '').appendTo(row);
       $('<td></td>').text(piece.title || '').appendTo(row);
-      $('<td></td>').text((piece.pages && piece.pages.length) ? String(piece.pages.length) : '—')
-        .appendTo(row);
+      $('<td></td>').text(pageCount == null ? '—' : String(pageCount)).appendTo(row);
       $('<td></td>').addClass('review-result-' + (piece.status || 'unknown'))
         .text(statusLabel(piece.status)).appendTo(row);
-      $('<td></td>').text(joinNames(piece.present)).appendTo(row);
-      $('<td></td>').text(joinNames(piece.missing)).appendTo(row);
-      $('<td></td>').text(piece.detail || '—').appendTo(row);
-      bindPreview(row, rowIndexOfPiece(piece, files));
+      $('<td></td>').text(joinNames(piece.present || piece.matched)).appendTo(row);
+      $('<td></td>').text(joinNames(missing)).appendTo(row);
+      $('<td></td>').text(notes.length ? notes.join('；') : '—').appendTo(row);
+      // 纯数据校审没有逐页文件清单，数据行是「一件一行、按目录顺序写入」的，
+      // 因此退回到件序号定位；件级检测仍按件首页文件名反查行号。
+      var rowIndex = rowIndexOfPiece(piece, files);
+      if (rowIndex == null && catalogRows) {
+        rowIndex = index;
+      }
+      bindPreview(row, rowIndex);
     });
+  }
+
+  /** 结果里的 checklist.issues 按件归并（scope=volume/level2 的不挂到具体件） */
+  function pieceIssues(result, piece) {
+    var checklist = result.checklist || {};
+    var issues = checklist.issues || [];
+    var volumeNo = piece.volumeNo == null ? '' : String(piece.volumeNo);
+    var pieceNo = piece.pieceNo == null ? '' : String(piece.pieceNo);
+    var out = [];
+    for (var i = 0; i < issues.length; i++) {
+      var issue = issues[i] || {};
+      if (!issue.pieceNo) {
+        continue;
+      }
+      if (String(issue.pieceNo) !== pieceNo) {
+        continue;
+      }
+      if (issue.volumeNo != null && String(issue.volumeNo) !== volumeNo) {
+        continue;
+      }
+      out.push(issue);
+    }
+    return out;
+  }
+
+  var ISSUE_LABELS = {
+    missing_piece: '缺件',
+    missing_page: '缺页',
+    empty_piece: '空件',
+    missing_attachment: '条件缺件',
+    piece_order: '件序',
+    volume_toc: '卷内目录',
+    document_element: '文书要素',
+    piece_combo: '内容组合'
+  };
+
+  /** 问题类型 → 缺失项标签（去重，保持出现顺序） */
+  function issueLabels(issues) {
+    var labels = [];
+    issues.forEach(function(issue) {
+      var label = ISSUE_LABELS[issue.rule] || issue.rule;
+      if (label && labels.indexOf(label) === -1) {
+        labels.push(label);
+      }
+    });
+    return labels;
   }
 
   /** 文件级明细：一行一个文件；点行打开原件预览 */
@@ -539,6 +580,217 @@ var ReviewProjectPanel = (function() {
     });
   }
 
+  // ---- 立即校审 ----------------------------------------------------------
+  // 与合规「扩展 → 数据质量 → 立即检查...」同口径：弹窗说明本次要跑什么，
+  // 点「开始校审」用任务登记的目录/规则/提交目录重新发起一轮，结果覆盖写。
+
+  function openRunDialog() {
+    if (typeof theProject === 'undefined' || !theProject) {
+      window.alert('请先在项目页打开需要校审的项目。');
+      return;
+    }
+    fetchTask(function(task) {
+      createRunDialog(task || {});
+    });
+  }
+
+  function createRunDialog(task) {
+    if (!task.projectId) {
+      window.alert('当前项目尚未登记校审任务：请先在平台创建校审项目后再运行校审。');
+      return;
+    }
+    // 纯数据校审（平台只下发提交目录）与文件级校审可以在引擎侧重跑；
+    // 件级校审的件清单由平台启动时逐件下发，任务记录里只有摘要，无法还原 pieceMap。
+    var canRunData = !!task.catalogOnly && !!task.catalog;
+    var canRunFile = !canRunData && task.mode === 'review-file' && !!task.rootPath;
+    var runnable = canRunData || canRunFile;
+    var running = (task.status === 'running');
+
+    var frame = $(
+      '<div class="dialog-frame" style="width: 480px;">'
+      + '  <div class="dialog-header">运行校审</div>'
+      + '  <div class="dialog-body">'
+      + '    <p class="review-run-status">点击"开始校审"运行校审任务</p>'
+      + '    <p class="review-run-detail"></p>'
+      + '    <div class="review-run-progress" style="display: none; height: 8px;'
+      + '         background: #e6e6e6; border-radius: 4px; overflow: hidden; margin-top: 10px;">'
+      + '      <div class="review-run-progress-fill" style="width: 0; height: 100%;'
+      + '           background: #4a90d9; transition: width .2s;"></div>'
+      + '    </div>'
+      + '  </div>'
+      + '  <div class="dialog-footer">'
+      + '    <button class="button button-primary" name="start">开始校审</button>'
+      + '    <button class="button button-secondary" name="results" style="display: none;">查看结果</button>'
+      + '    <button class="button button-secondary" name="cancel">取消</button>'
+      + '  </div>'
+      + '</div>');
+
+    var level = DialogSystem.showDialog(frame);
+    var $status = frame.find('.review-run-status');
+    var $detail = frame.find('.review-run-detail');
+    var $progress = frame.find('.review-run-progress');
+    var $fill = frame.find('.review-run-progress-fill');
+    var $start = frame.find('button[name="start"]');
+    var $results = frame.find('button[name="results"]');
+    var timer = null;
+
+    function dismiss() {
+      if (timer) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+      DialogSystem.dismissUntil(level - 1);
+    }
+
+    function describe() {
+      var pieces = (task.pieceList || []).length;
+      if (canRunData) {
+        return '按已保存的校审规则，对平台下发的提交目录重新执行校审（'
+          + pieces + ' 件）；结果覆盖上一轮，可在「校审结果」页签查看。';
+      }
+      if (canRunFile) {
+        return '按已保存的校审规则重新扫描根目录并检测；结果覆盖上一轮，'
+          + '可在「校审结果」页签查看。';
+      }
+      return '该任务为件级校审（按平台下发的件清单逐件检测），件清单只在平台启动校审时下发，'
+        + '无法在引擎侧单独重跑；请在平台重新启动校审。';
+    }
+
+    $detail.text(describe());
+    if (!runnable) {
+      $start.prop('disabled', true);
+    }
+    if (running) {
+      $start.prop('disabled', true);
+      $status.text('校审任务进行中，请等待完成…');
+      poll();
+    }
+
+    function rulesText() {
+      var rules = task.rules;
+      if (typeof rules === 'string') {
+        return rules;
+      }
+      return JSON.stringify(rules || []);
+    }
+
+    function start() {
+      $start.prop('disabled', true);
+      $status.text('正在启动校审任务…');
+      $detail.text('');
+      $progress.show();
+      $fill.css('width', '0%');
+
+      var payload = {
+        subCommand: 'start',
+        project: task.projectId,
+        projectName: unicodeEscape(task.projectName || ''),
+        rootPath: task.rootPath || '',
+        rules: unicodeEscape(rulesText()),
+        templateId: task.templateId || '',
+        templateVersion: task.templateVersion || ''
+      };
+      if (canRunData) {
+        // 服务端按 ISO-8859-1 解码表单参数，中文目录必须先 u 转义
+        payload.catalogOnly = 'true';
+        payload.catalog = unicodeEscape(JSON.stringify(task.catalog));
+      }
+      Refine.wrapCSRF(function(token) {
+        payload.csrf_token = token;
+        $.post('command/files/data-review', payload, function(data) {
+          if (!data || data.code === 'error') {
+            $status.text('启动失败：' + ((data && data.message) ? data.message : '未知错误'));
+            $start.prop('disabled', false);
+            $progress.hide();
+            return;
+          }
+          $status.text('校审任务已启动，正在处理…');
+          poll();
+        }, 'json').fail(function(xhr) {
+          $status.text('启动失败（HTTP ' + xhr.status + '）');
+          $start.prop('disabled', false);
+          $progress.hide();
+        });
+      });
+    }
+
+    function poll() {
+      var tick = function() {
+        Refine.wrapCSRF(function(token) {
+          $.post('command/files/data-review',
+            { subCommand: 'progress', project: task.projectId, csrf_token: token },
+            function(p) {
+              if (!p || p.code === 'error') {
+                $status.text('读取进度失败：' + ((p && p.message) ? p.message : '未知错误'));
+                return;
+              }
+              updateProgress(p);
+              if (p.status === 'running') {
+                timer = window.setTimeout(tick, 1000);
+              } else {
+                timer = null;
+                finish(p);
+              }
+            }, 'json').fail(function() {
+              timer = window.setTimeout(tick, 1500);
+            });
+        });
+      };
+      tick();
+    }
+
+    function updateProgress(p) {
+      var total = Number(p.totalFiles || 0);
+      var done = Number(p.processedFiles || 0);
+      var pct = total > 0 ? Math.max(0, Math.min(100, Math.round(done * 100 / total))) : 0;
+      $progress.show();
+      $fill.css('width', pct + '%');
+      $status.text('校审中：' + done + ' / ' + total + ' 页'
+        + (p.currentFile ? ' · ' + p.currentFile : ''));
+    }
+
+    function finish(p) {
+      if (p.status === 'completed') {
+        $status.text('校审完成，可在「校审结果」页签查看本轮结果。');
+        $results.show();
+        $start.hide();
+        loadResults();
+        // 任务重跑会重写项目数据行（纯数据校审重写件目录），必须重新取行，
+        // 否则预览仍读内存里的旧「文件夹路径」，点行打不开原件。
+        if (typeof ui !== 'undefined' && ui && ui.dataTableView && ui.dataTableView._showRows) {
+          ui.dataTableView._showRows({ start: 0 });
+        }
+      } else if (p.status === 'cancelled') {
+        $status.text('校审已取消。');
+        $start.prop('disabled', false).show();
+      } else if (p.status === 'failed') {
+        $status.text('校审失败：' + (p.message || '未知错误'));
+        $start.prop('disabled', false).show();
+      } else {
+        $status.text('校审已结束（' + (p.status || '未知状态') + '）。');
+        $start.prop('disabled', false).show();
+      }
+      $progress.hide();
+    }
+
+    $start.on('click', start);
+    $results.on('click', function() {
+      dismiss();
+      if (resultsTab) {
+        TabManager.switchTab('review-tabs', resultsTab);
+      }
+      loadResults();
+    });
+    frame.find('button[name="cancel"]').on('click', dismiss);
+  }
+
+  /** 表单参数里的中文统一 u 转义（服务端用 UnicodeText.decode 还原） */
+  function unicodeEscape(text) {
+    return String(text).replace(/[\u0080-\uffff]/g, function(ch) {
+      return '\\u' + ('0000' + ch.charCodeAt(0).toString(16)).slice(-4);
+    });
+  }
+
   function open() {
     initialize();
     if (!initialized) {
@@ -550,8 +802,65 @@ var ReviewProjectPanel = (function() {
     fetchTask(render);
   }
 
+  /**
+   * 项目页加载时自动挂载「校审参数 / 校审结果」页签（与合规 quality-alignment 的
+   * autoLaunchIfNeeded 同口径）：本项目登记过校审任务就注册页签并预取内容，
+   * 停在与合规一致的「数据」视图，用户点页签即可看到规则与结果。
+   *
+   * 嵌入形态（URL 带 view=review-params / review-preview）由 review-embed.js 负责，
+   * 这里不重复处理，避免两个入口争抢页签。
+   */
+  function autoAttach(attempts) {
+    attempts = attempts || 0;
+    // 只在项目页执行（导入页等也加载本脚本，那里没有 theProject）
+    if (typeof theProject === 'undefined' || !theProject) {
+      return;
+    }
+    var view = null;
+    try {
+      view = new URLSearchParams(window.location.search).get('view');
+    } catch (e) {
+      view = null;
+    }
+    if (view === 'review-params' || view === 'review-preview') {
+      return;
+    }
+    // 等项目页界面初始化完成再挂：抢在前面注册会与随后的 initializeUI 争抢容器
+    var ready = (typeof ui !== 'undefined' && ui && ui.dataTableView);
+    if (!ready && attempts < 150) {
+      window.setTimeout(function() {
+        autoAttach(attempts + 1);
+      }, 100);
+      return;
+    }
+    fetchTask(function(task) {
+      if (!task || !task.projectId) {
+        return; // 非校审项目：保持普通项目页原样
+      }
+      initialize();
+      if (!initialized) {
+        return;
+      }
+      render(task);
+      // 与合规一致：进入项目停在数据视图，避免看起来「项目是空的」
+      if (dataTab) {
+        TabManager.switchTab('review-tabs', dataTab);
+      }
+    });
+  }
+
   return {
     open: open,
-    refresh: open
+    refresh: open,
+    autoAttach: autoAttach,
+    runDialog: openRunDialog
   };
 })();
+
+$(function() {
+  if (typeof ReviewProjectPanel !== 'undefined') {
+    window.setTimeout(function() {
+      ReviewProjectPanel.autoAttach(0);
+    }, 800);
+  }
+});

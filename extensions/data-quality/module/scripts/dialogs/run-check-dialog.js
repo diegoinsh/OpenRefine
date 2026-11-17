@@ -509,14 +509,16 @@ RunCheckDialog.prototype._onCheckComplete = function(response) {
     startTime: response.startTime || 0,
     endTime: response.endTime || 0,
     // Add summary object for export
-    summary: {
-      totalRows: response.summary ? response.summary.totalRows : 0,
-      totalErrors: response.summary ? response.summary.totalErrors : 0,
-      formatErrors: response.summary ? response.summary.formatErrors : 0,
-      resourceErrors: response.summary ? response.summary.resourceErrors : 0,
-      contentErrors: response.summary ? response.summary.contentErrors : 0,
-      imageQualityErrors: response.summary ? response.summary.imageQualityErrors : 0
-    }
+    // 直接透传后端 summary（含题名规范 titleNorm* 等新增字段），避免各检查项统计在
+    // 前端重排时被截断导致报告里「题名规范检查 0」；后端未给的字段按 0 兜底。
+    summary: $.extend({
+      totalRows: 0,
+      totalErrors: result.errors.length,
+      formatErrors: 0,
+      resourceErrors: 0,
+      contentErrors: 0,
+      imageQualityErrors: 0
+    }, response.summary || {})
   };
 
   console.log('[RunCheckDialog] 构建的result对象:', result);

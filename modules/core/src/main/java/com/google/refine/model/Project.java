@@ -291,6 +291,19 @@ public class Project {
             
             writer.write("history=\n");
             history.save(writer, options);
+
+            // 多 sheet 项目同样要落盘项目级 overlay（质量规则 qualityRulesConfig、
+            // 检查结果 qualityCheckResult 等）。此前该分支漏写，导致这些 overlay 只存在于
+            // 内存：同一进程内 get-quality-result 能读到，重启/重开项目后即全部丢失
+            // （表现为「跑完能看结果、再进去就没有、插件结果按钮不出现」）。
+            for (String modelName : overlayModels.keySet()) {
+                writer.write("overlayModel:");
+                writer.write(modelName);
+                writer.write("=");
+
+                ParsingUtilities.saveWriter.writeValue(writer, overlayModels.get(modelName));
+                writer.write('\n');
+            }
         } else {
             writer.write("columnModel=\n");
             columnModel.save(writer, options);

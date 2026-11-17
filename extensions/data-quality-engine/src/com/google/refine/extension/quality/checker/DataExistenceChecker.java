@@ -95,7 +95,7 @@ public class DataExistenceChecker {
                     "resource_path",
                     folderPath,
                     "data_existence",
-                    "data-quality-extension/error-msg-data-existence"
+                    "文件夹对应的数据条目不存在: " + folderPath
                 );
                 error.setCategory("resource");
                 result.addError(error);
