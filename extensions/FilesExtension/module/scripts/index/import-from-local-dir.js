@@ -97,9 +97,9 @@ Refine.REVIEW_RULE_CATEGORIES = [
   {
     key: 'complete', name: '完备性', desc: '按必备件清单核对本次提交目录，检查缺件、缺页、空件与条件缺件',
     rules: [
-      { key: 'missing_piece', name: '缺件检测', enabled: false, desc: '与必备件清单比对该有的件是否齐全' },
-      { key: 'missing_page', name: '缺页检测', enabled: false, desc: '按编页连续性判断是否缺页' },
-      { key: 'empty_piece', name: '空件检测', enabled: false, desc: '件内只有封面/空白页时判为空件' },
+      { key: 'missing_piece', name: '缺件检测', enabled: true, desc: '与必备件清单比对该有的件是否齐全' },
+      { key: 'missing_page', name: '缺页检测', enabled: true, desc: '按编页连续性判断是否缺页' },
+      { key: 'empty_piece', name: '空件检测', enabled: true, desc: '件内只有封面/空白页时判为空件' },
       { key: 'missing_attachment', name: '条件缺件检测', enabled: false, desc: '按案件情形判断附带材料是否齐全' },
       { key: 'blacklist', name: '黑名单命中', enabled: false, desc: '材料是否命中黑名单内容' },
       { key: 'whitelist', name: '白名单核对', enabled: false, desc: '材料是否在白名单内' }
@@ -120,7 +120,7 @@ Refine.REVIEW_RULE_CATEGORIES = [
   {
     key: 'order', name: '顺序与时限', desc: '核对件序是否符合法定排列顺序，以及日期链与办理时限',
     rules: [
-      { key: 'piece_order', name: '件序符合法定顺序', enabled: false, desc: '按件序基线逐件比对排列顺序' },
+      { key: 'piece_order', name: '件序符合法定顺序', enabled: true, desc: '按件序基线逐件比对排列顺序' },
       { key: 'date_order', name: '日期勾稽', enabled: false, desc: '成文日期与流程日期是否矛盾' }
     ]
   },
@@ -134,7 +134,7 @@ Refine.REVIEW_RULE_CATEGORIES = [
   {
     key: 'volume', name: '卷级规范', desc: '卷内目录、封面、备考表、编页与证物袋等卷级要求',
     rules: [
-      { key: 'volume_toc', name: '卷内目录完整性', enabled: false, desc: '目录逐件登记且与卷内件一致' }
+      { key: 'volume_toc', name: '卷内目录完整性', enabled: true, desc: '目录逐件登记且与卷内件一致' }
     ]
   },
   {
