@@ -100,7 +100,7 @@ Refine.REVIEW_RULE_CATEGORIES = [
       { key: 'missing_piece', name: '缺件检测', enabled: true, desc: '与必备件清单比对该有的件是否齐全' },
       { key: 'missing_page', name: '缺页检测', enabled: true, desc: '按编页连续性判断是否缺页' },
       { key: 'empty_piece', name: '空件检测', enabled: true, desc: '件内只有封面/空白页时判为空件' },
-      { key: 'missing_attachment', name: '条件缺件检测', enabled: false, desc: '按案件情形判断附带材料是否齐全' },
+      { key: 'missing_attachment', name: '条件缺件检测', enabled: true, desc: '按案件情形判断附带材料是否齐全' },
       { key: 'blacklist', name: '黑名单命中', enabled: false, desc: '材料是否命中黑名单内容' },
       { key: 'whitelist', name: '白名单核对', enabled: false, desc: '材料是否在白名单内' }
     ]
@@ -156,13 +156,35 @@ Refine.REVIEW_RULE_CATEGORIES = [
 ];
 
 // 规则模板：选中后一键回填各页签勾选（只包含已开放能力）。
+// 元数据（version/caseType/instance/volumeScope/reportProfile）与平台内置模板
+// ReviewRuleTemplates.defaultPayload 保持一致；params 为模板关键参数，供页签参数行只读展示。
+// 平台模板库是唯一模板源，OR 侧不提供新增/覆盖（另存为/导入/导出置灰）。
 Refine.REVIEW_RULE_TEMPLATES = [
   { id: 'court-m1-s1', name: '法院民事一审 · 1991 归档办法',
-    rules: ['seal', 'fingerprint', 'piece_combo'] },
+    version: 'v2026.11', source: 'builtin', caseType: 'civil', instance: 'first',
+    volumeScope: ['main', 'deputy'], reportProfile: 'four-nature+case-quality',
+    baseline: 's1-1991',
+    params: { matchThreshold: 0.82, sealConfidence: 0.75, signConfidence: 0.70,
+              onDeviation: 'warning', mergeAttachments: true, pouchElements: true },
+    rules: ['seal', 'fingerprint', 'missing_piece', 'missing_page', 'empty_piece',
+            'missing_attachment', 'piece_order', 'volume_toc', 'document_element'] },
   { id: 'court-m1-s5', name: '法院民事一审 · 2018 电子卷宗',
-    rules: ['seal', 'fingerprint', 'piece_combo'] },
+    version: 'v2026.11', source: 'builtin', caseType: 'civil', instance: 'first',
+    volumeScope: ['main', 'deputy'], reportProfile: 'four-nature+case-quality',
+    baseline: 's5-2018',
+    params: { matchThreshold: 0.85, sealConfidence: 0.78, signConfidence: 0.72,
+              onDeviation: 'error', mergeAttachments: true, pouchElements: true },
+    rules: ['seal', 'fingerprint', 'missing_piece', 'missing_page', 'empty_piece',
+            'missing_attachment', 'piece_order', 'volume_toc', 'document_element',
+            'piece_combo'] },
   { id: 'court-m1-local', name: '本院裁剪模板',
-    rules: ['seal', 'piece_combo'] }
+    version: 'v2026.11', source: 'builtin', caseType: 'civil', instance: 'first',
+    volumeScope: ['main', 'deputy'], reportProfile: 'four-nature+case-quality',
+    baseline: 's1-1991',
+    params: { matchThreshold: 0.80, sealConfidence: 0.70, signConfidence: 0.65,
+              onDeviation: 'warning', mergeAttachments: false, pouchElements: false },
+    rules: ['seal', 'fingerprint', 'missing_piece', 'missing_page', 'empty_piece',
+            'missing_attachment', 'piece_order', 'volume_toc', 'document_element'] }
 ];
 
 Refine.LocalDirectorySourceUI = function (controller) {

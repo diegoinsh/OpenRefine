@@ -227,8 +227,16 @@ var ReviewProjectPanel = (function() {
   function render(task) {
     currentTask = task;
     state = ReviewConfigPanelUI.createState(parseSavedRules(task));
-    // 内容组合类页签展示本次提交目录摘要（平台随任务下发的件清单）
-    state.catalog = task.pieceList || [];
+    // 内容组合类页签的判定输入：优先用平台随任务下发的「下游本次提交目录」，
+    // 未下发时回退到件清单摘要（旧任务）；两者都为只读展示。
+    var catalog = (task.catalog && task.catalog.items) ? task.catalog : null;
+    state.catalog = catalog ? catalog.items : (task.pieceList || []);
+    state.catalogMeta = {
+      archiveNo: catalog ? (catalog.archiveNo || catalog.caseNo || '') : '',
+      source: task.catalogSource || (catalog ? 'downstream' : ''),
+      volumeNo: catalog && catalog.volumes && catalog.volumes.length
+        ? (catalog.volumes[0].volumeNo || '') : (catalog ? (catalog.volumeNo || '') : '')
+    };
 
     panel.empty();
     elmts = {};

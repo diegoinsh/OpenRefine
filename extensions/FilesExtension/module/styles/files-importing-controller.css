@@ -571,6 +571,84 @@ body.extraction-readonly .data-table-cell {
   font-size: 0.92em;
 }
 
+.review-rule-category-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.review-cat-chip {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid #d5d5d5;
+  border-radius: 10px;
+  background: #f2f2f2;
+  color: #666;
+  font-size: 0.82em;
+  white-space: nowrap;
+}
+
+.review-param-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-bottom: 8px;
+  font-size: 0.88em;
+  color: var(--text-secondary);
+}
+
+.review-param b {
+  color: #555;
+}
+
+.review-rule-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+
+.review-rule-table th,
+.review-rule-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid #ececec;
+  text-align: left;
+  vertical-align: top;
+}
+
+.review-rule-table th {
+  background: #f7f7f7;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.review-rule-table tr.review-rule-row-disabled td {
+  color: #999;
+}
+
+.review-rule-name-cell .review-rule-item {
+  margin: 0;
+}
+
+.review-rule-status {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+.review-rule-status.ok {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.review-rule-status.locked {
+  background: #f2f2f2;
+  color: #8a8a8a;
+}
+
 .review-rule-item {
   display: flex;
   align-items: baseline;
@@ -605,4 +683,192 @@ body.extraction-readonly .data-table-cell {
 
 .review-selected-note.review-selected-note-empty {
   color: #c62828;
+}
+
+/* ── 规则模板栏（页签上方：选中模板回填勾选） ── */
+
+.review-template-row {
+  margin-bottom: 8px;
+}
+
+.review-template-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.review-template-label {
+  font-weight: bold;
+}
+
+.review-template-select {
+  min-width: 200px;
+}
+
+.review-template-hint {
+  color: var(--text-secondary);
+  font-size: 0.92em;
+}
+
+.review-template-btn {
+  padding: 2px 8px;
+  font-size: 0.9em;
+}
+
+.review-template-meta {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 0.88em;
+}
+
+/* ── 内容组合类卡片（判定输入为下游本次提交目录，只读） ── */
+
+.review-combo-card {
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  background: #fcfcfc;
+  padding: 10px 12px;
+}
+
+.review-combo-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.review-combo-title {
+  font-weight: bold;
+  font-size: 1.02em;
+}
+
+.review-combo-chip {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid #d5d5d5;
+  border-radius: 10px;
+  background: #f2f2f2;
+  color: #666;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+.review-combo-desc {
+  color: var(--text-secondary);
+  font-size: 0.92em;
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+
+.review-combo-empty {
+  color: #999;
+  font-size: 0.92em;
+  padding: 8px 0;
+}
+
+.review-combo-src {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  border: 1px solid #e6e6e6;
+  border-radius: 4px;
+  background: #f6f8fa;
+  font-size: 0.92em;
+}
+
+.review-combo-src-k {
+  color: var(--text-secondary);
+}
+
+.review-combo-src-v {
+  font-weight: bold;
+}
+
+.review-combo-src code {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: #eee;
+  color: #444;
+}
+
+.review-combo-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-bottom: 8px;
+  font-size: 0.9em;
+  color: var(--text-secondary);
+}
+
+.review-combo-param b {
+  color: #555;
+}
+
+.review-combo-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+
+.review-combo-table th,
+.review-combo-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid #ececec;
+  text-align: left;
+  vertical-align: top;
+}
+
+.review-combo-table th {
+  background: #f7f7f7;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.review-combo-table tr.review-combo-row-warn td {
+  background: #fff8e1;
+}
+
+.review-combo-num {
+  white-space: nowrap;
+}
+
+.review-combo-tag {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+.review-combo-tag.ok {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.review-combo-tag.warn {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.review-combo-empty-cell {
+  color: #999;
+  text-align: center;
+}
+
+.review-combo-foot {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.review-combo-basis {
+  color: var(--text-secondary);
+  font-size: 0.88em;
 }

@@ -160,8 +160,14 @@ public class DataReviewCommand extends Command {
             double confidence = parseDouble(request.getParameter("confidence"), 0.5);
             // 件级校审（内部参数，平台按已抽取项目装配）：缺省为空 → 旧链路逐字不变
             String pieceMapJson = trim(UnicodeText.decode(request.getParameter("pieceMap")));
+            // 下游本次提交目录原文（平台 startReview 随任务下发）：项目页按它展示
+            // 「数据来源 / 二级目录 / 四级题名 / 件页」，不再反查抽取任务（FR-P-06）
+            String catalogJson = trim(UnicodeText.decode(request.getParameter("catalog")));
+            // 纯数据模式（平台只选缺件/缺页等数据规则）：只建项目 + 登记提交目录，
+            // 供项目页展示与参数回显；判定在平台侧完成，此模式不扫描目录、不调用 AI 服务。
+            boolean catalogOnly = "true".equalsIgnoreCase(request.getParameter("catalogOnly"));
 
-            if (rootPath.isEmpty()) {
+            if (rootPath.isEmpty() && !catalogOnly) {
                 respondError(response, "缺少 rootPath 参数");
                 return;
             }
@@ -200,9 +206,59 @@ public class DataReviewCommand extends Command {
                     }
                 }
             }
-            if (pieces == null && !hasDetectionRule(rules)) {
+            if (pieces == null && !hasDetectionRule(rules) && catalogJson.isEmpty()) {
                 respondError(response, "内容组合类需按件清单（由平台按抽取项目号下发），"
                         + "不能单独启动文件级校审：请同时选择存在类规则，或由平台 startReview 按件启动");
+                return;
+            }
+            // 下游提交目录：只做解析校验与登记，不参与文件级检测（判定在平台侧完成）
+            JsonNode catalogNode = null;
+            if (!catalogJson.isEmpty()) {
+                try {
+                    catalogNode = mapper.readTree(catalogJson);
+                } catch (Exception e) {
+                    respondError(response, "本次提交目录不是合法 JSON：" + e.getMessage());
+                    return;
+                }
+            }
+            if (catalogOnly) {
+                if (catalogNode == null) {
+                    respondError(response, "纯数据校审需要同时提供 catalog");
+                    return;
+                }
+                Project project = prepareProject(projectName, reuseProject);
+                List<Map<String, Object>> catalogItems = summarizeCatalog(catalogNode);
+                int catalogPages = 0;
+                for (Map<String, Object> item : catalogItems) {
+                    catalogPages += (Integer) item.get("pages");
+                }
+                Map<String, Object> record = new LinkedHashMap<>();
+                record.put("projectId", project.id);
+                record.put("projectName", project.getMetadata() == null
+                        ? projectName : project.getMetadata().getName());
+                record.put("rootPath", rootPath);
+                record.put("mode", "review-data");
+                record.put("rules", rulesJson == null ? "" : rulesJson);
+                record.put("totalFiles", catalogPages);
+                record.put("processedFiles", 0);
+                record.put("passed", 0);
+                record.put("failed", 0);
+                record.put("unknown", 0);
+                record.put("status", STATUS_COMPLETED);
+                record.put("catalogOnly", true);
+                record.put("catalogSource", "downstream");
+                record.put("catalog", mapper.convertValue(catalogNode, Map.class));
+                record.put("pieceList", catalogItems);
+                record.put("startedAt", System.currentTimeMillis());
+                record.put("finishedAt", System.currentTimeMillis());
+                DataReviewTaskRegistry.upsert(project.id, record);
+
+                ObjectNode result = mapper.createObjectNode();
+                result.put("code", "ok");
+                result.put("projectId", project.id);
+                result.put("projectName", projectName);
+                result.put("totalFiles", catalogPages);
+                respondJSON(response, result);
                 return;
             }
 
@@ -252,6 +308,15 @@ public class DataReviewCommand extends Command {
             if (pieces != null) {
                 record.put("pieceMode", true);
                 record.put("pieceList", summarizePieces(pieces));
+            }
+            if (catalogNode != null) {
+                // 判定输入：下游本次提交目录（只读）。有件级链路时两者并存，
+                // 项目页优先读 catalog；无件级链路时用提交目录充当件清单，供页签展示。
+                record.put("catalogSource", "downstream");
+                record.put("catalog", mapper.convertValue(catalogNode, Map.class));
+                if (pieces == null) {
+                    record.put("pieceList", summarizeCatalog(catalogNode));
+                }
             }
             DataReviewTaskRegistry.upsert(project.id, record);
 
@@ -956,6 +1021,34 @@ public class DataReviewCommand extends Command {
         if (hasRule(task, "seal")) keys.add("seal");
         if (hasRule(task, "fingerprint")) keys.add("fingerprint");
         return String.join(",", keys);
+    }
+
+    /** 下游提交目录 → 项目页件清单（只读展示用，不含检测结论）。 */
+    private static List<Map<String, Object>> summarizeCatalog(JsonNode catalog) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        JsonNode items = catalog == null ? null : catalog.path("items");
+        if (items == null || !items.isArray()) {
+            return out;
+        }
+        int index = 0;
+        for (JsonNode it : items) {
+            index++;
+            int start = it.path("startPage").asInt(0);
+            int end = it.path("endPage").asInt(0);
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("pieceNo", it.path("pieceNo").asText(String.valueOf(index)));
+            item.put("title", it.hasNonNull("name") ? it.get("name").asText()
+                    : it.hasNonNull("title") ? it.get("title").asText()
+                    : it.path("level3Title").asText(""));
+            item.put("level1", it.path("level1").asText(""));
+            item.put("level2", it.path("level2").asText(""));
+            item.put("level3Title", it.path("level3Title").asText(""));
+            item.put("startPage", start);
+            item.put("endPage", end);
+            item.put("pages", Math.max(0, end - start + 1));
+            out.add(item);
+        }
+        return out;
     }
 
     /** 件级校审清单摘要（写入任务登记表，供参数页只读展示）。 */
