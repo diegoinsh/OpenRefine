@@ -120,13 +120,53 @@ public final class CatalogChecklist {
         public final String level1;
         public final String stage;
         public final List<Volume> volumes;
+        public final Submission submission;
 
-        Catalog(String archiveNo, String caseNo, String level1, String stage, List<Volume> volumes) {
+        Catalog(String archiveNo, String caseNo, String level1, String stage, List<Volume> volumes,
+                Submission submission) {
             this.archiveNo = archiveNo;
             this.caseNo = caseNo;
             this.level1 = level1;
             this.stage = stage;
             this.volumes = volumes;
+            this.submission = submission == null ? Submission.DEFAULT : submission;
+        }
+    }
+
+    /**
+     * 本次提交范围（{@code catalog.submission}）：决定完备性只判"已提交"还是全量判缺件。
+     *
+     * <p>与平台 {@code ReviewCatalog.Submission} 同口径，下游未给时按 {@code casual}：
+     * 未提交的必备件记 {@code out-of-scope}，不产生 issue（设计 §5.2、§七）。</p>
+     */
+    public static final class Submission {
+        public static final String MODE_FULL = "full";
+        public static final String MODE_CASUAL = "casual";
+        public static final String MODE_SUPPLEMENT = "supplement";
+        public static final Submission DEFAULT = new Submission(MODE_CASUAL, null, List.of(), List.of());
+
+        public final String mode;
+        public final String stage;
+        public final List<String> scopePieceTypes;
+        public final List<String> declaredRequired;
+
+        Submission(String mode, String stage, List<String> scopePieceTypes, List<String> declaredRequired) {
+            this.mode = mode == null || mode.isBlank() ? MODE_CASUAL : mode;
+            this.stage = stage;
+            this.scopePieceTypes = scopePieceTypes == null ? List.of() : scopePieceTypes;
+            this.declaredRequired = declaredRequired == null ? List.of() : declaredRequired;
+        }
+
+        public boolean full() {
+            return MODE_FULL.equals(mode);
+        }
+
+        public boolean supplement() {
+            return MODE_SUPPLEMENT.equals(mode);
+        }
+
+        public boolean scoped() {
+            return !scopePieceTypes.isEmpty() || !declaredRequired.isEmpty();
         }
     }
 
@@ -137,13 +177,44 @@ public final class CatalogChecklist {
         public final List<String> titles;
         public final boolean required;
         public final String scope;
+        /** 模板条目附加字段（内置基线为缺省值）：类型码/二级目录/卷别/状态/附件并入 */
+        public final String typeCode;
+        public final String level2;
+        public final String severity;
+        public final String volumeType;
+        public final String status;
+        public final String mergeAs;
 
         Entry(int order, String title, List<String> titles, boolean required, String scope) {
+            this(order, title, titles, required, scope, null, title, null, VOLUME_MAIN, "enabled", null);
+        }
+
+        Entry(int order, String title, List<String> titles, boolean required, String scope,
+              String typeCode, String level2, String severity, String volumeType, String status,
+              String mergeAs) {
             this.order = order;
             this.title = title;
             this.titles = titles;
             this.required = required;
             this.scope = scope;
+            this.typeCode = typeCode;
+            this.level2 = level2 == null || level2.isBlank() ? title : level2;
+            this.severity = severity;
+            this.volumeType = volumeType == null || volumeType.isBlank() ? VOLUME_MAIN : volumeType;
+            this.status = status == null || status.isBlank() ? "enabled" : status;
+            this.mergeAs = mergeAs;
+        }
+
+        public boolean pending() {
+            return "pending".equals(status);
+        }
+
+        /** 模板条目的卷别是否覆盖该卷（any 通吃；副卷条目只在副卷生效）。 */
+        public boolean appliesTo(String volumeType) {
+            if ("any".equals(volumeType)) {
+                return true;
+            }
+            return volumeType == null || volumeType.isBlank() || volumeType.equals(this.volumeType);
         }
     }
 
@@ -210,6 +281,153 @@ public final class CatalogChecklist {
                 + "当前 caseType=" + ct + " volume=" + vol);
     }
 
+    /* ---------------- 模板适配（complete v2，开关 completeness.templateDriven） ---------------- */
+
+    /**
+     * 任务快照里的模板完备性段（{@code template_snapshot.complete}）的引擎视图。
+     *
+     * <p>开关关闭时完全不参与判定，既有卷宗按 {@link #CIVIL_FIRST_MAIN} 基线跑；
+     * 打开后完备性只认这份条目集合，引擎不再预置任何案件/法院口径（设计 §四.1）。</p>
+     */
+    public static final class Template {
+        public final double matchThreshold;
+        public final boolean mergeAttachments;
+        public final boolean pouchElements;
+        public final String missingAction;
+        public final List<Entry> items;
+        public final List<Condition> conditions;
+
+        Template(double matchThreshold, boolean mergeAttachments, boolean pouchElements,
+                 String missingAction, List<Entry> items, List<Condition> conditions) {
+            this.matchThreshold = matchThreshold;
+            this.mergeAttachments = mergeAttachments;
+            this.pouchElements = pouchElements;
+            this.missingAction = missingAction;
+            this.items = items;
+            this.conditions = conditions;
+        }
+
+        /** 适用于该卷的条目（{@code volumeType=any} 通吃；副卷未单独建模时回落正卷清单）。 */
+        public List<Entry> entriesFor(String volumeType) {
+            List<Entry> out = new ArrayList<>();
+            for (Entry e : items) {
+                if (e.appliesTo(volumeType)) {
+                    out.add(e);
+                }
+            }
+            if (out.isEmpty() && TYPE_DEPUTY.equals(volumeType)) {
+                for (Entry e : items) {
+                    if (VOLUME_MAIN.equals(e.volumeType)) {
+                        out.add(e);
+                    }
+                }
+            }
+            return out;
+        }
+
+        public int pendingRequired(String volumeType) {
+            int n = 0;
+            for (Entry e : entriesFor(volumeType)) {
+                if (e.required && e.pending()) {
+                    n++;
+                }
+            }
+            return n;
+        }
+    }
+
+    /**
+     * 解析模板快照：入参可以是整份模板 payload（取 {@code complete} 段），也可以直接是 complete 段。
+     *
+     * @return 无 complete/items 时返回 null（调用方按"无模板"处理，走内置基线）
+     */
+    public static Template parseTemplate(JsonNode snapshot) {
+        if (snapshot == null || snapshot.isNull()) {
+            return null;
+        }
+        JsonNode complete = snapshot.get("complete");
+        if (complete == null || !complete.isObject()) {
+            complete = snapshot;
+        }
+        JsonNode itemsNode = complete.get("items");
+        if (itemsNode == null || !itemsNode.isArray() || itemsNode.isEmpty()) {
+            return null;
+        }
+        List<Entry> items = new ArrayList<>();
+        int index = 0;
+        for (JsonNode n : itemsNode) {
+            index++;
+            if (n == null || !n.isObject()) {
+                continue;
+            }
+            String title = firstNonBlank(text(n, "title"), text(n, "name"), text(n, "level2"));
+            if (blank(title)) {
+                continue;
+            }
+            List<String> aliases = new ArrayList<>();
+            JsonNode aliasNode = n.get("aliases");
+            if (aliasNode != null && aliasNode.isArray()) {
+                for (JsonNode a : aliasNode) {
+                    String v = a == null || a.isNull() ? "" : a.asText("");
+                    if (!v.isBlank() && !aliases.contains(v.trim())) {
+                        aliases.add(v.trim());
+                    }
+                }
+            }
+            if (!aliases.contains(title)) {
+                aliases.add(title);
+            }
+            boolean required = !n.has("required") || n.path("required").asBoolean(true);
+            int order = n.path("order").asInt(index);
+            items.add(new Entry(order, title, aliases, required, "piece",
+                    firstNonBlank(text(n, "typeCode"), "item-" + order),
+                    text(n, "level2"),
+                    firstNonBlank(text(n, "severity"), required ? "error" : "warning"),
+                    firstNonBlank(text(n, "volumeType"), VOLUME_MAIN),
+                    firstNonBlank(text(n, "status"), "enabled"),
+                    text(n, "mergeAs")));
+        }
+        if (items.isEmpty()) {
+            return null;
+        }
+        List<Condition> conditions = new ArrayList<>();
+        JsonNode condNode = complete.get("conditions");
+        if (condNode != null && condNode.isArray()) {
+            for (JsonNode c : condNode) {
+                if (c == null || !c.isObject()) {
+                    continue;
+                }
+                List<String> when = stringListOf(c.get("whenAny"));
+                List<String> requires = stringListOf(c.get("requires"));
+                if (when.isEmpty() || requires.isEmpty()) {
+                    continue;
+                }
+                conditions.add(new Condition(firstNonBlank(text(c, "id"), "cond-" + conditions.size()),
+                        firstNonBlank(text(c, "rule"), "missing_attachment"),
+                        firstNonBlank(text(c, "severity"), "warning"),
+                        firstNonBlank(text(c, "hint"), ""), when, requires));
+            }
+        }
+        double threshold = complete.path("matchThreshold").asDouble(0.82);
+        boolean merge = !complete.has("mergeAttachments") || complete.path("mergeAttachments").asBoolean(true);
+        boolean pouch = !complete.has("pouchElements") || complete.path("pouchElements").asBoolean(true);
+        String missingAction = firstNonBlank(text(complete, "missingAction"), "warning");
+        return new Template(threshold, merge, pouch, missingAction, items, conditions);
+    }
+
+    /** 模板驱动开关：默认关闭（旧基线行为逐字不变）；沙箱/验收可按需打开。 */
+    public static boolean templateDrivenEnabled() {
+        String v = System.getProperty("completeness.templateDriven");
+        if (v == null || v.isBlank()) {
+            v = System.getenv("COMPLETENESS_TEMPLATE_DRIVEN");
+        }
+        if (v == null) {
+            return false;
+        }
+        String s = v.trim().toLowerCase();
+        return "true".equals(s) || "1".equals(s) || "yes".equals(s);
+    }
+
     /* ---------------- 解析 ---------------- */
 
     public static Catalog parse(JsonNode raw) {
@@ -231,7 +449,48 @@ public final class CatalogChecklist {
         } else {
             volumes.add(parseVolume(raw, level1, stage, VOLUME_MAIN, "1"));
         }
-        return new Catalog(archiveNo, caseNo, level1, stage, volumes);
+        return new Catalog(archiveNo, caseNo, level1, stage, volumes, submissionOf(raw, stage));
+    }
+
+    /** 本次提交范围：只认 {@code submission} 子对象；缺省 casual（只判已提交材料）。 */
+    private static Submission submissionOf(JsonNode raw, String catalogStage) {
+        JsonNode s = raw == null ? null : raw.get("submission");
+        if (s == null || s.isNull() || !s.isObject()) {
+            return Submission.DEFAULT;
+        }
+        String mode = normalizeMode(text(s, "mode"));
+        String stage = firstNonBlank(text(s, "stage"), catalogStage);
+        List<String> scope = stringListOf(s.path("scope").get("pieceTypes"));
+        List<String> declared = stringListOf(s.get("declaredRequired"));
+        return new Submission(mode, stage, scope, declared);
+    }
+
+    private static String normalizeMode(String raw) {
+        String m = raw == null ? "" : raw.trim().toLowerCase();
+        if ("all".equals(m) || "archive".equals(m) || "archived".equals(m)) {
+            return Submission.MODE_FULL;
+        }
+        if ("single".equals(m) || "partial".equals(m)) {
+            return Submission.MODE_SUPPLEMENT;
+        }
+        if (Submission.MODE_FULL.equals(m) || Submission.MODE_SUPPLEMENT.equals(m)) {
+            return m;
+        }
+        return Submission.MODE_CASUAL;
+    }
+
+    private static List<String> stringListOf(JsonNode arr) {
+        List<String> out = new ArrayList<>();
+        if (arr == null || !arr.isArray()) {
+            return out;
+        }
+        for (JsonNode n : arr) {
+            String v = n == null || n.isNull() ? "" : n.asText("");
+            if (!v.isBlank()) {
+                out.add(v.trim());
+            }
+        }
+        return out;
     }
 
     private static Volume parseVolume(JsonNode node, String catalogLevel1, String catalogStage,
@@ -376,30 +635,48 @@ public final class CatalogChecklist {
      * 纯数据判定（按卷分别判定后汇总）：缺件、空件、缺页、卷内目录、件序、条件缺件、
      * 文书必备要素、内容组合类。
      *
+     * <p>无模板（或 {@code completeness.templateDriven=false}）时走内置民事一审基线，
+     * 行为与模板机制上线前逐字一致。</p>
+     *
      * @return {@code {caseType,volume,volumeChecks,items,issues,documents,combo,summary}}
      */
     public static Map<String, Object> evaluate(Catalog catalog) {
+        return evaluate(catalog, null);
+    }
+
+    /** 模板双读：{@code template} 非空且开关打开时按模板条目判定，否则回落内置基线。 */
+    public static Map<String, Object> evaluate(Catalog catalog, Template template) {
+        boolean templateDriven = template != null && !template.items.isEmpty() && templateDrivenEnabled();
+        List<Entry> mainEntries = templateDriven
+                ? template.entriesFor(VOLUME_MAIN) : baseline(CASE_CIVIL_FIRST, VOLUME_MAIN);
+        Submission submission = catalog.submission == null ? Submission.DEFAULT : catalog.submission;
         List<Map<String, Object>> volumeChecks = new ArrayList<>();
         List<Map<String, Object>> allItems = new ArrayList<>();
         List<Map<String, Object>> allIssues = new ArrayList<>();
         List<Map<String, Object>> allDocuments = new ArrayList<>();
         List<Map<String, Object>> allCombos = new ArrayList<>();
-        List<Entry> mainEntries = baseline(CASE_CIVIL_FIRST, VOLUME_MAIN);
         int required = 0;
         int present = 0;
         int missing = 0;
         int unknown = 0;
         int volumeDeclared = 0;
+        int requiredChecked = 0;
+        int requiredSkipped = 0;
+        int outOfScope = 0;
         boolean archived = false;
 
         for (Volume volume : catalog.volumes) {
-            Map<String, Object> check = evaluateVolume(volume, catalog.caseNo);
+            Map<String, Object> check = evaluateVolume(volume, catalog.caseNo, template,
+                    templateDriven, submission);
             volumeChecks.add(check);
             required += intOf(check.get("required"));
             present += intOf(check.get("present"));
             missing += intOf(check.get("missing"));
             unknown += intOf(check.get("unknown"));
             volumeDeclared += intOf(check.get("volumeDeclared"));
+            requiredChecked += intOf(check.get("requiredChecked"));
+            requiredSkipped += intOf(check.get("requiredSkipped"));
+            outOfScope += intOf(check.get("outOfScope"));
             archived |= Boolean.TRUE.equals(check.get("archived"));
             allItems.addAll(listOf(check.get("items")));
             allIssues.addAll(listOf(check.get("issues")));
@@ -413,6 +690,13 @@ public final class CatalogChecklist {
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("stage", catalog.stage);
         summary.put("archived", archived);
+        // 完备性判定口径（设计 §5.3）：范围、基线来源、匹配阈值与三数统计
+        summary.put("completenessScope", submission.mode);
+        summary.put("baselineSource", templateDriven ? "template" : "builtin");
+        summary.put("matchThreshold", templateDriven ? template.matchThreshold : null);
+        summary.put("requiredChecked", requiredChecked);
+        summary.put("requiredSkipped", requiredSkipped);
+        summary.put("outOfScope", outOfScope);
         summary.put("volumeCount", volumeChecks.size());
         summary.put("required", required);
         summary.put("present", present);
@@ -550,29 +834,39 @@ public final class CatalogChecklist {
     }
 
     /** 单卷判定：正卷走完整基线；暂不支持的卷别只给出"暂不支持"结论，不静默套用。 */
-    private static Map<String, Object> evaluateVolume(Volume volume, String catalogCaseNo) {
+    private static Map<String, Object> evaluateVolume(Volume volume, String catalogCaseNo,
+                                                      Template template, boolean templateDriven,
+                                                      Submission submission) {
         String volumeNo = volume.volumeNo == null ? "" : volume.volumeNo;
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("volumeNo", volumeNo);
         out.put("volumeType", volume.volumeType);
         out.put("stage", volume.stage);
         List<Entry> entries;
-        try {
-            entries = baseline(CASE_CIVIL_FIRST, volume.volumeType);
-        } catch (IllegalArgumentException e) {
-            out.put("supported", false);
-            out.put("message", e.getMessage());
-            out.put("itemCount", volume.items.size());
-            out.put("required", 0);
-            out.put("present", 0);
-            out.put("missing", 0);
-            out.put("unknown", 0);
-            out.put("volumeDeclared", volume.volumeFlags == null ? 0 : volume.volumeFlags.size());
-            out.put("archived", false);
-            out.put("items", List.of());
-            out.put("issues", List.of());
-            out.put("documents", List.of());
-            return out;
+        if (templateDriven) {
+            // 模板驱动：只认快照条目（副卷无独立条目时回落正卷清单，由 UI 标注「沿用正卷」）
+            entries = template.entriesFor(volume.volumeType);
+        } else {
+            try {
+                entries = baseline(CASE_CIVIL_FIRST, volume.volumeType);
+            } catch (IllegalArgumentException e) {
+                out.put("supported", false);
+                out.put("message", e.getMessage());
+                out.put("itemCount", volume.items.size());
+                out.put("required", 0);
+                out.put("present", 0);
+                out.put("missing", 0);
+                out.put("unknown", 0);
+                out.put("requiredChecked", 0);
+                out.put("requiredSkipped", 0);
+                out.put("outOfScope", 0);
+                out.put("volumeDeclared", volume.volumeFlags == null ? 0 : volume.volumeFlags.size());
+                out.put("archived", false);
+                out.put("items", List.of());
+                out.put("issues", List.of());
+                out.put("documents", List.of());
+                return out;
+            }
         }
 
         boolean archived = "archived".equalsIgnoreCase(
@@ -580,10 +874,31 @@ public final class CatalogChecklist {
         int present = 0;
         int missing = 0;
         int unknown = 0;
+        int requiredChecked = 0;
+        int requiredSkipped = 0;
+        int outOfScope = 0;
         List<Map<String, Object>> itemResults = new ArrayList<>();
         List<Map<String, Object>> issues = new ArrayList<>();
 
         for (Entry e : entries) {
+            if (e.pending()) {
+                // UI「待开放」：只展示不下判（不计入 present/missing）
+                if (e.required) {
+                    requiredSkipped++;
+                }
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("volumeNo", volumeNo);
+                row.put("order", e.order);
+                row.put("title", e.title);
+                row.put("required", e.required);
+                row.put("scope", e.scope);
+                row.put("status", "pending");
+                row.put("declared", null);
+                row.put("matched", List.of());
+                putTemplateFields(row, e);
+                itemResults.add(row);
+                continue;
+            }
             List<String> matched = new ArrayList<>();
             for (Item item : volume.items) {
                 if (matches(e, item)) {
@@ -604,33 +919,45 @@ public final class CatalogChecklist {
                 } else if (archived) {
                     status = "missing";
                     missing++;
-                    issues.add(issue("missing_piece", "error", "volume", volumeNo, null, null,
-                            "缺少卷级材料：" + e.title));
+                    issues.add(missingIssue(e, volumeNo, "volume", null,
+                            "缺少卷级材料：" + e.title, true));
                 } else {
                     status = "unknown";
                     unknown++;
-                    issues.add(issue("missing_piece", "warning", "volume", volumeNo, null, null,
+                    issues.add(missingIssue(e, volumeNo, "volume", null,
                             "未归档（stage=" + stageText(volume) + "），卷级缺件待结案后复核："
-                                    + e.title));
+                                    + e.title, false));
                 }
             } else if (e.required && "volume".equals(e.scope)) {
-                status = "unknown";
-                unknown++;
-            } else if (e.required) {
-                if (archived) {
-                    status = "missing";
-                    missing++;
-                    issues.add(issue("missing_piece", "error", "piece", volumeNo, null, e.title,
-                            "缺少必备件：" + e.title));
+                if (outOfSubmission(e, submission, templateDriven)) {
+                    status = "out-of-scope";
+                    outOfScope++;
                 } else {
                     status = "unknown";
                     unknown++;
-                    issues.add(issue("missing_piece", "warning", "piece", volumeNo, null, e.title,
+                }
+            } else if (e.required) {
+                if (outOfSubmission(e, submission, templateDriven)) {
+                    // 随案/单件补交：未纳入本次范围的必备件只统计、不出 issue（设计 §七）
+                    status = "out-of-scope";
+                    outOfScope++;
+                } else if (archived) {
+                    status = "missing";
+                    missing++;
+                    issues.add(missingIssue(e, volumeNo, "piece", e.title,
+                            "缺少必备件：" + e.title, true));
+                } else {
+                    status = "unknown";
+                    unknown++;
+                    issues.add(missingIssue(e, volumeNo, "piece", e.title,
                             "未归档（stage=" + stageText(volume) + "），缺件待结案后复核："
-                                    + e.title));
+                                    + e.title, false));
                 }
             } else {
                 status = "absent";
+            }
+            if (e.required && !"out-of-scope".equals(status)) {
+                requiredChecked++;
             }
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("volumeNo", volumeNo);
@@ -641,6 +968,7 @@ public final class CatalogChecklist {
             row.put("status", status);
             row.put("declared", declared);
             row.put("matched", matched);
+            putTemplateFields(row, e);
             itemResults.add(row);
         }
 
@@ -648,7 +976,10 @@ public final class CatalogChecklist {
         issues.addAll(tocIssues(volume));
         issues.addAll(tocCompareIssues(volume));
         issues.addAll(orderIssues(volume, entries));
-        issues.addAll(attachmentIssues(volume));
+        // 条件缺件：模板驱动时读模板 conditions，否则沿用内置 3 条
+        List<Condition> conditions = templateDriven && template != null && !template.conditions.isEmpty()
+                ? template.conditions : CONDITIONS;
+        issues.addAll(attachmentIssues(volume, conditions));
         List<Map<String, Object>> documents = documentElements(volume, catalogCaseNo);
         issues.addAll(documentIssues(volume, documents));
 
@@ -659,6 +990,9 @@ public final class CatalogChecklist {
         out.put("present", present);
         out.put("missing", missing);
         out.put("unknown", unknown);
+        out.put("requiredChecked", requiredChecked);
+        out.put("requiredSkipped", requiredSkipped);
+        out.put("outOfScope", outOfScope);
         out.put("volumeDeclared", volume.volumeFlags == null ? 0 : volume.volumeFlags.size());
         out.put("issueCount", issues.size());
         out.put("errorCount", countSeverity(issues, "error"));
@@ -927,33 +1261,42 @@ public final class CatalogChecklist {
         return issues;
     }
 
-    private static final class Condition {
+    /** 条件缺件：{@code whenAny} 命中即要求 {@code requires} 至少存在一件。 */
+    public static final class Condition {
+        final String id;
+        final String rule;
+        final String severity;
+        final String hint;
         final List<String> triggers;
         final List<String> required;
-        final String hint;
 
-        Condition(List<String> triggers, List<String> required, String hint) {
+        Condition(String id, String rule, String severity, String hint,
+                  List<String> triggers, List<String> required) {
+            this.id = id;
+            this.rule = rule == null || rule.isBlank() ? "missing_attachment" : rule;
+            this.severity = severity == null || severity.isBlank() ? "warning" : severity;
+            this.hint = hint == null ? "" : hint;
             this.triggers = triggers;
             this.required = required;
-            this.hint = hint;
         }
     }
 
     private static final List<Condition> CONDITIONS = List.of(
-            new Condition(List.of("公告送达"),
-                    List.of("下落不明", "查无此人", "无法送达", "公告送达情况说明"),
-                    "下落不明（无法直接送达）的证明材料"),
-            new Condition(List.of("退卷函", "移送函存根"),
+            new Condition("public-service", "missing_attachment", "warning",
+                    "下落不明（无法直接送达）的证明材料",
+                    List.of("公告送达"),
+                    List.of("下落不明", "查无此人", "无法送达", "公告送达情况说明")),
+            new Condition("appeal-withdrawal", "missing_attachment", "warning", "上诉状",
+                    List.of("退卷函", "移送函存根"),
+                    List.of("上诉状", "上诉书")),
+            new Condition("appeal-transfer", "missing_attachment", "warning", "移送函（存根）/退卷函",
                     List.of("上诉状", "上诉书"),
-                    "上诉状"),
-            new Condition(List.of("上诉状", "上诉书"),
-                    List.of("移送函", "退卷函"),
-                    "移送函（存根）/退卷函"));
+                    List.of("移送函", "退卷函")));
 
-    private static List<Map<String, Object>> attachmentIssues(Volume volume) {
+    private static List<Map<String, Object>> attachmentIssues(Volume volume, List<Condition> conditions) {
         List<Map<String, Object>> issues = new ArrayList<>();
         String volumeNo = volume.volumeNo == null ? "" : volume.volumeNo;
-        for (Condition c : CONDITIONS) {
+        for (Condition c : conditions) {
             if (issues.size() >= 3) {
                 break;
             }
@@ -964,7 +1307,7 @@ public final class CatalogChecklist {
             if (trigger == null) {
                 continue;
             }
-            issues.add(issue("missing_attachment", "warning", "piece", volumeNo, trigger.pieceNo,
+            issues.add(issue(c.rule, c.severity, "piece", volumeNo, trigger.pieceNo,
                     trigger.title,
                     "条件缺件：件 " + trigger.pieceNo + "（" + trigger.title + "）为"
                             + triggerText(c, trigger) + "，应附" + c.hint));
@@ -1054,6 +1397,86 @@ public final class CatalogChecklist {
 
     private static String stripVolumeSuffix(String s) {
         return s == null ? "" : s.replace("（正卷）", "").replace("(正卷)", "").trim();
+    }
+
+    /**
+     * 缺件 issue：模板条目带 severity 时按模板（内置基线为 null，沿用「归档 error / 在建 warning」）。
+     * 附加 {@code expectedTitle}/{@code pieceTypeCode}，供结果页标出"应为哪一类件"（附加式字段）。
+     */
+    private static Map<String, Object> missingIssue(Entry e, String volumeNo, String scope,
+                                                    String pieceTitle, String message, boolean archived) {
+        String severity = e.severity == null || e.severity.isBlank()
+                ? (archived ? "error" : "warning") : e.severity;
+        Map<String, Object> m = issue("missing_piece", severity, scope, volumeNo, null, pieceTitle, message);
+        m.put("expectedTitle", e.title);
+        if (e.typeCode != null && !e.typeCode.isBlank()) {
+            m.put("pieceTypeCode", e.typeCode);
+        }
+        return m;
+    }
+
+    /**
+     * 该必备件是否不在本次提交范围内（只统计、不出 issue）。
+     *
+     * <ul>
+     *   <li>内置基线（开关关闭）：不启用范围语义，行为不变；</li>
+     *   <li>{@code full}：全量判定，不排除；</li>
+     *   <li>{@code supplement}：单件补交，未命中一律不判缺件；</li>
+     *   <li>{@code casual}：声明了范围时只判范围内；未声明时只判已提交材料。</li>
+     * </ul>
+     */
+    private static boolean outOfSubmission(Entry e, Submission submission, boolean templateDriven) {
+        if (!templateDriven || !e.required || submission == null) {
+            return false;
+        }
+        if (submission.full()) {
+            return false;
+        }
+        if (submission.supplement()) {
+            return true;
+        }
+        if (!submission.scoped()) {
+            return true;
+        }
+        for (String word : submission.scopePieceTypes) {
+            if (titleHits(e, word)) {
+                return false;
+            }
+        }
+        for (String word : submission.declaredRequired) {
+            if (titleHits(e, word)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean titleHits(Entry e, String word) {
+        if (word == null || word.isBlank()) {
+            return false;
+        }
+        String w = word.trim();
+        if (w.equals(e.title)) {
+            return true;
+        }
+        for (String t : e.titles) {
+            if (t.equals(w) || t.contains(w) || w.contains(t)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 模板条目的附加列（内置基线不写，保持旧结果结构不变）。 */
+    private static void putTemplateFields(Map<String, Object> row, Entry e) {
+        if (e.typeCode == null || e.typeCode.isBlank()) {
+            return;
+        }
+        row.put("typeCode", e.typeCode);
+        row.put("level2", e.level2);
+        if (e.mergeAs != null && !e.mergeAs.isBlank()) {
+            row.put("mergeAs", e.mergeAs);
+        }
     }
 
     private static Map<String, Object> issue(String rule, String severity, String scope,

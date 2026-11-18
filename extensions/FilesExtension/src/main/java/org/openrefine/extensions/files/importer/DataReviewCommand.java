@@ -222,6 +222,16 @@ public class DataReviewCommand extends Command {
                     return;
                 }
             }
+            // 模板快照（可选）：完备性模板驱动判定的唯一输入，缺省/开关关闭时不参与判定
+            JsonNode templateNode = null;
+            String templateJson = trim(UnicodeText.decode(request.getParameter("template")));
+            if (!templateJson.isEmpty()) {
+                try {
+                    templateNode = mapper.readTree(templateJson);
+                } catch (Exception e) {
+                    logger.warn("模板快照不是合法 JSON，完备性回落内置基线: {}", e.getMessage());
+                }
+            }
             if (catalogOnly) {
                 if (catalogNode == null) {
                     respondError(response, "纯数据校审需要同时提供 catalog");
@@ -230,7 +240,8 @@ public class DataReviewCommand extends Command {
                 // 判定与落盘都在引擎侧完成（与合规同构）：平台只下发目录与规则，
                 // 结果写项目 overlay，平台用 get-result 读回。
                 CatalogChecklist.Catalog parsed = CatalogChecklist.parse(catalogNode);
-                Map<String, Object> checklist = CatalogChecklist.evaluate(parsed);
+                Map<String, Object> checklist = CatalogChecklist.evaluate(parsed,
+                        CatalogChecklist.parseTemplate(templateNode));
                 Project project = prepareProject(projectName, reuseProject);
                 List<Map<String, Object>> catalogItems = summarizeParsedCatalog(parsed);
                 int catalogPages = 0;
@@ -255,8 +266,10 @@ public class DataReviewCommand extends Command {
                 int missing = intOf(summary.get("missing"));
                 int unknown = intOf(summary.get("unknown"));
                 long now = System.currentTimeMillis();
+                String templateId = trim(request.getParameter("templateId"));
+                String templateVersion = trim(request.getParameter("templateVersion"));
                 int version = writeCatalogReviewResult(project, rules, checklist, catalogItems,
-                        catalogPages, now);
+                        catalogPages, now, templateId, templateVersion);
 
                 Map<String, Object> record = new LinkedHashMap<>();
                 record.put("projectId", project.id);
@@ -275,8 +288,8 @@ public class DataReviewCommand extends Command {
                 record.put("catalogSource", "downstream");
                 record.put("catalog", mapper.convertValue(catalogNode, Map.class));
                 record.put("pieceList", catalogItems);
-                record.put("templateId", trim(request.getParameter("templateId")));
-                record.put("templateVersion", trim(request.getParameter("templateVersion")));
+                record.put("templateId", templateId);
+                record.put("templateVersion", templateVersion);
                 record.put("resultVersion", version);
                 record.put("hasResult", true);
                 record.put("issueCount", errorCount + warningCount);
@@ -328,6 +341,9 @@ public class DataReviewCommand extends Command {
             Task task = new Task(project.id, rootPath, aimpUrl, confidence, rules, units, totalFiles);
             task.pieces = pieces;
             task.catalog = catalogNode;
+            task.template = templateNode;
+            task.templateId = trim(request.getParameter("templateId"));
+            task.templateVersion = trim(request.getParameter("templateVersion"));
             TASKS.put(project.id, task);
 
             Map<String, Object> record = new LinkedHashMap<>();
@@ -572,7 +588,8 @@ public class DataReviewCommand extends Command {
                 // 与件级签章结论同一次结果落 overlay，平台只读回、不另算一套。
                 if (task.catalog != null) {
                     try {
-                        task.checklist = CatalogChecklist.evaluate(CatalogChecklist.parse(task.catalog));
+                        task.checklist = CatalogChecklist.evaluate(CatalogChecklist.parse(task.catalog),
+                                CatalogChecklist.parseTemplate(task.template));
                     } catch (Exception e) {
                         logger.warn("件级结构判定跳过: {}", e.getMessage());
                     }
@@ -1179,7 +1196,8 @@ public class DataReviewCommand extends Command {
     private int writeCatalogReviewResult(Project project, List<ReviewRule> rules,
                                          Map<String, Object> checklist,
                                          List<Map<String, Object>> catalogItems,
-                                         int catalogPages, long now) {
+                                         int catalogPages, long now,
+                                         String templateId, String templateVersion) {
         int version = 1;
         Object prev = project.overlayModels.get(REVIEW_RESULT_KEY);
         if (prev instanceof ReviewResultOverlay
@@ -1204,6 +1222,15 @@ public class DataReviewCommand extends Command {
         summary.put("processedFiles", catalogPages);
         summary.put("totalPieces", catalogItems.size());
         summary.put("processedPieces", catalogItems.size());
+        // 模板回显：结果里能看出这次是按哪个模板/版本判的（平台结果页与复算都要用）
+        if (templateId != null && !templateId.isEmpty()) {
+            r.put("templateId", templateId);
+            summary.put("templateId", templateId);
+        }
+        if (templateVersion != null && !templateVersion.isEmpty()) {
+            r.put("templateVersion", templateVersion);
+            summary.put("templateVersion", templateVersion);
+        }
         r.set("checklist", mapper.valueToTree(checklist));
         // 件级结论：checklist.issues 里带件号的按件聚合，项目页结果表直接展示
         Map<String, List<String>> notesByPiece = new LinkedHashMap<>();
@@ -1563,6 +1590,14 @@ public class DataReviewCommand extends Command {
         summary.put("passedPieces", task.passed);
         summary.put("failedPieces", task.failed);
         summary.put("unknownPieces", task.unknown);
+        if (!task.templateId.isEmpty()) {
+            r.put("templateId", task.templateId);
+            summary.put("templateId", task.templateId);
+        }
+        if (!task.templateVersion.isEmpty()) {
+            r.put("templateVersion", task.templateVersion);
+            summary.put("templateVersion", task.templateVersion);
+        }
         ArrayNode files = r.putArray("files");
         synchronized (task) {
             for (ObjectNode f : task.fileResults) files.add(f);
@@ -2103,6 +2138,10 @@ public class DataReviewCommand extends Command {
         List<PieceSpec> pieces;
         /** 下游提交目录原文：件级路径同样据它做结构类判定（单一权威在引擎侧） */
         JsonNode catalog;
+        /** 模板快照（可选）：完备性模板驱动判定的输入 */
+        JsonNode template;
+        String templateId = "";
+        String templateVersion = "";
         /** 结构类判定结果（CatalogChecklist.evaluate），终态随结果写 overlay */
         Map<String, Object> checklist;
 
