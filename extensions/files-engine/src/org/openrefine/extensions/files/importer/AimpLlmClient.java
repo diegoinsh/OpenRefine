@@ -583,6 +583,8 @@ public class AimpLlmClient {
         public Integer titleRegions;
         public Boolean skipped;
         public String pageType;
+        /** 对象：法院文书的相对人（受送达人/受传唤人/被询问人/被执行人…），分件金标准第三项 */
+        public String object;
     }
 
     /**
@@ -611,6 +613,9 @@ public class AimpLlmClient {
                 }
                 if (pageSignals != null && i < pageSignals.size() && pageSignals.get(i) != null) {
                     PageSignal signal = pageSignals.get(i);
+                    if (signal.object != null && !signal.object.trim().isEmpty()) {
+                        p.put("object", signal.object.trim());
+                    }
                     if (signal.titleConfidence != null) {
                         p.put("title_confidence", signal.titleConfidence);
                     }

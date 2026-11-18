@@ -2018,6 +2018,9 @@ public class BatchExtractionManager {
                         // 逐页当事人与「分件是否走了 grounding 降级路径」在两处分支间共用，
                         // 故提到卷级分件判断之外声明
                         List<String> itemParties = new ArrayList<>(itemIndexes.size());
+                        // 对象（文书相对人）：法院制作文书的相对人，与「文种 + 当事人」共同构成
+                        // 切件金标准三元组；只被规则分件与卷级 LLM 提示词消费，不落著录列
+                        List<String> itemObjects = new ArrayList<>(itemIndexes.size());
                         boolean partyTitleDegraded = false;
                         if (litigationArchive && !itemIndexes.isEmpty()) {
                             // 卷级二次分件：页级题名只回答"这一页是什么"，判断"这几页是否属于同一件"
@@ -2034,6 +2037,8 @@ public class BatchExtractionManager {
                             for (int idx : itemIndexes) {
                                 Map<String, String> vals = idx < pageValues.size() ? pageValues.get(idx) : null;
                                 itemParties.add(vals == null ? "" : partyForPiece(vals, fourLevelSplit));
+                                String pageObject = vals == null ? null : trimToNull(vals.get("object"));
+                                itemObjects.add(pageObject == null ? "" : pageObject);
                                 AimpLlmClient.PageSignal signal = new AimpLlmClient.PageSignal();
                                 Map<String, Double> conf = idx < pageConfidences.size()
                                         ? pageConfidences.get(idx) : null;
@@ -2049,31 +2054,64 @@ public class BatchExtractionManager {
                                 if (idx < pageTypes.size()) {
                                     signal.pageType = pageTypes.get(idx);
                                 }
+                                // 对象（文书相对人）：服务端在诉讼档案页级内部分件要素，
+                                // 只随信号透传给卷级分件，不作为著录列
+                                if (vals != null) {
+                                    String obj = vals.get("object");
+                                    if (obj != null && !obj.trim().isEmpty()) {
+                                        signal.object = obj.trim();
+                                    }
+                                }
                                 itemSignals.add(signal);
                             }
-                            long tSplit0 = System.nanoTime();
-                            AimpLlmClient.SplitResult split = client.splitVolumePieces(
-                                    itemTitles, itemParties, firstPartyRoles(pageValues),
-                                    task.archiveCategory, task.archiveSubCategory,
-                                    itemSignals, fourLevelSplit);
-                            task.tSplitMs += (System.nanoTime() - tSplit0) / 1_000_000;
-                            // 非生成式引擎（grounding）不提供卷级分件，会返回明确降级原因：
-                            // 此时页题名里也没有方别/当事人，分件后要用规则渲染件题名
-                            partyTitleDegraded = split.reason != null
-                                    && split.reason.contains("grounding");
-                            if (split.success && !split.pieces.isEmpty()) {
-                                logger.info("卷 {} 卷级分件成功（{} 件）", unit.name, split.pieces.size());
-                                pieces = mapToVolumeIndexes(split.pieces, itemIndexes, unit);
+                            // 分件模式（extraction.splitMode）：
+                            //   llm    —— 卷级 LLM 定边界（现状），失败回退规则；
+                            //   rule   —— 只走规则（三元组 + 件首门控 + 材料级合并），不调模型；
+                            //   hybrid —— 规则优先，仅当对象几乎没抽到或题名证据普遍不足时才问模型。
+                            String splitMode = resolveSplitMode();
+                            boolean ruleOnly = "rule".equals(splitMode)
+                                    || ("hybrid".equals(splitMode)
+                                        && !needsLlmSplit(itemObjects, itemIndexes, pageConfidences));
+                            if (ruleOnly) {
+                                long tSplit0 = System.nanoTime();
+                                List<TitleSplitter.Piece> rulePieces = TitleSplitter.splitByMaterial(
+                                        itemTitles, itemParties, itemObjects,
+                                        pickByIndex(pageConfidences, itemIndexes),
+                                        pickByIndex(pageTitleRegions, itemIndexes),
+                                        TitleSplitter.MATERIAL_TITLE_CONFIDENCE_THRESHOLD);
+                                task.tSplitMs += (System.nanoTime() - tSplit0) / 1_000_000;
+                                logger.info("卷 {} 规则分件（splitMode={}，{} 条条目页，对象非空 {} 页）→ {} 件",
+                                        unit.name, splitMode, itemIndexes.size(),
+                                        countNonEmpty(itemObjects), rulePieces.size());
+                                pieces = mapToVolumeIndexes(rulePieces, itemIndexes, unit);
                             } else {
-                                logger.warn("卷 {} 卷级分件不可用（{}），回退字符串相似度分件",
-                                        unit.name, split.reason);
-                                // 四级口径（件内每份材料一件）：(文种, 当事人) 变化即切。
-                                // 仅在该开关打开时启用；关闭时与改造前逐字节一致。
-                                pieces = mapToVolumeIndexes(fourLevelSplit
-                                        ? TitleSplitter.splitByMaterial(itemTitles, itemParties)
-                                        : TitleSplitter.split(itemTitles,
-                                                TitleSplitter.DEFAULT_SIMILARITY_THRESHOLD, true),
-                                        itemIndexes, unit);
+                                long tSplit0 = System.nanoTime();
+                                AimpLlmClient.SplitResult split = client.splitVolumePieces(
+                                        itemTitles, itemParties, firstPartyRoles(pageValues),
+                                        task.archiveCategory, task.archiveSubCategory,
+                                        itemSignals, fourLevelSplit);
+                                task.tSplitMs += (System.nanoTime() - tSplit0) / 1_000_000;
+                                // 非生成式引擎（grounding）不提供卷级分件，会返回明确降级原因：
+                                // 此时页题名里也没有方别/当事人，分件后要用规则渲染件题名
+                                partyTitleDegraded = split.reason != null
+                                        && split.reason.contains("grounding");
+                                if (split.success && !split.pieces.isEmpty()) {
+                                    logger.info("卷 {} 卷级分件成功（{} 件）", unit.name, split.pieces.size());
+                                    pieces = mapToVolumeIndexes(split.pieces, itemIndexes, unit);
+                                } else {
+                                    logger.warn("卷 {} 卷级分件不可用（{}），回退字符串相似度分件",
+                                            unit.name, split.reason);
+                                    // 四级口径（件内每份材料一件）：(文种, 当事人, 对象) 变化即切。
+                                    // 仅在该开关打开时启用；关闭时与改造前逐字节一致。
+                                    pieces = mapToVolumeIndexes(fourLevelSplit
+                                            ? TitleSplitter.splitByMaterial(itemTitles, itemParties,
+                                                    itemObjects, pickByIndex(pageConfidences, itemIndexes),
+                                                    pickByIndex(pageTitleRegions, itemIndexes),
+                                                    TitleSplitter.MATERIAL_TITLE_CONFIDENCE_THRESHOLD)
+                                            : TitleSplitter.split(itemTitles,
+                                                    TitleSplitter.DEFAULT_SIMILARITY_THRESHOLD, true),
+                                            itemIndexes, unit);
+                                }
                             }
                         } else if (litigationArchive) {
                             // 整卷都被判为非条目页（异常输入）：退回按全部页分件，保证仍有输出
@@ -2911,6 +2949,57 @@ public class BatchExtractionManager {
         List<Integer> indexes = new ArrayList<>(pageCount);
         for (int i = 0; i < pageCount; i++) indexes.add(i);
         return indexes;
+    }
+
+    /** 卷级分件模式：rule / hybrid / llm（缺省 llm，保持既有行为）。 */
+    static String resolveSplitMode() {
+        String mode = ExtractionConfigStore.getString("extraction.splitMode");
+        if (mode == null) return "llm";
+        String m = mode.trim().toLowerCase();
+        return ("rule".equals(m) || "hybrid".equals(m)) ? m : "llm";
+    }
+
+    /**
+     * hybrid 模式下判断「规则判不了、需要交给卷级 LLM」：
+     * ① 对象几乎没抽到——同文种多份（传票/送达回证/笔录）无法区分；
+     * ② 题名置信度普遍不足——页级题名不可信，规则会把噪声当材料边界。
+     */
+    static boolean needsLlmSplit(List<String> itemObjects, List<Integer> itemIndexes,
+                                 List<Map<String, Double>> pageConfidences) {
+        if (itemObjects == null || itemObjects.isEmpty()) return true;
+        if (countNonEmpty(itemObjects) / (double) itemObjects.size() < 0.2) return true;
+        if (pageConfidences == null || itemIndexes == null) return false;
+        int scored = 0;
+        int low = 0;
+        for (int idx : itemIndexes) {
+            Map<String, Double> conf = idx >= 0 && idx < pageConfidences.size()
+                    ? pageConfidences.get(idx) : null;
+            if (conf == null || conf.get(TitleSplitter.TITLE_KEY) == null) continue;
+            scored++;
+            if (conf.get(TitleSplitter.TITLE_KEY)
+                    < TitleSplitter.MATERIAL_TITLE_CONFIDENCE_THRESHOLD) {
+                low++;
+            }
+        }
+        return scored > 0 && low / (double) scored > 0.3;
+    }
+
+    private static int countNonEmpty(List<String> values) {
+        int n = 0;
+        for (String v : values) {
+            if (v != null && !v.trim().isEmpty()) n++;
+        }
+        return n;
+    }
+
+    /** 按条目页下标抽取全页列表的子集（越界置 null，由下游按「证据缺失」处理）。 */
+    private static <T> List<T> pickByIndex(List<T> source, List<Integer> indexes) {
+        if (source == null || indexes == null) return null;
+        List<T> out = new ArrayList<>(indexes.size());
+        for (int idx : indexes) {
+            out.add(idx >= 0 && idx < source.size() ? source.get(idx) : null);
+        }
+        return out;
     }
 
     /**

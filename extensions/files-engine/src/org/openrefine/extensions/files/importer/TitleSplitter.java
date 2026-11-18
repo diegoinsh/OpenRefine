@@ -155,64 +155,152 @@ public class TitleSplitter {
     /**
      * 四级口径分件（诉讼档案，卷内每份材料一件）。
      *
-     * <p>切分金标准：{@code (文种, 当事人)} 变化即切，二者都不变才合并。
+     * <p>切分金标准：{@code (文种, 当事人, 对象)} 任一变化即切，三者都不变才合并。
      * 与相似度分件的区别在于「不相似就切」——相似度分件会给无题名/弱相似页留合并余地，
      * 四级口径下每份独立材料各自成件（对齐甲方《民事一审案件编目规则》的「材料编目名」行）。
      *
+     * <p><b>对象</b>（{@code pageObjects}）是法院文书切件的第三元：传票、送达回证、执行通知书、
+     * 询问/讯问笔录等文种的责任者都是法院，只有相对人（受送达人/被传唤人/被询问人/被执行人）
+     * 能区分同文种的多份材料。缺对象时退化为 (文种, 当事人) 两元——刑事卷会因此大幅并件
+     * （实测 70 件并成 39 件），故调用方应尽量把页级对象传进来。
+     *
      * <p>无题名的页一律视为续页并入当前件（Grounding 只回原文标题，续页通常无标题）。
      *
-     * @param pageTitles 逐页题名，下标 0 为卷内第 1 页
+     * @param pageTitles  逐页题名，下标 0 为卷内第 1 页
      * @param pageParties 逐页当事人，可为 null（此时只按文种切）
+     * @param pageObjects 逐页对象（文书相对人），可为 null
      */
+    public static List<Piece> splitByMaterial(List<String> pageTitles, List<String> pageParties,
+                                              List<String> pageObjects) {
+        return splitByMaterial(pageTitles, pageParties, pageObjects, null, null,
+                MATERIAL_TITLE_CONFIDENCE_THRESHOLD);
+    }
+
     public static List<Piece> splitByMaterial(List<String> pageTitles, List<String> pageParties) {
+        return splitByMaterial(pageTitles, pageParties, null);
+    }
+
+    /**
+     * 四级口径分件的「件首」门限：题名置信度低于它、或本页没有版面标题块时，该页视作续页。
+     *
+     * <p>与文书档案的 0.9 不同，这里取 0.6：诉讼档案的页级题名常带表格栏位/版记噪声，
+     * 门限过高会把真件首当续页并掉（漏件比多切一件更难纠正）。
+     */
+    public static final double MATERIAL_TITLE_CONFIDENCE_THRESHOLD = 0.6;
+
+    /**
+     * 带「件首双重证据」门控的四级口径分件。
+     *
+     * <p>证据（题名置信度／版面标题块）任一缺失时退化为不门控——保持与旧调用方一致：
+     * Grounding 引擎不回置信度，不能因此把整卷并成一件。
+     */
+    public static List<Piece> splitByMaterial(List<String> pageTitles, List<String> pageParties,
+                                              List<String> pageObjects,
+                                              List<Map<String, Double>> pageConfidences,
+                                              List<Integer> titleRegionCounts,
+                                              double titleConfidenceThreshold) {
         List<Piece> pieces = new ArrayList<>();
         if (pageTitles == null || pageTitles.isEmpty()) return pieces;
+        boolean gated = pageConfidences != null && titleRegionCounts != null;
         Piece current = null;
         String currentParty = "";
+        String currentObject = "";
         for (int i = 0; i < pageTitles.size(); i++) {
             String raw = pageTitles.get(i);
             String title = raw == null ? "" : raw.trim();
-            String party = pageParties != null && i < pageParties.size() && pageParties.get(i) != null
-                    ? pageParties.get(i).trim() : "";
+            String party = elementAt(pageParties, i);
+            String object = elementAt(pageObjects, i);
             if (current == null) {
-                current = new Piece();
-                current.startPage = i + 1;
-                current.endPage = i + 1;
-                current.title = title;
-                currentParty = party;
+                current = newPiece(i + 1, title);
                 pieces.add(current);
+                currentParty = party;
+                currentObject = object;
                 continue;
             }
-            if (title.isEmpty() || sameMaterial(current.title, title, currentParty, party)) {
+            // 无题名 / 证据不足：续页，并回当前件
+            boolean continuation = title.isEmpty()
+                    || (gated && !hasMaterialTitleEvidence(i, pageConfidences,
+                            titleRegionCounts, titleConfidenceThreshold));
+            if (continuation
+                    || sameMaterial(current.title, title, currentParty, party, currentObject, object)
+                    || mergeAcrossBreed(current.title, title)) {
                 current.endPage = i + 1;
                 if (current.title.isEmpty()) current.title = title;
                 if (currentParty.isEmpty()) currentParty = party;
+                if (currentObject.isEmpty()) currentObject = object;
                 continue;
             }
-            Piece p = new Piece();
-            p.startPage = i + 1;
-            p.endPage = i + 1;
-            p.title = title;
-            pieces.add(p);
-            current = p;
+            current = newPiece(i + 1, title);
+            pieces.add(current);
             currentParty = party;
+            currentObject = object;
         }
         return pieces;
     }
 
-    /** 同一份材料：题名互相包含（同一文书的续页/加括注写法）；同名但当事人不同则按两件。 */
+    private static Piece newPiece(int page, String title) {
+        Piece p = new Piece();
+        p.startPage = page;
+        p.endPage = page;
+        p.title = title;
+        return p;
+    }
+
+    private static String elementAt(List<String> values, int i) {
+        if (values == null || i >= values.size() || values.get(i) == null) return "";
+        return values.get(i).trim();
+    }
+
+    /**
+     * 同一份材料：题名相同（或互相包含），且当事人、对象都不冲突。
+     *
+     * <p>当事人/对象任一为空视为不冲突（页级未抽到时不作为切分依据）；
+     * 都有值时必须一致或互为包含（「赵建明、王秀兰」与「王秀兰」）。
+     */
     private static boolean sameMaterial(String prevTitle, String title,
-                                        String prevParty, String party) {
+                                        String prevParty, String party,
+                                        String prevObject, String object) {
         String a = normalize(prevTitle);
         String b = normalize(title);
         if (a.isEmpty() || b.isEmpty()) return true;
-        if (a.equals(b)) {
-            String pa = normalize(prevParty);
-            String pb = normalize(party);
-            return pa.isEmpty() || pb.isEmpty()
-                    || pa.equals(pb) || pa.contains(pb) || pb.contains(pa);
-        }
-        return a.contains(b) || b.contains(a);
+        if (!(a.equals(b) || a.contains(b) || b.contains(a))) return false;
+        return compatible(prevParty, party) && compatible(prevObject, object);
+    }
+
+    private static boolean compatible(String left, String right) {
+        String a = normalize(left);
+        String b = normalize(right);
+        if (a.isEmpty() || b.isEmpty()) return true;
+        return a.equals(b) || a.contains(b) || b.contains(a);
+    }
+
+    /**
+     * 跨文种但属同一份材料的合并（编目规则把多份材料编为一个条项）。
+     *
+     * <p>只收录「材料级」也属同一件的两类，避免与材料级真值冲突：
+     * 诉状及其附件（第十四条(7)「××状及附件」）、卷末送达回证与其后的邮件/EMS 底单。
+     * 条项级归并（公函与执业证、执行手续材料全并、退卷函与回执）不在此处——
+     * 甲方四级编目按「一份材料一件」计，这类合并会凭空少件。
+     */
+    static boolean mergeAcrossBreed(String prevTitle, String title) {
+        String prev = normalize(prevTitle);
+        String next = normalize(title);
+        if (prev.isEmpty() || next.isEmpty()) return false;
+        if (isPleading(prev) && next.contains("附件")) return true;
+        boolean prevReceipt = prev.contains("送达回证");
+        boolean nextReceipt = next.contains("送达回证");
+        if (prevReceipt && isMailSlip(next)) return true;
+        if (nextReceipt && isMailSlip(prev)) return true;
+        return false;
+    }
+
+    private static boolean isPleading(String norm) {
+        return norm.contains("起诉状") || norm.contains("上诉状") || norm.contains("答辩状");
+    }
+
+    private static boolean isMailSlip(String norm) {
+        return norm.contains("ems") || norm.contains("邮件") || norm.contains("邮寄")
+                || norm.contains("底单") || norm.contains("查询单");
     }
 
     /**
@@ -301,6 +389,30 @@ public class TitleSplitter {
             }
         }
         if (conf < titleConfidenceThreshold) return false;
+        if (titleRegionCounts == null || i >= titleRegionCounts.size()) return false;
+        Integer regions = titleRegionCounts.get(i);
+        return regions != null && regions >= 1;
+    }
+
+    /**
+     * 材料级「件首页」证据：以题名置信度为准；置信度缺失时才退回看版面标题块。
+     *
+     * <p>与文书档案的 {@link #hasTitleEvidence} 不同：法院卷里的传票、送达回证、执行通知书、
+     * 居民身份证、收据等是表格/证件类页面，标题印在表格内，版面分析检不出「标题块」。
+     * 若仍把 title_regions≥1 作为必要条件，这些真件首会被当成续页并入前一件
+     * （实测 WH11 的换押证吞并 3 页开庭传票、HB07 的公告费收据吞并 2 页身份证）。
+     * 故这里只要求置信度达标；置信度缺失（如 Grounding 引擎）时才看版面块。
+     */
+    private static boolean hasMaterialTitleEvidence(int i, List<Map<String, Double>> pageConfidences,
+                                                    List<Integer> titleRegionCounts,
+                                                    double titleConfidenceThreshold) {
+        if (pageConfidences != null && i < pageConfidences.size()) {
+            Map<String, Double> m = pageConfidences.get(i);
+            Double c = m == null ? null : m.get(TITLE_KEY);
+            if (c != null) {
+                return c >= titleConfidenceThreshold;
+            }
+        }
         if (titleRegionCounts == null || i >= titleRegionCounts.size()) return false;
         Integer regions = titleRegionCounts.get(i);
         return regions != null && regions >= 1;

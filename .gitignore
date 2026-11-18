@@ -29,6 +29,8 @@ test-out/
 open-refine.log
 # 系统测试沙箱数据目录（含 OR 项目数据，可重建，不入库）
 data-systest*
+# 分件/对象字段验证用的独立 OR 数据目录（可重建，不入库）
+data-obj4/
 # 构建时由 extensions/ 拷贝到 webapp 的扩展模块（生成物，不入库）
 main/webapp/extensions/
 .metadata # Eclipse plugins specific

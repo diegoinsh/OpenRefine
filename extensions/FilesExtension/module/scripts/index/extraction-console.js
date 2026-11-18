@@ -40,6 +40,9 @@ Refine.ExtractionConsoleUI.DEFAULT_CONFIG = {
   'extraction.pageConcurrency': 4,
   'extraction.documentPagesIndependent': true,
   'extraction.fourLevelPieceSplit': false,
+  // 诉讼档案卷级分件模式：llm=模型定边界；rule=仅规则（文种+当事人+对象）；
+  // hybrid=规则优先，对象缺失/题名证据不足时才问模型（缺省）
+  'extraction.splitMode': 'hybrid',
   'extraction.defaultCategory': '',
   'extraction.defaultSubCategory': '',
   'extraction.disableCache': false,
@@ -56,7 +59,12 @@ Refine.ExtractionConsoleUI.FIELDS = [
   { group: '抽取执行', items: [
     { key: 'extraction.pageConcurrency', label: '诉讼档案页级并发度', type: 'number', min: 1, max: 16 },
     { key: 'extraction.documentPagesIndependent', label: '文书档案页级并发（实验）', type: 'checkbox' },
-    { key: 'extraction.fourLevelPieceSplit', label: '件内四级细分（实验）', type: 'checkbox' }
+    { key: 'extraction.fourLevelPieceSplit', label: '件内四级细分（实验）', type: 'checkbox' },
+    { key: 'extraction.splitMode', label: '卷级分件模式', type: 'select', options: [
+      ['llm', 'LLM 定边界（现状）'],
+      ['rule', '仅规则（文种+当事人+对象）'],
+      ['hybrid', '规则优先 + LLM 兜底']
+    ]}
   ]},
   { group: '抽取默认值', items: [
     { key: 'extraction.defaultCategory', label: '默认门类', type: 'text' },
@@ -877,6 +885,12 @@ Refine.ExtractionConsoleUI.prototype._renderSettingsForm = function() {
         if (item.min != null) input.attr('min', item.min);
         if (item.max != null) input.attr('max', item.max);
         input.val(config[item.key] != null ? config[item.key] : '');
+      } else if (item.type === 'select') {
+        input = $('<select class="dq-input"></select>');
+        (item.options || []).forEach(function(pair) {
+          $('<option></option>').attr('value', pair[0]).text(pair[1]).appendTo(input);
+        });
+        input.val(config[item.key] != null ? String(config[item.key]) : '');
       } else {
         input = $('<input type="text" class="dq-input"/>');
         input.val(config[item.key] != null ? config[item.key] : '');

@@ -37,6 +37,13 @@ public final class ExtractionConfigStore {
         // 件内四级细分（按 (文种, 责任者) 变化把合并件再切开）：默认关闭＝与改造前逐字节一致；
         // 打开后由 AIMP 在主分件之后执行，只影响法院诉讼档案。
         config.put("extraction.fourLevelPieceSplit", false);
+        // 诉讼档案卷级分件模式（2026-11-18 新增，默认 hybrid）：
+        //   llm    —— 卷级 LLM 定件边界；
+        //   rule   —— 只走规则：(文种, 当事人, 对象) 三元组 + 件首门控 + 材料级合并，不调模型；
+        //   hybrid —— 规则优先，仅当对象几乎没抽到或题名置信度普遍不足时才问模型。
+        // 4 卷 A/B（325 页）：rule 0.9348、1217s；llm 0.9304、1478s——规则略优且快 17.7%，
+        // 且无「输出截断→整卷降级」风险，故默认改 hybrid（正常卷等价 rule，异常卷回落到 LLM）。
+        config.put("extraction.splitMode", "hybrid");
         config.put("extraction.defaultCategory", "");
         config.put("extraction.defaultSubCategory", "");
         config.put("extraction.disableCache", false);
