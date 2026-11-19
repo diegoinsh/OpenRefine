@@ -1347,9 +1347,14 @@ public class DataReviewCommand extends Command {
         r.set("checklist", mapper.valueToTree(checklist));
         // 件级结论：checklist.issues 里带件号的按件聚合，项目页结果表直接展示
         Map<String, List<String>> notesByPiece = new LinkedHashMap<>();
+        // 只有 error 判不通过：warning（件序偏差、条件缺件等）只列问题、不阻断该件
+        Set<String> errorPieces = new LinkedHashSet<>();
         for (Map<String, Object> issue : listOfMaps(checklist.get("issues"))) {
             String key = asText(issue.get("volumeNo")) + "#" + asText(issue.get("pieceNo"));
             notesByPiece.computeIfAbsent(key, k -> new ArrayList<>()).add(asText(issue.get("message")));
+            if ("error".equals(asText(issue.get("severity")))) {
+                errorPieces.add(key);
+            }
         }
         int passedPieces = 0;
         int failedPieces = 0;
@@ -1367,7 +1372,7 @@ public class DataReviewCommand extends Command {
             p.put("title", asText(item.get("title")));
             p.put("level2", asText(item.get("level2")));
             p.put("pageCount", intOf(item.get("pages")));
-            p.put("status", notes.isEmpty() ? "passed" : "failed");
+            p.put("status", errorPieces.contains(volumeNo + "#" + pieceNo) ? "failed" : "passed");
             p.putArray("matched");
             p.putArray("missing");
             ArrayNode noteArr = p.putArray("notes");
