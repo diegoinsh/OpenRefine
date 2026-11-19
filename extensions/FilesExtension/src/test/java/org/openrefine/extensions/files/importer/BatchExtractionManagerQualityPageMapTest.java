@@ -294,4 +294,24 @@ public class BatchExtractionManagerQualityPageMapTest {
         Assert.assertFalse(item.has("qf"), "空 flags 不写 qf");
         Assert.assertFalse(item.has("w"), "无质量不打 w");
     }
+
+    /** 件首页题名回填时必须走编目清洗，不能把页级原文（尾部括号/纯数字角标）覆盖回去 */
+    @Test
+    public void pieceStartAuthorityCleansTitle() {
+        Map<String, String> start = new LinkedHashMap<>();
+        start.put("title", "微信聊天记录（打印件）");
+        start.put("document_number", "（2026）皖01民初1号");
+
+        Map<String, String> row = BatchExtractionManager.applyPieceStartAuthority(null, start);
+
+        Assert.assertEquals(row.get("title"), "微信聊天记录", "尾部括号补注应被清洗");
+        Assert.assertEquals(row.get("document_number"), "（2026）皖01民初1号",
+                "文号不受题名清洗影响");
+
+        Map<String, String> numeric = new LinkedHashMap<>();
+        numeric.put("title", "3");
+        Map<String, String> row2 = BatchExtractionManager.applyPieceStartAuthority(null, numeric);
+        Assert.assertNull(row2 == null ? null : row2.get("title"),
+                "纯数字角标不得回填为件题名");
+    }
 }

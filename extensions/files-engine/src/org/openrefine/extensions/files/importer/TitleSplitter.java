@@ -188,6 +188,9 @@ public class TitleSplitter {
      */
     public static final double MATERIAL_TITLE_CONFIDENCE_THRESHOLD = 0.6;
 
+    /** 题名**尾部**的括号补注：「（截图）」「(续)」「（1）」等。只剥离尾部，中间括号不动。 */
+    private static final Pattern TRAILING_BRACKET = Pattern.compile("[（(][^（）()]*[）)]\\s*$");
+
     /**
      * 带「件首双重证据」门控的四级口径分件。
      *
@@ -208,6 +211,8 @@ public class TitleSplitter {
         for (int i = 0; i < pageTitles.size(); i++) {
             String raw = pageTitles.get(i);
             String title = raw == null ? "" : raw.trim();
+            // 页码/角标类纯数字题名不是文种，按无题名处理（续页）
+            if (isNoiseTitle(title)) title = "";
             String party = elementAt(pageParties, i);
             String object = elementAt(pageObjects, i);
             if (current == null) {
@@ -223,6 +228,7 @@ public class TitleSplitter {
                             titleRegionCounts, titleConfidenceThreshold));
             if (continuation
                     || sameMaterial(current.title, title, currentParty, party, currentObject, object)
+                    || continuationPiece(current.title, title)
                     || mergeAcrossBreed(current.title, title)) {
                 current.endPage = i + 1;
                 if (current.title.isEmpty()) current.title = title;
@@ -256,6 +262,12 @@ public class TitleSplitter {
      *
      * <p>当事人/对象任一为空视为不冲突（页级未抽到时不作为切分依据）；
      * 都有值时必须一致或互为包含（「赵建明、王秀兰」与「王秀兰」）。
+     *
+     * <p>对象还要「有区分力」才参与切分：页级把标题抄成对象的（借条页 object=借条、
+     * 收条页 object=收条）在语义上没有相对人，不能因此切件——一侧对象无区分力时按
+     * 「不确定不切」处理。该规则与文种无关：连续多张发票、聊天记录截图的同题名页，
+     * 只要对象抽成标题或抽空，都并成一件；只有两侧都是真实相对人且不同才切
+     * （传票按受送达人、笔录按被询问人）。
      */
     private static boolean sameMaterial(String prevTitle, String title,
                                         String prevParty, String party,
@@ -264,7 +276,35 @@ public class TitleSplitter {
         String b = normalize(title);
         if (a.isEmpty() || b.isEmpty()) return true;
         if (!(a.equals(b) || a.contains(b) || b.contains(a))) return false;
-        return compatible(prevParty, party) && compatible(prevObject, object);
+        return compatible(prevParty, party)
+                && objectsCompatible(prevTitle, title, prevObject, object);
+    }
+
+    /**
+     * 对象兼容性：任一侧无对象、或对象只是把题名/文种抄了一遍时视为不冲突；
+     * 两侧都是真实相对人时，须一致或互为包含。
+     */
+    private static boolean objectsCompatible(String prevTitle, String title,
+                                             String prevObject, String object) {
+        String a = normalize(prevObject);
+        String b = normalize(object);
+        if (a.isEmpty() || b.isEmpty()) return true;
+        if (!hasDistinctObject(prevObject, prevTitle) || !hasDistinctObject(object, title)) {
+            return true;
+        }
+        return a.equals(b) || a.contains(b) || b.contains(a);
+    }
+
+    /**
+     * 页级对象是否有区分力：与题名/文种同化（如借条页的 object=借条）说明抽取把
+     * 标题当成了相对人，不能作为切件边界。
+     */
+    static boolean hasDistinctObject(String object, String title) {
+        String o = normalize(object);
+        if (o.isEmpty()) return false;
+        String t = normalize(title);
+        if (!t.isEmpty() && (o.equals(t) || t.contains(o) || o.contains(t))) return false;
+        return true;
     }
 
     private static boolean compatible(String left, String right) {
@@ -296,6 +336,132 @@ public class TitleSplitter {
 
     private static boolean isPleading(String norm) {
         return norm.contains("起诉状") || norm.contains("上诉状") || norm.contains("答辩状");
+    }
+
+    /** 续页标记：题名尾部的「（续）」「(续)」「-续」「—续」「－续」。 */
+    static boolean hasContinuationMark(String title) {
+        if (title == null) return false;
+        String t = title.trim();
+        return t.contains("（续）") || t.contains("(续)")
+                || t.endsWith("-续") || t.endsWith("—续") || t.endsWith("－续");
+    }
+
+    /**
+     * 纯数字题名（页码、页眉/页脚角标）不是文种，不能作为件题名。
+     *
+     * <p>页级模型偶尔把版面右上角的编号当成标题（实测 GD06-2026-M1-0215 的起诉书第 2 页
+     * 返回题名「3」），会凭空切出一个名为「3」的件。此类值按「无题名」处理，即并入前件。</p>
+     */
+    public static boolean isNoiseTitle(String title) {
+        String n = normalize(title);
+        if (n.isEmpty()) return false;
+        return n.matches("\\d{1,4}");
+    }
+
+    /**
+     * 件题名清洗（与「（续）」归一化同口径），**只动题名尾部**：
+     * <ol>
+     *   <li>纯数字角标（页码/页眉编号）→ 空串（视为续页）；</li>
+     *   <li>去掉尾部的括号补注（全/半角都算），如「催收短信记录（截图）」「请假单（补办）」；
+     *       中间的括号是文种的一部分，原样保留（如「证据核对（质证）记录」
+     *       「证据材料（一）银行流水」）。</li>
+     * </ol>
+     * 不做责任者判断（法院/当事人都按同一口径）：真实卷宗里法院文书的尾部括号补注
+     * 属于 mock 自造形态，先不为其增加分支，避免引入误判。
+     */
+    public static String cleanTitle(String title) {
+        if (title == null) return "";
+        String t = title.trim();
+        if (t.isEmpty()) return "";
+        if (isNoiseTitle(t)) return "";
+        return stripTrailingBracket(t);
+    }
+
+    /** 循环剥掉题名尾部的括号补注（「xx（1）（副本）」这类多重后缀一并去掉）。 */
+    static String stripTrailingBracket(String title) {
+        if (title == null) return "";
+        String t = title.trim();
+        while (true) {
+            Matcher m = TRAILING_BRACKET.matcher(t);
+            if (!m.find()) break;
+            String next = t.substring(0, m.start()).trim();
+            if (next.isEmpty()) break;   // 整条题名就是括号时不动
+            t = next;
+        }
+        return t;
+    }
+
+
+    /**
+     * 「××（续）」并入前一件：去掉括号内容与续页后缀后基名相同即视为同一份。
+     *
+     * <p>例：「催收短信记录（截图）」与「催收短信记录（续）」、「微信聊天记录（截图）」与
+     * 「微信聊天记录（续）」。这类续页在利用层没有独立成件的意义，且前件可能带「（截图）」
+     * 等修饰，故不能只靠题名包含判断。
+     */
+    static boolean continuationPiece(String prevTitle, String title) {
+        if (!hasContinuationMark(title)) return false;
+        String a = baseTitle(prevTitle);
+        String b = baseTitle(title);
+        return !b.isEmpty() && b.equals(a);
+    }
+
+    /** 去掉尾部括号补注与续页后缀后的题名基名（中间括号保留）。 */
+    static String baseTitle(String title) {
+        if (title == null) return "";
+        String t = stripTrailingBracket(title);
+        t = t.replaceAll("[-—－]\\s*续\\s*$", "").replaceAll("\\s*续\\s*$", "");
+        // 「xx（续）」去掉「续」后可能又露出尾部括号，再剥一次
+        return normalize(stripTrailingBracket(t));
+    }
+
+    /**
+     * 对卷级模型给出的件序列做相邻件合并。
+     *
+     * <p>模型常把连续多页的同名材料逐页切成独立件，并给每页起同一个题名（甚至编出
+     * 「（续）」后缀）：笔录/裁判文书会这样切，连续多张借条、聊天记录截图也会。
+     * 判据与规则层完全一致——(题名, 当事人, 对象) 三元组不冲突即同一件，不按文种区分；
+     * 对象与题名同化（借条页 object=借条）时不算冲突。
+     */
+    public static List<Piece> mergeBodyPieces(List<Piece> pieces, List<String> pageParties,
+                                              List<String> pageObjects) {
+        if (pieces == null || pieces.size() < 2) return pieces;
+        List<Piece> out = new ArrayList<>(pieces.size());
+        for (Piece p : pieces) {
+            Piece prev = out.isEmpty() ? null : out.get(out.size() - 1);
+            if (prev == null) {
+                out.add(p);
+                continue;
+            }
+            String party = elementAt(pageParties, p.startPage - 1);
+            String prevParty = elementAt(pageParties, prev.startPage - 1);
+            String object = elementAt(pageObjects, p.startPage - 1);
+            String prevObject = elementAt(pageObjects, prev.startPage - 1);
+            if (sameMaterial(prev.title, p.title, prevParty, party, prevObject, object)
+                    || continuationPiece(prev.title, p.title)) {
+                prev.endPage = Math.max(prev.endPage, p.endPage);
+                prev.title = preferFullTitle(prev.title, p.title);
+                continue;
+            }
+            out.add(p);
+        }
+        return out;
+    }
+
+    /** 合并后取更完整的题名：去掉「（续）」后缀者优先，其次取较长者。 */
+    private static String preferFullTitle(String a, String b) {
+        String na = stripContinued(a);
+        String nb = stripContinued(b);
+        boolean aStripped = !na.equals(a);
+        boolean bStripped = !nb.equals(b);
+        if (aStripped && !bStripped) return nb;
+        if (bStripped && !aStripped) return na;
+        return na.length() >= nb.length() ? na : nb;
+    }
+
+    private static String stripContinued(String title) {
+        if (title == null) return "";
+        return title.replace("（续）", "").replace("(续)", "").trim();
     }
 
     private static boolean isMailSlip(String norm) {

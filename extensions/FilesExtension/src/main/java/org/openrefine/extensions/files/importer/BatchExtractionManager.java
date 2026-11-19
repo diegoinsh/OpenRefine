@@ -1380,6 +1380,12 @@ public class BatchExtractionManager {
         for (String key : PIECE_START_AUTHORITY_KEYS) {
             String v = startPageValues.get(key);
             if (v == null || v.trim().isEmpty()) continue;
+            if ("title".equals(key)) {
+                // 件首页原件题名同样按编目口径清洗（去纯数字角标、去尾部括号补注），
+                // 否则这一步会把页级原值回填，覆盖掉分件时已规范化的件名。
+                v = TitleSplitter.cleanTitle(v);
+                if (v.isEmpty()) continue;
+            }
             if (rowValues == null) rowValues = new LinkedHashMap<>();
             rowValues.put(key, v);
         }
@@ -2000,6 +2006,17 @@ public class BatchExtractionManager {
                         boolean fourLevelSplit = litigationArchive
                                 && ExtractionConfigStore.getBoolean(
                                         "extraction.fourLevelPieceSplit", false);
+                        // 分件前的页级题名只做「噪声」处理：页码/页眉角标类纯数字不是文种，
+                        // 置空按续页处理。尾部括号补注**不在这里删**——「（第22次）」这类
+                        // 补注带区分信息，删掉会让两页被并成一件；补注只影响输出题名，
+                        // 故留到分件边界确定后再清洗（见下方 cleanPieceTitles）。
+                        if (litigationArchive) {
+                            for (int i = 0; i < titles.size(); i++) {
+                                if (TitleSplitter.isNoiseTitle(titles.get(i))) {
+                                    titles.set(i, "");
+                                }
+                            }
+                        }
                         List<Integer> itemIndexes = litigationArchive
                                 ? itemPageIndexes(unit, titles, pageSkipped, pageTypes, pageValues)
                                 : allPageIndexes(unit.pages.size());
@@ -2069,45 +2086,81 @@ public class BatchExtractionManager {
                             //   rule   —— 只走规则（三元组 + 件首门控 + 材料级合并），不调模型；
                             //   hybrid —— 规则优先，仅当对象几乎没抽到或题名证据普遍不足时才问模型。
                             String splitMode = resolveSplitMode();
-                            boolean ruleOnly = "rule".equals(splitMode)
-                                    || ("hybrid".equals(splitMode)
-                                        && !needsLlmSplit(itemObjects, itemIndexes, pageConfidences));
-                            if (ruleOnly) {
-                                long tSplit0 = System.nanoTime();
-                                List<TitleSplitter.Piece> rulePieces = TitleSplitter.splitByMaterial(
+                            long tSplit0 = System.nanoTime();
+                            List<TitleSplitter.Piece> rulePieces = null;
+                            if (!"llm".equals(splitMode)) {
+                                rulePieces = TitleSplitter.splitByMaterial(
                                         itemTitles, itemParties, itemObjects,
                                         pickByIndex(pageConfidences, itemIndexes),
                                         pickByIndex(pageTitleRegions, itemIndexes),
                                         TitleSplitter.MATERIAL_TITLE_CONFIDENCE_THRESHOLD);
-                                task.tSplitMs += (System.nanoTime() - tSplit0) / 1_000_000;
-                                logger.info("卷 {} 规则分件（splitMode={}，{} 条条目页，对象非空 {} 页）→ {} 件",
-                                        unit.name, splitMode, itemIndexes.size(),
-                                        countNonEmpty(itemObjects), rulePieces.size());
+                            }
+                            long ruleMs = (System.nanoTime() - tSplit0) / 1_000_000;
+                            task.tSplitMs += ruleMs;
+                            boolean ruleOnly;
+                            String decision;
+                            if ("rule".equals(splitMode)) {
+                                ruleOnly = true;
+                                decision = "rule 模式：只走规则";
+                            } else if ("llm".equals(splitMode)) {
+                                ruleOnly = false;
+                                decision = "llm 模式：只走模型";
+                            } else {
+                                String reason = hybridFallbackReason(itemIndexes,
+                                        pageConfidences, rulePieces.size(), itemIndexes.size());
+                                ruleOnly = reason == null;
+                                decision = ruleOnly ? "规则可用，不调模型" : "回落模型（" + reason + "）";
+                            }
+                            logger.info("卷 {} 分件决策（{}）条目页 {}，对象非空 {}，规则 {} 件，"
+                                            + "平均 {} 页/件，规则耗时 {} ms → {}",
+                                    unit.name, splitMode, itemIndexes.size(),
+                                    countNonEmpty(itemObjects),
+                                    rulePieces == null ? -1 : rulePieces.size(),
+                                    rulePieces == null || rulePieces.isEmpty() ? "-"
+                                            : String.format("%.2f", itemIndexes.size() / (double) rulePieces.size()),
+                                    ruleMs, decision);
+                            if (ruleOnly) {
                                 pieces = mapToVolumeIndexes(rulePieces, itemIndexes, unit);
                             } else {
-                                long tSplit0 = System.nanoTime();
+                                long tLlm0 = System.nanoTime();
                                 AimpLlmClient.SplitResult split = client.splitVolumePieces(
                                         itemTitles, itemParties, firstPartyRoles(pageValues),
                                         task.archiveCategory, task.archiveSubCategory,
                                         itemSignals, fourLevelSplit);
-                                task.tSplitMs += (System.nanoTime() - tSplit0) / 1_000_000;
+                                long llmMs = (System.nanoTime() - tLlm0) / 1_000_000;
+                                task.tSplitMs += llmMs;
                                 // 非生成式引擎（grounding）不提供卷级分件，会返回明确降级原因：
                                 // 此时页题名里也没有方别/当事人，分件后要用规则渲染件题名
                                 partyTitleDegraded = split.reason != null
                                         && split.reason.contains("grounding");
                                 if (split.success && !split.pieces.isEmpty()) {
-                                    logger.info("卷 {} 卷级分件成功（{} 件）", unit.name, split.pieces.size());
-                                    pieces = mapToVolumeIndexes(split.pieces, itemIndexes, unit);
+                                    // 模型在连续多页的笔录/裁判文书上会逐页切成独立件，
+                                    // 结果落地前按「正文页连续性」并回一件
+                                    List<TitleSplitter.Piece> merged =
+                                            TitleSplitter.mergeBodyPieces(split.pieces,
+                                                    itemParties, itemObjects);
+                                    if (merged.size() != split.pieces.size()) {
+                                        logger.info("卷 {} 模型分件结果正文页后处理合并 {} → {} 件（{} ms）",
+                                                unit.name, split.pieces.size(), merged.size(), llmMs);
+                                    } else {
+                                        logger.info("卷 {} 卷级分件成功（{} 件，{} ms）",
+                                                unit.name, merged.size(), llmMs);
+                                    }
+                                    pieces = mapToVolumeIndexes(merged, itemIndexes, unit);
                                 } else {
-                                    logger.warn("卷 {} 卷级分件不可用（{}），回退字符串相似度分件",
-                                            unit.name, split.reason);
+                                    logger.warn("卷 {} 卷级分件不可用（{}，{} ms），回退字符串相似度分件",
+                                            unit.name, split.reason, llmMs);
+                                    if (rulePieces == null) {
+                                        rulePieces = TitleSplitter.splitByMaterial(
+                                                itemTitles, itemParties, itemObjects,
+                                                pickByIndex(pageConfidences, itemIndexes),
+                                                pickByIndex(pageTitleRegions, itemIndexes),
+                                                TitleSplitter.MATERIAL_TITLE_CONFIDENCE_THRESHOLD);
+                                    }
                                     // 四级口径（件内每份材料一件）：(文种, 当事人, 对象) 变化即切。
                                     // 仅在该开关打开时启用；关闭时与改造前逐字节一致。
                                     pieces = mapToVolumeIndexes(fourLevelSplit
-                                            ? TitleSplitter.splitByMaterial(itemTitles, itemParties,
-                                                    itemObjects, pickByIndex(pageConfidences, itemIndexes),
-                                                    pickByIndex(pageTitleRegions, itemIndexes),
-                                                    TitleSplitter.MATERIAL_TITLE_CONFIDENCE_THRESHOLD)
+                                            ? rulePieces
                                             : TitleSplitter.split(itemTitles,
                                                     TitleSplitter.DEFAULT_SIMILARITY_THRESHOLD, true),
                                             itemIndexes, unit);
@@ -2132,6 +2185,9 @@ public class BatchExtractionManager {
                         // 在卷内条目范围内，漏掉只会让页既不进条目、又拿不到件级归并。
                         if (litigationArchive && !itemIndexes.isEmpty()) {
                             appendUncoveredItemPages(pieces, itemIndexes, unit);
+                            // 件题名按编目口径清洗（只动尾部：纯数字角标、尾部括号补注）。
+                            // 此时分件边界已定，清洗只改输出题名，不再回头影响并件判断。
+                            cleanPieceTitles(pieces);
                             // 规则渲染件题名：grounding 降级分件后，件名由「封面名单 + 页级责任者」
                             // 补方别/当事人（{@link PartyTitleComposer}），不依赖模型在题名里写人名；
                             // 生成式引擎分件成功时保持模型题名不变（既有基线逐字节一致）。
@@ -2379,7 +2435,9 @@ public class BatchExtractionManager {
                             r == null ? "无结果" : r.error);
                     continue;
                 }
-                titles.set(idx, r.values.getOrDefault("title", ""));
+                // 回溯补抽的题名同样只做噪声处理（纯数字角标按续页）
+                String retryTitle = r.values.getOrDefault("title", "");
+                titles.set(idx, TitleSplitter.isNoiseTitle(retryTitle) ? "" : retryTitle);
                 pageValues.set(idx, r.values);
                 pageConfidences.set(idx, r.confidences);
                 // 质量列表与 pageValues 严格对齐：漏写会让后续按页索引取到别的页的质量
@@ -2465,6 +2523,11 @@ public class BatchExtractionManager {
                     continue;
                 }
                 String title = r.values.getOrDefault("title", "");
+                // 材料首页补抽只做噪声处理（纯数字角标按续页）；尾部括号补注留到
+                // 分件边界确定后由 cleanPieceTitles 统一清洗，避免影响并件判断
+                if (TitleSplitter.isNoiseTitle(title)) {
+                    continue;
+                }
                 if (title == null || title.trim().isEmpty()) {
                     continue;
                 }
@@ -2960,15 +3023,17 @@ public class BatchExtractionManager {
     }
 
     /**
-     * hybrid 模式下判断「规则判不了、需要交给卷级 LLM」：
-     * ① 对象几乎没抽到——同文种多份（传票/送达回证/笔录）无法区分；
-     * ② 题名置信度普遍不足——页级题名不可信，规则会把噪声当材料边界。
+     * hybrid 模式下判断「规则不可靠、需要交给卷级 LLM 复核」，返回 null 表示规则可用。
+     *
+     * <p>2026-11-18 留出集复盘后收紧：对象抽不到不再触发回落——对象缺失只意味着少了一个
+     * 区分维度，规则会倾向合并；而整卷交给模型反而会因模型逐页切分，把多页笔录/裁判文书
+     * 拆成多件（留出集 AH01/SH02 各因此多出 9 件）。现在只在「页级题名本身不可信」时回落：
+     * 低置信度占比过高，或低置信度 + 规则平均件页数异常大（疑似把多份材料并成一件）。
      */
-    static boolean needsLlmSplit(List<String> itemObjects, List<Integer> itemIndexes,
-                                 List<Map<String, Double>> pageConfidences) {
-        if (itemObjects == null || itemObjects.isEmpty()) return true;
-        if (countNonEmpty(itemObjects) / (double) itemObjects.size() < 0.2) return true;
-        if (pageConfidences == null || itemIndexes == null) return false;
+    static String hybridFallbackReason(List<Integer> itemIndexes,
+                                       List<Map<String, Double>> pageConfidences,
+                                       int rulePieceCount, int itemPageCount) {
+        if (pageConfidences == null || itemIndexes == null || itemIndexes.isEmpty()) return null;
         int scored = 0;
         int low = 0;
         for (int idx : itemIndexes) {
@@ -2981,7 +3046,17 @@ public class BatchExtractionManager {
                 low++;
             }
         }
-        return scored > 0 && low / (double) scored > 0.3;
+        if (scored == 0) return null;
+        double lowRatio = low / (double) scored;
+        double avgPages = rulePieceCount > 0 ? itemPageCount / (double) rulePieceCount : 0;
+        if (lowRatio > 0.6) {
+            return String.format("题名低置信度 %.0f%%>60%%", lowRatio * 100);
+        }
+        if (lowRatio > 0.3 && avgPages > 6) {
+            return String.format("题名低置信度 %.0f%% 且规则平均 %.1f 页/件（疑似过度合并）",
+                    lowRatio * 100, avgPages);
+        }
+        return null;
     }
 
     private static int countNonEmpty(List<String> values) {
@@ -2990,6 +3065,17 @@ public class BatchExtractionManager {
             if (v != null && !v.trim().isEmpty()) n++;
         }
         return n;
+    }
+
+    /**
+     * 件题名清洗：去掉纯数字角标与尾部括号补注（口径与页级一致，
+     * 见 {@link TitleSplitter#cleanTitle}）。
+     */
+    private static void cleanPieceTitles(List<TitleSplitter.Piece> pieces) {
+        if (pieces == null) return;
+        for (TitleSplitter.Piece p : pieces) {
+            p.title = TitleSplitter.cleanTitle(p.title);
+        }
     }
 
     /** 按条目页下标抽取全页列表的子集（越界置 null，由下游按「证据缺失」处理）。 */
