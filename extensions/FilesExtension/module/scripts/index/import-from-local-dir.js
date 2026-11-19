@@ -110,8 +110,9 @@ Refine.REVIEW_RULE_CATEGORIES = [
     rules: [
       { key: 'seal', name: '印章检测', enabled: true,
         desc: '检测文件是否加盖印章（落款章、骑缝章），由 AI 服务印章检测模型完成' },
-      { key: 'fingerprint', name: '指纹检测', enabled: true,
-        desc: '检测文件是否按压指纹；与印章同源出框后按框内墨迹分布区分' },
+      { key: 'fingerprint', name: '指纹检测', enabled: true, defaultChecked: false,
+        desc: '检测文件是否按压指纹；与印章同源出框后按框内墨迹分布区分。'
+            + '捺印仅刑事案卷明确要求，民事/公益类为可选，故默认不勾选' },
       { key: 'signature', name: '签字检测', enabled: false, desc: '指定区域是否含手写签字（待签字模型）' },
       { key: 'seal_match', name: '盖章一致性', enabled: false, desc: '盖章是否与责任者等要素一致' },
       { key: 'signature_match', name: '签名一致性', enabled: false, desc: '签名是否与某要素一致' }
@@ -167,7 +168,7 @@ Refine.REVIEW_RULE_TEMPLATES = [
     baseline: 's5-2018',
     params: { matchThreshold: 0.85, sealConfidence: 0.78, signConfidence: 0.72,
               onDeviation: 'error', mergeAttachments: true, pouchElements: true },
-    rules: ['seal', 'fingerprint', 'missing_piece', 'missing_page', 'empty_piece',
+    rules: ['seal', 'missing_piece', 'missing_page', 'empty_piece',
             'missing_attachment', 'piece_order', 'volume_toc', 'document_element',
             'piece_combo'] },
   { id: 'court-m1-local', name: '本院裁剪模板',
@@ -176,7 +177,7 @@ Refine.REVIEW_RULE_TEMPLATES = [
     baseline: 's1-1991',
     params: { matchThreshold: 0.80, sealConfidence: 0.70, signConfidence: 0.65,
               onDeviation: 'warning', mergeAttachments: false, pouchElements: false },
-    rules: ['seal', 'fingerprint', 'missing_piece', 'missing_page', 'empty_piece',
+    rules: ['seal', 'missing_piece', 'missing_page', 'empty_piece',
             'missing_attachment', 'piece_order', 'volume_toc', 'document_element'] }
 ];
 

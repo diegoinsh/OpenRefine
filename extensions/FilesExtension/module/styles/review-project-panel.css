@@ -119,6 +119,16 @@
   font-size: 12px;
 }
 
+.review-results-scope {
+  margin: 2px 0 4px;
+  color: #555;
+  font-size: 12px;
+}
+
+.review-results-scope-muted {
+  color: #777;
+}
+
 .review-results-error {
   margin: 10px 0 4px;
   padding: 8px 10px;

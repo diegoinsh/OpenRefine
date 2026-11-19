@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -143,18 +144,22 @@ public final class CatalogChecklist {
         public static final String MODE_FULL = "full";
         public static final String MODE_CASUAL = "casual";
         public static final String MODE_SUPPLEMENT = "supplement";
-        public static final Submission DEFAULT = new Submission(MODE_CASUAL, null, List.of(), List.of());
+        public static final Submission DEFAULT = new Submission(MODE_CASUAL, null, List.of(), List.of(), false);
 
         public final String mode;
         public final String stage;
         public final List<String> scopePieceTypes;
         public final List<String> declaredRequired;
+        /** 下游是否显式声明了 {@code catalog.submission}；未声明时保持旧口径（仅模板驱动启用范围语义）。 */
+        public final boolean declared;
 
-        Submission(String mode, String stage, List<String> scopePieceTypes, List<String> declaredRequired) {
+        Submission(String mode, String stage, List<String> scopePieceTypes,
+                   List<String> declaredRequired, boolean declared) {
             this.mode = mode == null || mode.isBlank() ? MODE_CASUAL : mode;
             this.stage = stage;
             this.scopePieceTypes = scopePieceTypes == null ? List.of() : scopePieceTypes;
             this.declaredRequired = declaredRequired == null ? List.of() : declaredRequired;
+            this.declared = declared;
         }
 
         public boolean full() {
@@ -408,24 +413,30 @@ public final class CatalogChecklist {
                         firstNonBlank(text(c, "hint"), ""), when, requires));
             }
         }
-        double threshold = complete.path("matchThreshold").asDouble(0.82);
+        double threshold = complete.path("matchThreshold").asDouble(0.85);
         boolean merge = !complete.has("mergeAttachments") || complete.path("mergeAttachments").asBoolean(true);
         boolean pouch = !complete.has("pouchElements") || complete.path("pouchElements").asBoolean(true);
         String missingAction = firstNonBlank(text(complete, "missingAction"), "warning");
         return new Template(threshold, merge, pouch, missingAction, items, conditions);
     }
 
-    /** 模板驱动开关：默认关闭（旧基线行为逐字不变）；沙箱/验收可按需打开。 */
+    /**
+     * 是否按模板条目判定（模板驱动）。
+     *
+     * <p>2026-11-19 起**缺省开启**：模板即选项集，平台下发模板快照后按模板条目与参数判定；
+     * 显式配置 {@code completeness.templateDriven=false}（或环境变量
+     * {@code COMPLETENESS_TEMPLATE_DRIVEN=false}）时才回落内置基线。</p>
+     */
     public static boolean templateDrivenEnabled() {
         String v = System.getProperty("completeness.templateDriven");
         if (v == null || v.isBlank()) {
             v = System.getenv("COMPLETENESS_TEMPLATE_DRIVEN");
         }
-        if (v == null) {
-            return false;
+        if (v == null || v.isBlank()) {
+            return true;
         }
         String s = v.trim().toLowerCase();
-        return "true".equals(s) || "1".equals(s) || "yes".equals(s);
+        return !("false".equals(s) || "0".equals(s) || "no".equals(s));
     }
 
     /* ---------------- 解析 ---------------- */
@@ -462,7 +473,7 @@ public final class CatalogChecklist {
         String stage = firstNonBlank(text(s, "stage"), catalogStage);
         List<String> scope = stringListOf(s.path("scope").get("pieceTypes"));
         List<String> declared = stringListOf(s.get("declaredRequired"));
-        return new Submission(mode, stage, scope, declared);
+        return new Submission(mode, stage, scope, declared, true);
     }
 
     private static String normalizeMode(String raw) {
@@ -646,6 +657,17 @@ public final class CatalogChecklist {
 
     /** 模板双读：{@code template} 非空且开关打开时按模板条目判定，否则回落内置基线。 */
     public static Map<String, Object> evaluate(Catalog catalog, Template template) {
+        return evaluate(catalog, template, null);
+    }
+
+    /**
+     * 同上，并按本次下发规则过滤结论：{@code enabledRules} 为空（{@code null}）时不过滤，
+     * 行为与旧调用逐字一致；非空时只保留其中规则产生的 issue / 文书要素 / 内容组合结论。
+     *
+     * <p>规则 key 与平台规则目录一致：{@code missing_piece / missing_page / empty_piece /
+     * missing_attachment / piece_order / volume_toc / document_element / piece_combo}。</p>
+     */
+    public static Map<String, Object> evaluate(Catalog catalog, Template template, Set<String> enabledRules) {
         boolean templateDriven = template != null && !template.items.isEmpty() && templateDrivenEnabled();
         List<Entry> mainEntries = templateDriven
                 ? template.entriesFor(VOLUME_MAIN) : baseline(CASE_CIVIL_FIRST, VOLUME_MAIN);
@@ -685,6 +707,18 @@ public final class CatalogChecklist {
                     comboRows(volume, volume.deputy() ? List.of() : mainEntries);
             allCombos.addAll(combos);
             allIssues.addAll(comboIssues(combos));
+        }
+
+        // 规则过滤（仅当平台显式下发清单时生效）：未勾选的规则不再产出结论，
+        // 避免「只选 7 条、结果里却出现文书必备要素/内容组合」的口径不一致。
+        if (enabledRules != null && !enabledRules.isEmpty()) {
+            allIssues.removeIf(issue -> !enabledRules.contains(String.valueOf(issue.get("rule"))));
+            if (!enabledRules.contains("document_element")) {
+                allDocuments.clear();
+            }
+            if (!enabledRules.contains("piece_combo")) {
+                allCombos.clear();
+            }
         }
 
         Map<String, Object> summary = new LinkedHashMap<>();
@@ -745,6 +779,66 @@ public final class CatalogChecklist {
         out.put("combo", allCombos);
         out.put("summary", summary);
         return out;
+    }
+
+    /**
+     * 选项集口径：判定前套用本次下发的逐项参数（完备性阈值 / 附件并入 / 证物袋并入 / 缺件处理方式）。
+     *
+     * <p>只有模板驱动时参数才有意义（内置基线不做题名相似度匹配）；参数缺失时沿用模板值。</p>
+     */
+    public static Map<String, Object> evaluate(Catalog catalog, Template template,
+                                               Set<String> enabledRules,
+                                               Map<String, Map<String, Object>> ruleParams) {
+        return evaluate(catalog, applyParams(template, ruleParams), enabledRules);
+    }
+
+    private static Template applyParams(Template template,
+                                        Map<String, Map<String, Object>> ruleParams) {
+        if (template == null || ruleParams == null || ruleParams.isEmpty()) {
+            return template;
+        }
+        Map<String, Object> p = ruleParams.get("missing_piece");
+        if (p == null || p.isEmpty()) {
+            return template;
+        }
+        double threshold = template.matchThreshold;
+        Object rawThreshold = p.get("matchThreshold");
+        if (rawThreshold instanceof Number) {
+            threshold = ((Number) rawThreshold).doubleValue();
+        } else if (rawThreshold != null) {
+            try {
+                threshold = Double.parseDouble(String.valueOf(rawThreshold));
+            } catch (NumberFormatException ignore) {
+                // 参数非法时沿用模板值
+            }
+        }
+        boolean merge = p.get("mergeAttachments") == null
+                ? template.mergeAttachments : boolOf(p.get("mergeAttachments"), template.mergeAttachments);
+        boolean pouch = p.get("pouchElements") == null
+                ? template.pouchElements : boolOf(p.get("pouchElements"), template.pouchElements);
+        String action = firstNonBlank(textOf(p.get("missingAction")), template.missingAction);
+        return new Template(threshold, merge, pouch, action, template.items, template.conditions);
+    }
+
+    private static boolean boolOf(Object v, boolean fallback) {
+        if (v instanceof Boolean) {
+            return (Boolean) v;
+        }
+        if (v == null) {
+            return fallback;
+        }
+        String s = String.valueOf(v).trim().toLowerCase();
+        if ("true".equals(s) || "1".equals(s) || "yes".equals(s)) {
+            return true;
+        }
+        if ("false".equals(s) || "0".equals(s) || "no".equals(s)) {
+            return false;
+        }
+        return fallback;
+    }
+
+    private static String textOf(Object v) {
+        return v == null ? "" : String.valueOf(v).trim();
     }
 
     /** 内容组合类：按本次提交目录的二级目录归组，逐组给出件数/页数与组合判定。 */
@@ -880,6 +974,11 @@ public final class CatalogChecklist {
         List<Map<String, Object>> itemResults = new ArrayList<>();
         List<Map<String, Object>> issues = new ArrayList<>();
 
+        // 模板驱动：按相似度阈值匹配，再按「分数降序 + 条目序」贪心分配（一件只归属一个条目）
+        Map<Entry, List<Match>> assigned = templateDriven && template != null
+                ? assignMatches(entries, volume.items, template.matchThreshold)
+                : null;
+
         for (Entry e : entries) {
             if (e.pending()) {
                 // UI「待开放」：只展示不下判（不计入 present/missing）
@@ -900,16 +999,41 @@ public final class CatalogChecklist {
                 continue;
             }
             List<String> matched = new ArrayList<>();
-            for (Item item : volume.items) {
-                if (matches(e, item)) {
-                    matched.add(item.pieceNo);
+            List<String> matchedTitles = new ArrayList<>();
+            double similarity = 0;
+            if (assigned == null) {
+                // 内置基线：保持旧的包含关系匹配，行为逐字不变
+                for (Item item : volume.items) {
+                    if (matches(e, item)) {
+                        matched.add(item.pieceNo);
+                    }
+                }
+            } else {
+                for (Match m : assigned.getOrDefault(e, List.of())) {
+                    matched.add(m.item.pieceNo);
+                    matchedTitles.add(m.item.title);
+                    similarity = Math.max(similarity, m.score);
                 }
             }
             Boolean declared = "volume".equals(e.scope) ? declared(volume, e) : null;
             String status;
             if (!matched.isEmpty()) {
-                status = "present";
-                present++;
+                // 附件并入：附件件不占独立件，挂到同二级目录的主件下（设计 §六.5）
+                if (assigned != null && template.mergeAttachments && isAttachment(e)) {
+                    status = "merged";
+                    present++;
+                } else if (assigned != null && similarity < 1.0 - 1e-9) {
+                    // 相似度落在 [threshold, 1)：命中但需人工确认
+                    status = "suspect";
+                    present++;
+                    issues.add(issue("piece_suspect", "warning", "piece", volumeNo,
+                            matched.get(0), matchedTitles.get(0),
+                            "疑为「" + e.title + "」（相似度 "
+                                    + String.format(Locale.ROOT, "%.2f", similarity) + "），请确认"));
+                } else {
+                    status = "present";
+                    present++;
+                }
             } else if (Boolean.TRUE.equals(declared)) {
                 status = "present";
                 present++;
@@ -968,13 +1092,27 @@ public final class CatalogChecklist {
             row.put("status", status);
             row.put("declared", declared);
             row.put("matched", matched);
+            if (assigned != null) {
+                row.put("similarity", Math.round(similarity * 100) / 100.0);
+                row.put("matchedTitle", matchedTitles);
+            }
             putTemplateFields(row, e);
             itemResults.add(row);
         }
 
-        issues.addAll(pageIssues(volume));
-        issues.addAll(tocIssues(volume));
-        issues.addAll(tocCompareIssues(volume));
+        // 附件并入：挂到同二级目录的主件下；主件缺而附件在 → 主件仍判缺并提示
+        if (assigned != null && template.mergeAttachments) {
+            applyAttachmentMerge(itemResults);
+        }
+
+        // 随案在建 / 单件补交：尚未编页、无卷内目录，页级与目录级校验不适用（避免大量误报）
+        boolean partialSubmission = submission != null && submission.declared && !submission.full();
+        issues.addAll(pageIssues(volume, partialSubmission));
+        if (!partialSubmission) {
+            issues.addAll(tocIssues(volume));
+            issues.addAll(tocCompareIssues(volume));
+        }
+        // 件序只在已匹配到的件之间比较：中间缺一件或几件不影响判定，也不产生缺件告警
         issues.addAll(orderIssues(volume, entries));
         // 条件缺件：模板驱动时读模板 conditions，否则沿用内置 3 条
         List<Condition> conditions = templateDriven && template != null && !template.conditions.isEmpty()
@@ -1090,14 +1228,17 @@ public final class CatalogChecklist {
         return field;
     }
 
-    /** 缺页 / 空件：件内页号覆盖 + 卷内页号连续。 */
-    private static List<Map<String, Object>> pageIssues(Volume volume) {
+    /** 缺页 / 空件：件内页号覆盖 + 卷内页号连续；{@code skipPagination} 为随案在建时只判空件。 */
+    private static List<Map<String, Object>> pageIssues(Volume volume, boolean skipPagination) {
         List<Map<String, Object>> issues = new ArrayList<>();
         String volumeNo = volume.volumeNo == null ? "" : volume.volumeNo;
         for (Item item : volume.items) {
             if (item.emptyPages()) {
                 issues.add(issue("empty_piece", "error", "piece", volumeNo, item.pieceNo, item.title,
                         "件 " + item.pieceNo + "（" + item.title + "）有件无页"));
+                continue;
+            }
+            if (skipPagination) {
                 continue;
             }
             if (!item.pages.isEmpty() && item.startPage > 0 && item.endPage >= item.startPage) {
@@ -1121,6 +1262,9 @@ public final class CatalogChecklist {
             }
         }
 
+        if (skipPagination) {
+            return issues;
+        }
         List<Item> ranged = new ArrayList<>();
         for (Item item : volume.items) {
             if (item.startPage > 0 && item.endPage >= item.startPage) {
@@ -1399,6 +1543,171 @@ public final class CatalogChecklist {
         return s == null ? "" : s.replace("（正卷）", "").replace("(正卷)", "").trim();
     }
 
+    /* ---------------- 模板匹配：相似度 + 贪心分配 + 附件并入（设计 §六） ---------------- */
+
+    /** 模板条目与提交件的候选命中（{@code score} 为归一化相似度）。 */
+    private static final class Match {
+        final Entry entry;
+        final Item item;
+        final double score;
+
+        Match(Entry entry, Item item, double score) {
+            this.entry = entry;
+            this.item = item;
+            this.score = score;
+        }
+    }
+
+    /**
+     * 贪心分配：一条候选 = 一个条目 × 一个提交件，分数达阈值的先按分数降序、
+     * 同分按条目序排队；一件只能归属一个条目，一个条目可收多件（如多份举证材料）。
+     */
+    private static Map<Entry, List<Match>> assignMatches(List<Entry> entries, List<Item> items,
+                                                         double threshold) {
+        List<Match> candidates = new ArrayList<>();
+        for (Entry e : entries) {
+            if (e.pending()) {
+                continue;
+            }
+            for (Item item : items) {
+                double score = score(e, item);
+                if (score >= threshold) {
+                    candidates.add(new Match(e, item, score));
+                }
+            }
+        }
+        candidates.sort((a, b) -> {
+            int c = Double.compare(b.score, a.score);
+            if (c != 0) {
+                return c;
+            }
+            // 同分时主件优先，避免附件把主件的件抢走（附件并入要靠主件存在才有意义）
+            boolean aAtt = isAttachment(a.entry);
+            boolean bAtt = isAttachment(b.entry);
+            if (aAtt != bAtt) {
+                return aAtt ? 1 : -1;
+            }
+            return Integer.compare(a.entry.order, b.entry.order);
+        });
+        Map<Entry, List<Match>> out = new LinkedHashMap<>();
+        Set<String> assignedItems = new LinkedHashSet<>();
+        for (Match m : candidates) {
+            String key = m.item.pieceNo == null ? "" : m.item.pieceNo;
+            if (!assignedItems.add(key)) {
+                continue;
+            }
+            out.computeIfAbsent(m.entry, k -> new ArrayList<>()).add(m);
+        }
+        return out;
+    }
+
+    /** 条目与件的相似度：别名归一化精确命中 = 1.0；否则取二级目录/件名与别名的最佳相似度。 */
+    private static double score(Entry e, Item item) {
+        String level2 = normalize(item.level2);
+        String title = normalize(item.title);
+        for (String alias : e.titles) {
+            String a = normalize(alias);
+            if (!a.isEmpty() && (a.equals(level2) || a.equals(title))) {
+                return 1.0;
+            }
+        }
+        double best = 0;
+        String main = normalize(e.title);
+        for (String alias : e.titles) {
+            String a = normalize(alias);
+            if (a.isEmpty()) {
+                continue;
+            }
+            best = Math.max(best, similarity(level2, a));
+            best = Math.max(best, similarity(title, a));
+        }
+        best = Math.max(best, similarity(level2, main));
+        best = Math.max(best, similarity(title, main));
+        return best;
+    }
+
+    /** 包含关系按 0.95（过短的包含交给二元组相似度，避免「卷」「表」误配）。 */
+    private static double similarity(String a, String b) {
+        if (a == null || b == null || a.isEmpty() || b.isEmpty()) {
+            return 0;
+        }
+        if (a.equals(b)) {
+            return 1.0;
+        }
+        if (a.contains(b) || b.contains(a)) {
+            return Math.min(a.length(), b.length()) >= 3 ? 0.95 : dice(a, b);
+        }
+        return dice(a, b);
+    }
+
+    /** 字符二元组 Dice 系数（0~1），对错字/多字/少字敏感度适中。 */
+    private static double dice(String a, String b) {
+        if (a.length() < 2 || b.length() < 2) {
+            return a.equals(b) ? 1.0 : 0;
+        }
+        Map<String, Integer> grams = new LinkedHashMap<>();
+        for (int i = 0; i < a.length() - 1; i++) {
+            grams.merge(a.substring(i, i + 2), 1, Integer::sum);
+        }
+        int hit = 0;
+        for (int i = 0; i < b.length() - 1; i++) {
+            String g = b.substring(i, i + 2);
+            Integer n = grams.get(g);
+            if (n != null && n > 0) {
+                hit++;
+                grams.put(g, n - 1);
+            }
+        }
+        return 2.0 * hit / ((a.length() - 1) + (b.length() - 1));
+    }
+
+    /** 归一化：去序号前缀、括号注记、空白与标点（全半角差异由此拉平）。 */
+    private static String normalize(String s) {
+        if (s == null) {
+            return "";
+        }
+        String x = s.trim();
+        x = x.replaceFirst("^\\s*\\d+\\s*[、.．\\-—_]?\\s*", "");
+        x = x.replaceAll("[（(〔【\\[].*?[）)〕】\\]]", "");
+        x = x.replaceAll("[\\s\\p{Punct}，。、；：？！·—…“”‘’《》〈〉【】〔〕]", "");
+        return x;
+    }
+
+    private static boolean isAttachment(Entry e) {
+        return e.mergeAs != null && "attachment".equalsIgnoreCase(e.mergeAs.trim());
+    }
+
+    /**
+     * 附件并入：{@code status=merged} 的行挂到同二级目录的主件行；主件缺而附件在时，
+     * 主件仍判缺，并在件级行补 {@code note} 提示（判定结论不变）。
+     */
+    private static void applyAttachmentMerge(List<Map<String, Object>> rows) {
+        for (Map<String, Object> row : rows) {
+            if (!"merged".equals(row.get("status"))) {
+                continue;
+            }
+            String level2 = row.get("level2") == null ? "" : String.valueOf(row.get("level2"));
+            if (level2.isBlank()) {
+                continue;
+            }
+            for (Map<String, Object> main : rows) {
+                if (main == row || main.get("mergeAs") != null) {
+                    continue;
+                }
+                String mainLevel2 = main.get("level2") == null ? "" : String.valueOf(main.get("level2"));
+                if (!level2.equals(mainLevel2)) {
+                    continue;
+                }
+                row.put("mergedInto", main.get("title"));
+                Object status = main.get("status");
+                if (!"present".equals(status) && !"suspect".equals(status)) {
+                    main.put("note", "附件已提交、主件缺失");
+                }
+                break;
+            }
+        }
+    }
+
     /**
      * 缺件 issue：模板条目带 severity 时按模板（内置基线为 null，沿用「归档 error / 在建 warning」）。
      * 附加 {@code expectedTitle}/{@code pieceTypeCode}，供结果页标出"应为哪一类件"（附加式字段）。
@@ -1419,14 +1728,17 @@ public final class CatalogChecklist {
      * 该必备件是否不在本次提交范围内（只统计、不出 issue）。
      *
      * <ul>
-     *   <li>内置基线（开关关闭）：不启用范围语义，行为不变；</li>
+     *   <li>未声明 submission 且非模板驱动：不启用范围语义，行为不变；</li>
      *   <li>{@code full}：全量判定，不排除；</li>
      *   <li>{@code supplement}：单件补交，未命中一律不判缺件；</li>
      *   <li>{@code casual}：声明了范围时只判范围内；未声明时只判已提交材料。</li>
      * </ul>
      */
     private static boolean outOfSubmission(Entry e, Submission submission, boolean templateDriven) {
-        if (!templateDriven || !e.required || submission == null) {
+        if (!e.required || submission == null) {
+            return false;
+        }
+        if (!templateDriven && !submission.declared) {
             return false;
         }
         if (submission.full()) {

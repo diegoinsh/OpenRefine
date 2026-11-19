@@ -232,6 +232,9 @@ var ReviewProjectPanel = (function() {
     if (task.templateId) {
       state.templateId = task.templateId;
     }
+    // 完备性页签的件类型清单：用平台随任务下发的模板快照（与引擎判定同源），
+    // 旧任务没有该字段时回退到 4 个规则开关的表单。
+    state.templateComplete = task.templateComplete || null;
     // 内容组合类页签的判定输入：优先用平台随任务下发的「下游本次提交目录」，
     // 未下发时回退到件清单摘要（旧任务）；两者都为只读展示。
     var catalog = (task.catalog && task.catalog.items) ? task.catalog : null;
@@ -254,6 +257,20 @@ var ReviewProjectPanel = (function() {
     $('<span class="review-params-root"></span>')
       .text(task.rootPath || '未登记校审根目录')
       .appendTo(rootRow);
+
+    // 本次提交范围：目录里声明了 submission 才显示（旧任务无该字段，不显示）
+    var submission = catalog && catalog.submission;
+    if (submission) {
+      var subMode = submission.mode === 'full' ? '全卷归档'
+        : submission.mode === 'supplement' ? '单件补交' : '随案在建';
+      var scopeText = '本次提交 ' + state.catalog.length + ' 件 · ' + subMode;
+      if (submission.mode !== 'full') {
+        scopeText += '（未提交的必备件只统计，不判缺件）';
+      }
+      var scopeRow = $('<div class="batch-field-row"></div>').appendTo(form);
+      $('<label></label>').text('提交范围').appendTo(scopeRow);
+      $('<span class="review-params-root"></span>').text(scopeText).appendTo(scopeRow);
+    }
 
     var ruleRow = $('<div class="batch-field-row"></div>').appendTo(form);
     $('<label></label>').text('校审规则').appendTo(ruleRow);
@@ -351,6 +368,8 @@ var ReviewProjectPanel = (function() {
         summary.passedPieces || 0, summary.failedPieces || 0, summary.unknownPieces || 0))
       .appendTo(form);
 
+    renderCompletenessScope(form, result);
+
     var ruleNames = (result.rules || []).map(function(rule) {
       return rule.name || rule.key;
     }).filter(function(name) {
@@ -371,6 +390,81 @@ var ReviewProjectPanel = (function() {
     } else {
       $('<div class="review-piece-list-empty"></div>')
         .text($.i18n('files-import/review-results-empty')).appendTo(form);
+    }
+  }
+
+  /**
+   * 完备性口径块：本次提交范围、模板来源/版本、必备件三数（已核查/未纳入/待开放）。
+   * 老任务结果没有这些字段时整块不显示（结果契约只做附加式扩展）。
+   */
+  function renderCompletenessScope(form, result) {
+    var checklist = result.checklist || {};
+    var summary = checklist.summary || {};
+    if (!summary.completenessScope && !summary.baselineSource && !result.templateId) {
+      return;
+    }
+    var mode = summary.completenessScope;
+    var modeText = mode === 'full' ? '全卷归档'
+      : mode === 'supplement' ? '单件补交' : '随案在建';
+    var parts = ['完备性口径：' + modeText];
+    if (result.templateId) {
+      parts.push('模板 ' + result.templateId
+        + (result.templateVersion ? '@' + result.templateVersion : ''));
+    }
+    if (summary.baselineSource === 'template') {
+      parts.push('按模板条目判定');
+    } else if (summary.baselineSource === 'builtin') {
+      parts.push('按内置基线判定');
+    }
+    if (summary.matchThreshold != null) {
+      parts.push('匹配阈值 ' + summary.matchThreshold);
+    }
+    if (summary.requiredChecked != null) {
+      parts.push('必备件已核查 ' + (summary.requiredChecked || 0)
+        + ' / 未纳入本次 ' + (summary.outOfScope || 0)
+        + (summary.requiredSkipped ? ' / 待开放 ' + summary.requiredSkipped : ''));
+    }
+    $('<div class="review-results-scope"></div>')
+      .text(parts.join(' · '))
+      .appendTo(form);
+
+    var skipped = [];
+    (checklist.items || []).forEach(function(row) {
+      if (row && row.status === 'out-of-scope') {
+        skipped.push(row.title || row.level2 || '');
+      }
+    });
+    if (skipped.length) {
+      $('<div class="review-results-scope review-results-scope-muted"></div>')
+        .text('本次未纳入范围的模板必备件（' + skipped.length + ' 件，只统计不判缺）：'
+          + skipped.join('、'))
+        .appendTo(form);
+    }
+
+    // 相似度落在阈值内但未满 1：列出疑似匹配，提示人工确认；附件并入只给件数，不占独立件
+    var suspect = [];
+    var merged = 0;
+    (checklist.items || []).forEach(function(row) {
+      if (!row) {
+        return;
+      }
+      if (row.status === 'suspect') {
+        var hit = (row.matchedTitle && row.matchedTitle.length) ? row.matchedTitle[0] : '';
+        suspect.push((hit ? hit + ' → ' : '') + (row.title || '')
+          + (row.similarity != null ? '（' + row.similarity + '）' : ''));
+      } else if (row.status === 'merged') {
+        merged++;
+      }
+    });
+    if (suspect.length) {
+      $('<div class="review-results-scope review-results-scope-muted"></div>')
+        .text('疑似匹配需确认（' + suspect.length + ' 件）：' + suspect.join('、'))
+        .appendTo(form);
+    }
+    if (merged) {
+      $('<div class="review-results-scope review-results-scope-muted"></div>')
+        .text('附件并入主件（' + merged + ' 件，不单独占件）')
+        .appendTo(form);
     }
   }
 

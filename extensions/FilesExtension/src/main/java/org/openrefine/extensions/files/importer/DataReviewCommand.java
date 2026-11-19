@@ -7,9 +7,11 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -232,6 +234,12 @@ public class DataReviewCommand extends Command {
                     logger.warn("模板快照不是合法 JSON，完备性回落内置基线: {}", e.getMessage());
                 }
             }
+            // 本次下发规则清单（可选，逗号分隔的规则 key）：只用于过滤完备性结论，
+            // 不影响文件级/件级签章检测；缺省为空即不过滤（旧调用行为不变）。
+            Set<String> checklistRules = parseRuleKeys(request.getParameter("checklistRules"));
+            // 逐项参数（选项集口径，可选）：{规则key: {参数: 值}}，缺省时全部走默认值
+            Map<String, Map<String, Object>> ruleParams =
+                    parseRuleParams(request.getParameter("ruleParams"));
             if (catalogOnly) {
                 if (catalogNode == null) {
                     respondError(response, "纯数据校审需要同时提供 catalog");
@@ -241,7 +249,7 @@ public class DataReviewCommand extends Command {
                 // 结果写项目 overlay，平台用 get-result 读回。
                 CatalogChecklist.Catalog parsed = CatalogChecklist.parse(catalogNode);
                 Map<String, Object> checklist = CatalogChecklist.evaluate(parsed,
-                        CatalogChecklist.parseTemplate(templateNode));
+                        CatalogChecklist.parseTemplate(templateNode), checklistRules, ruleParams);
                 Project project = prepareProject(projectName, reuseProject);
                 List<Map<String, Object>> catalogItems = summarizeParsedCatalog(parsed);
                 int catalogPages = 0;
@@ -290,6 +298,10 @@ public class DataReviewCommand extends Command {
                 record.put("pieceList", catalogItems);
                 record.put("templateId", templateId);
                 record.put("templateVersion", templateVersion);
+                if (!ruleParams.isEmpty()) {
+                    record.put("ruleParams", ruleParams);
+                }
+                putTemplateComplete(record, templateNode);
                 record.put("resultVersion", version);
                 record.put("hasResult", true);
                 record.put("issueCount", errorCount + warningCount);
@@ -344,6 +356,8 @@ public class DataReviewCommand extends Command {
             task.template = templateNode;
             task.templateId = trim(request.getParameter("templateId"));
             task.templateVersion = trim(request.getParameter("templateVersion"));
+            task.checklistRules = checklistRules;
+            task.ruleParams = ruleParams;
             TASKS.put(project.id, task);
 
             Map<String, Object> record = new LinkedHashMap<>();
@@ -362,6 +376,10 @@ public class DataReviewCommand extends Command {
             // 模板标识：件级/文件级链路也要登记，项目页据此还原模板栏与各页签参数
             record.put("templateId", trim(request.getParameter("templateId")));
             record.put("templateVersion", trim(request.getParameter("templateVersion")));
+            if (!ruleParams.isEmpty()) {
+                record.put("ruleParams", ruleParams);
+            }
+            putTemplateComplete(record, templateNode);
             // 件级链路把件清单摘要一并登记：参数页（view=review-params）据此只读展示
             // 「本件有哪些件、每件要求什么」，不必重跑校审；旧链路不写，记录保持原样。
             if (pieces != null) {
@@ -412,12 +430,61 @@ public class DataReviewCommand extends Command {
                 rule.key = key;
                 rule.category = n.path("category").asText("");
                 rule.name = n.path("name").asText(key);
+                if (n.path("params").isObject()) {
+                    rule.params = mapper.convertValue(n.path("params"), Map.class);
+                }
                 rules.add(rule);
             }
         } catch (Exception e) {
             logger.warn("校审规则不是合法 JSON 数组，已忽略: " + e.getMessage());
         }
         return rules;
+    }
+
+    /**
+     * 解析平台下发的规则 key 清单（逗号/加号分隔，如 {@code missing_piece,piece_order}）：
+     * 只用于过滤完备性结论，空输入返回空集合（= 不过滤，保持旧行为）。
+     */
+    private static Set<String> parseRuleKeys(String raw) {
+        Set<String> keys = new LinkedHashSet<>();
+        if (raw == null || raw.trim().isEmpty()) {
+            return keys;
+        }
+        for (String k : raw.split("[,+]")) {
+            String key = k.trim();
+            if (!key.isEmpty()) {
+                keys.add(key);
+            }
+        }
+        return keys;
+    }
+
+    /**
+     * 解析逐项参数（选项集口径）：{@code {"missing_piece":{"matchThreshold":0.8,...}}}。
+     * 空输入返回空表（= 全部走默认值，旧行为不变）。
+     */
+    private static Map<String, Map<String, Object>> parseRuleParams(String json) {
+        Map<String, Map<String, Object>> out = new LinkedHashMap<>();
+        if (json == null || json.trim().isEmpty()) {
+            return out;
+        }
+        try {
+            JsonNode root = mapper.readTree(json);
+            if (!root.isObject()) {
+                return out;
+            }
+            java.util.Iterator<Map.Entry<String, JsonNode>> it = root.fields();
+            while (it.hasNext()) {
+                Map.Entry<String, JsonNode> e = it.next();
+                if (!e.getValue().isObject()) {
+                    continue;
+                }
+                out.put(e.getKey(), mapper.convertValue(e.getValue(), Map.class));
+            }
+        } catch (Exception e) {
+            logger.warn("ruleParams 不是合法 JSON，按默认参数处理: {}", e.getMessage());
+        }
+        return out;
     }
 
     /**
@@ -589,7 +656,8 @@ public class DataReviewCommand extends Command {
                 if (task.catalog != null) {
                     try {
                         task.checklist = CatalogChecklist.evaluate(CatalogChecklist.parse(task.catalog),
-                                CatalogChecklist.parseTemplate(task.template));
+                                CatalogChecklist.parseTemplate(task.template), task.checklistRules,
+                                task.ruleParams);
                     } catch (Exception e) {
                         logger.warn("件级结构判定跳过: {}", e.getMessage());
                     }
@@ -819,36 +887,81 @@ public class DataReviewCommand extends Command {
     /**
      * 按件目录兜底匹配页：目录拆分形态（{@code 正卷/二级目录/序号 件名/页图}）下，
      * 下游提交目录一般不逐页给文件名，按件目录名去掉前导序号后与件题名比对。
-     * 命中多个时取页数最多的目录（同名件极少数见于分卷）。
+     *
+     * <p>匹配优先级：① 件号精确相等（目录名前导序号 == 提交目录件号，最稳、不看题名语义）→
+     * ② 去序号后题名完全相等 → ③ 题名互相包含（取页数最多的目录，同名件极少数见于分卷）。</p>
      */
     private static List<PageRef> refsByDirectory(Task task, PieceSpec piece) {
-        return refsByDirectory(task.units, piece.title);
+        return refsByDirectory(task.units, piece.title, piece.pieceNo);
     }
 
     /** 同上的纯目录版本（纯数据校审没有 Task，只按件题名在扫描结果里找件目录）。 */
     private static List<PageRef> refsByDirectory(List<UnitScanner.Volume> units, String title) {
+        return refsByDirectory(units, title, "");
+    }
+
+    private static List<PageRef> refsByDirectory(List<UnitScanner.Volume> units, String title,
+                                                 String pieceNo) {
         String want = stripPieceNo(title);
-        List<PageRef> best = new ArrayList<>();
         if (want.isEmpty() || units == null) {
-            return best;
+            return new ArrayList<>();
         }
+        // ① 件号精确相等：题名相近（如「笔录」与「调解笔录及调解材料」）时也能落到正确目录
+        if (pieceNo != null && !pieceNo.trim().isEmpty()) {
+            for (UnitScanner.Volume unit : units) {
+                if (dirPieceNoEquals(unit.name, pieceNo)) {
+                    return refsOf(unit);
+                }
+            }
+        }
+        // ② 去序号后题名完全相等
         for (UnitScanner.Volume unit : units) {
-            String name = unit.name == null ? "" : unit.name;
-            String segment = name.substring(name.lastIndexOf('/') + 1);
-            String got = stripPieceNo(segment);
-            if (got.isEmpty() || !(got.equals(want) || got.contains(want) || want.contains(got))) {
+            if (stripPieceNo(lastSegment(unit.name)).equals(want)) {
+                return refsOf(unit);
+            }
+        }
+        // ③ 题名互相包含：取页数最多的目录
+        List<PageRef> best = new ArrayList<>();
+        for (UnitScanner.Volume unit : units) {
+            String got = stripPieceNo(lastSegment(unit.name));
+            if (got.isEmpty() || !(got.contains(want) || want.contains(got))) {
                 continue;
             }
-            List<PageRef> refs = new ArrayList<>();
-            for (int i = 0; i < unit.pages.size(); i++) {
-                String path = unit.pages.get(i);
-                refs.add(new PageRef(unit, path, new File(path).getName(), pageNoOf(unit, i)));
-            }
+            List<PageRef> refs = refsOf(unit);
             if (refs.size() > best.size()) {
                 best = refs;
             }
         }
         return best;
+    }
+
+    /** 目录名最后一段（件目录名），如 {@code 正卷/待归类/15 笔录} → {@code 15 笔录}。 */
+    private static String lastSegment(String name) {
+        String s = name == null ? "" : name;
+        return s.substring(s.lastIndexOf('/') + 1);
+    }
+
+    /** 目录名是否以「件号」开头（{@code 15 笔录} 命中件号 15，{@code 14 …} 不命中 1）。 */
+    private static boolean dirPieceNoEquals(String name, String pieceNo) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("^\\s*(\\d+)").matcher(lastSegment(name));
+        if (!m.find()) {
+            return false;
+        }
+        try {
+            return Integer.parseInt(m.group(1)) == Integer.parseInt(pieceNo.trim());
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    private static List<PageRef> refsOf(UnitScanner.Volume unit) {
+        List<PageRef> refs = new ArrayList<>();
+        for (int i = 0; i < unit.pages.size(); i++) {
+            String path = unit.pages.get(i);
+            refs.add(new PageRef(unit, path, new File(path).getName(), pageNoOf(unit, i)));
+        }
+        return refs;
     }
 
     /** 去掉件目录名的前导序号（如 {@code 01 询问、调查取证材料} → {@code 询问、调查取证材料}）。 */
@@ -1158,7 +1271,7 @@ public class DataReviewCommand extends Command {
                     seq++;
                     String level2 = item.level2 == null ? "" : item.level2;
                     String display = "卷" + volume.volumeNo + (level2.isEmpty() ? "" : "/" + level2);
-                    List<PageRef> refs = refsByDirectory(units, item.title);
+                    List<PageRef> refs = refsByDirectory(units, item.title, item.pieceNo);
                     String folder = refs.isEmpty() ? display : refs.get(0).unit.path;
                     String range = item.startPage > 0 && item.endPage >= item.startPage
                             ? "（第" + item.startPage + "-" + item.endPage + "页）" : "";
@@ -1279,6 +1392,19 @@ public class DataReviewCommand extends Command {
             project.getMetadata().updateModified();
         }
         return version;
+    }
+
+    /**
+     * 模板完备性段随任务落盘：项目页「校审参数 → 完备性」按它渲染件类型清单，
+     * 与引擎判定读的是同一份快照（不另维护 OR 侧口径）。无模板时不写，记录保持原样。
+     */
+    private static void putTemplateComplete(Map<String, Object> record, JsonNode templateNode) {
+        if (templateNode == null) {
+            return;
+        }
+        JsonNode complete = templateNode.get("complete");
+        record.put("templateComplete", mapper.convertValue(
+                complete == null || !complete.isObject() ? templateNode : complete, Map.class));
     }
 
     @SuppressWarnings("unchecked")
@@ -2006,6 +2132,8 @@ public class DataReviewCommand extends Command {
         String key;
         String category;
         String name;
+        /** 逐项参数（选项集口径）；为空表示走规则默认值。 */
+        Map<String, Object> params;
     }
 
     /** 件级校审：一件 + 其页清单 + 该件要求的规则。 */
@@ -2142,6 +2270,10 @@ public class DataReviewCommand extends Command {
         JsonNode template;
         String templateId = "";
         String templateVersion = "";
+        /** 本次下发规则 key（完备性结论过滤用）；空集合 = 不过滤 */
+        Set<String> checklistRules = new LinkedHashSet<>();
+        /** 逐项参数（选项集口径）：{规则key: {参数: 值}}；空表 = 全部默认值 */
+        Map<String, Map<String, Object>> ruleParams = new LinkedHashMap<>();
         /** 结构类判定结果（CatalogChecklist.evaluate），终态随结果写 overlay */
         Map<String, Object> checklist;
 
